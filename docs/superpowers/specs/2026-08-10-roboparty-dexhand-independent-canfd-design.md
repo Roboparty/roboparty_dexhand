@@ -252,9 +252,12 @@ arbitration and filters isolate the independent consumers.
 Construction stores and validates configuration but performs no I/O. Driver
 lifecycle is an explicit state machine: `Created`, `Initializing`, `Ready`, and
 `Stopping`. A lifecycle mutex serializes initialization and deinitialization.
-An SDK mutex serializes all vendor calls made by public methods and receive
-decode callbacks. Public control/getter calls made outside `Ready` return using
-their existing no-op/zero contract and log the rejected state.
+An SDK-call mutex serializes public methods and lifecycle operations. Receive
+decode does not take that mutex: vendor calls may synchronously wait for CAN-FD
+feedback, so blocking decode behind the caller would deadlock. Instead, the
+transport's quiescent receive-callback gate guarantees that decode cannot
+outlive the SDK handle. Public methods check `Ready`, acquire the SDK-call
+mutex, check `Ready` again, and only then enter the vendor API.
 
 `init_hand()` performs these stages:
 
@@ -283,19 +286,22 @@ initialization fails explicitly.
 `deinit_hand()` and the destructor use one private, non-virtual `cleanup_()`
 path. Cleanup is idempotent and does not throw. Under the lifecycle lock it:
 
-1. Transitions to `Stopping`, preventing new public SDK operations.
-2. Clears the receive callback and waits for in-flight receive decode to finish.
-3. Under the SDK mutex, stops monitoring, closes SDK communication while the
-   transmit callback is still usable, and unregisters the SDK transmit callback.
-4. Clears the global active pointer, closes the transmit callback gate, and
-   waits for in-flight transmit callbacks to finish.
-5. Closes the transport and joins its receive thread.
-6. Destroys the SDK handle under the SDK mutex.
-7. Resets cached state and returns to `Created`.
+1. Transition to `Stopping`, rejecting new public SDK operations, and drain
+   any public SDK call already holding the SDK-call mutex.
+2. Stop SDK monitoring while receive and transmit callbacks are still usable.
+3. Clear the receive callback and wait for in-flight decode to finish.
+4. Close SDK communication and unregister the SDK transmit callback while the
+   transmit context and transport remain usable.
+5. Unpublish the global transmit context, close its gate, and wait for
+   in-flight transmit callbacks.
+6. Close the transport and join its receive thread.
+7. Destroy the SDK handle, reset cached state, release the single-instance
+   slot, and return to `Created`.
 
-Callbacks catch all exceptions at the C boundary. Receive callbacks are allowed
-to decode while the state is `Initializing` or `Ready`; the callback barriers
-prevent SDK access once shutdown reaches the handle-destruction stage.
+Callbacks catch all exceptions at the C boundary. Receive callbacks may decode
+during `Initializing`, `Ready`, and the early `Stopping` phase, until
+`clear_receive_callback()` closes the receive gate. The gate's quiescence wait
+drains all in-flight decode before the SDK handle can be destroyed.
 
 ## Error Handling
 

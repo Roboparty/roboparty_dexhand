@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>roboparty_dexhand</name>
+  <version>0.1.0</version>
+  <description>Dexterous hand driver library with factory pattern (LHandPro, future vendors)</description>
+  <maintainer email="dev@roboparty.com">Roboparty</maintainer>
+  <license>GPL-3.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>roboparty_motors</depend>
+  <depend>spdlog</depend>
+  <depend>fmt</depend>
+  <build_depend>pybind11_vendor</build_depend>
+  <build_depend>python3-dev</build_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
