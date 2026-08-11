@@ -21,7 +21,7 @@ add_dexhand_test(lhandpro_lifecycle test_lhandpro_driver.cpp)
 add_executable(canfd_transport test_canfd_transport.cpp)
 target_compile_features(canfd_transport PRIVATE cxx_std_17)
 target_include_directories(canfd_transport PRIVATE ${PROJECT_SOURCE_DIR}/src
-                                                   ${PROJECT_SOURCE_DIR}/tests)
+  ${PROJECT_SOURCE_DIR}/tests)
 target_link_libraries(canfd_transport PRIVATE dexhand_canfd Threads::Threads)
 add_test(NAME canfd_transport COMMAND canfd_transport)
 set_tests_properties(canfd_transport PROPERTIES TIMEOUT 30)
@@ -43,8 +43,8 @@ add_test(
 set_tests_properties(pybind_api PROPERTIES TIMEOUT 30)
 
 add_test(NAME sdk_artifacts
-         COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P
-                 ${CMAKE_CURRENT_SOURCE_DIR}/check_sdk_artifacts.cmake)
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P
+  ${CMAKE_CURRENT_SOURCE_DIR}/check_sdk_artifacts.cmake)
 
 if(DEXHAND_ENABLE_VCAN_TESTS)
   add_executable(vcan_two_socket test_vcan_two_socket.cpp)

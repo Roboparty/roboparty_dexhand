@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 Roboparty
+
 function(roboparty_dexhand_normalize_arch input_arch output_var)
   string(TOLOWER "${input_arch}" normalized_arch)
   if(normalized_arch STREQUAL "x86_64" OR normalized_arch STREQUAL "amd64")

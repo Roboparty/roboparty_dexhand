@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2026 Roboparty
+
 #pragma once
 
 #include "protocol/socket_canfd_transport.hpp"

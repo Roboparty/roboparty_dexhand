@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2026 Roboparty
+
 #include "drivers/lhandpro/lhandpro_sdk.hpp"
 
 #include <LHandProLib/LHandProLib.h>

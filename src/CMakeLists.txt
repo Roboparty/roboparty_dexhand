@@ -9,7 +9,7 @@ target_compile_features(dexhand PUBLIC cxx_std_17)
 target_include_directories(
   dexhand
   PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-         $<INSTALL_INTERFACE:include>
+  $<INSTALL_INTERFACE:include>
   PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
   dexhand
@@ -17,4 +17,4 @@ target_link_libraries(
   PRIVATE lhandpro_driver Threads::Threads)
 set_target_properties(
   dexhand PROPERTIES BUILD_RPATH "${DEXHAND_SDK_DIR}"
-                     INSTALL_RPATH "\$ORIGIN")
+  INSTALL_RPATH "\$ORIGIN")

@@ -21,7 +21,7 @@ endfunction()
 
 function(read_unique_cache_value cache_file entry_name output_name)
   file(STRINGS "${cache_file}" cache_entries
-       REGEX "^${entry_name}(:[^=]*)?=")
+    REGEX "^${entry_name}(:[^=]*)?=")
   list(LENGTH cache_entries cache_entry_count)
   if(NOT cache_entry_count EQUAL 1)
     message(FATAL_ERROR
@@ -41,9 +41,9 @@ function(assert_disjoint path_a path_b label)
   set(path_a_with_separator "${path_a}/")
   set(path_b_with_separator "${path_b}/")
   string(FIND "${path_a_with_separator}" "${path_b_with_separator}"
-         path_a_within_path_b)
+    path_a_within_path_b)
   string(FIND "${path_b_with_separator}" "${path_a_with_separator}"
-         path_b_within_path_a)
+    path_b_within_path_a)
   if(path_a_within_path_b EQUAL 0 OR path_b_within_path_a EQUAL 0)
     message(FATAL_ERROR
       "install prefix must be disjoint from source and build directories (${label})")
@@ -88,12 +88,12 @@ endif()
 
 get_filename_component(PYTHON_EXECUTABLE_ABS "${PYTHON_EXECUTABLE}" ABSOLUTE)
 if(NOT EXISTS "${PYTHON_EXECUTABLE_ABS}" OR
-   IS_DIRECTORY "${PYTHON_EXECUTABLE_ABS}")
+  IS_DIRECTORY "${PYTHON_EXECUTABLE_ABS}")
   message(FATAL_ERROR
     "PYTHON_EXECUTABLE is not an existing file: ${PYTHON_EXECUTABLE_ABS}")
 endif()
 get_filename_component(PYTHON_EXECUTABLE_REAL
-                       "${PYTHON_EXECUTABLE_ABS}" REALPATH)
+  "${PYTHON_EXECUTABLE_ABS}" REALPATH)
 
 get_filename_component(PREFIX_ABS "${PREFIX}" ABSOLUTE)
 if(EXISTS "${PREFIX_ABS}" OR IS_SYMLINK "${PREFIX_ABS}")
@@ -131,7 +131,7 @@ endif()
 string(FIND "${INSTALL_LIBDIR}" ";" install_libdir_semicolon)
 string(FIND "${INSTALL_LIBDIR}" "\\" install_libdir_backslash)
 if(NOT install_libdir_semicolon EQUAL -1 OR
-   NOT install_libdir_backslash EQUAL -1)
+  NOT install_libdir_backslash EQUAL -1)
   message(FATAL_ERROR
     "CMAKE_INSTALL_LIBDIR contains an unsafe separator: ${INSTALL_LIBDIR}")
 endif()
@@ -211,7 +211,7 @@ foreach(config IN LISTS configs)
 endforeach()
 
 if(EXISTS "${PREFIX_REAL}/include/LHandProLib/LHandProLib.h" OR
-   EXISTS "${PREFIX_REAL}/include/protocol/canfd_transport.hpp")
+  EXISTS "${PREFIX_REAL}/include/protocol/canfd_transport.hpp")
   message(FATAL_ERROR "private header was installed")
 endif()
 
@@ -277,19 +277,19 @@ set(CONSUMER_CACHE "${CONSUMER_BUILD}/CMakeCache.txt")
 read_unique_cache_value(
   "${CONSUMER_CACHE}" roboparty_dexhand_DIR consumer_package_dir_value)
 get_filename_component(CONSUMER_PACKAGE_DIR_LEXICAL
-                       "${consumer_package_dir_value}" ABSOLUTE)
+  "${consumer_package_dir_value}" ABSOLUTE)
 if(NOT IS_DIRECTORY "${CONSUMER_PACKAGE_DIR_LEXICAL}")
   message(FATAL_ERROR
     "consumer resolved a missing package: ${CONSUMER_PACKAGE_DIR_LEXICAL}")
 endif()
 get_filename_component(CONSUMER_PACKAGE_DIR_REAL
-                       "${CONSUMER_PACKAGE_DIR_LEXICAL}" REALPATH)
+  "${CONSUMER_PACKAGE_DIR_LEXICAL}" REALPATH)
 get_filename_component(RELOCATED_PACKAGE_DIR_REAL
-                       "${RELOCATED_PACKAGE_DIR}" REALPATH)
+  "${RELOCATED_PACKAGE_DIR}" REALPATH)
 set(consumer_package_with_separator "${CONSUMER_PACKAGE_DIR_REAL}/")
 set(relocated_package_with_separator "${RELOCATED_PACKAGE_DIR_REAL}/")
 string(FIND "${consumer_package_with_separator}"
-       "${relocated_package_with_separator}" consumer_package_index)
+  "${relocated_package_with_separator}" consumer_package_index)
 if(NOT consumer_package_index EQUAL 0)
   message(FATAL_ERROR
     "consumer resolved package outside relocated prefix: "

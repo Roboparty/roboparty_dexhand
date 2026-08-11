@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2026 Roboparty
+
 #include "protocol/callback_gate.hpp"
 #include "test_support.hpp"
 

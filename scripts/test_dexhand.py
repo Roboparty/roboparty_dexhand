@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0
 # Copyright (C) 2026 Roboparty
-"""roboparty_dexhand manual hardware test.
+"""
+roboparty_dexhand manual hardware test.
 
 Usage:
     /usr/bin/python3 scripts/test_dexhand.py --confirm-motion
@@ -11,10 +12,10 @@ Use the system Python that matches the configured dexhand_py extension.
 
 import argparse
 import ctypes
+from pathlib import Path
 import platform
 import sys
 import time
-from pathlib import Path
 
 
 def run_hand_sequence(

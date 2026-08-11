@@ -27,7 +27,7 @@ enum HandModel {
 /**
  * @brief Abstract base class for dexterous hand drivers.
  *
- * Architecture mirrors roboparty_motors::MotorDriver:
+ * The public driver contract uses a vendor-independent factory boundary:
  *   - Pure virtual interface implemented per vendor.
  *   - Static factory create_hand() dispatches by hand_type string.
  *   - Python bindings (dexhand_py) only bind this base class.

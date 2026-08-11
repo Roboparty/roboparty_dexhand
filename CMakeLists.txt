@@ -20,7 +20,7 @@ find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 REQUIRED)
 
 roboparty_dexhand_normalize_arch("${CMAKE_SYSTEM_PROCESSOR}"
-                                 DEXHAND_SDK_ARCH)
+  DEXHAND_SDK_ARCH)
 set(DEXHAND_SDK_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/lib/${DEXHAND_SDK_ARCH}")
 set(DEXHAND_SDK_LIBRARY "${DEXHAND_SDK_DIR}/libLHandProLib.so")
@@ -33,8 +33,8 @@ add_library(roboparty_dexhand::lhandpro_sdk SHARED IMPORTED GLOBAL)
 set_target_properties(
   roboparty_dexhand::lhandpro_sdk
   PROPERTIES IMPORTED_LOCATION "${DEXHAND_SDK_LIBRARY}"
-             INTERFACE_INCLUDE_DIRECTORIES
-             "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/include")
+  INTERFACE_INCLUDE_DIRECTORIES
+  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/include")
 
 add_subdirectory(src)
 
@@ -83,7 +83,14 @@ if(BUILD_TESTING)
   add_subdirectory(tests)
   if(ament_cmake_FOUND)
     find_package(ament_lint_auto REQUIRED)
-    set(AMENT_LINT_AUTO_FILE_EXCLUDE thirdparty)
+    # The repository gate checks the required GPL-3.0 SPDX form exactly.
+    # Keep the established C++ style and the immutable vendor header untouched.
+    set(AMENT_LINT_AUTO_EXCLUDE
+      ament_cmake_copyright
+      ament_cmake_cpplint
+      ament_cmake_uncrustify)
+    set(AMENT_LINT_AUTO_FILE_EXCLUDE
+      thirdparty/include/LHandProLib/LHandProLib.h)
     ament_lint_auto_find_test_dependencies()
   endif()
 endif()
