@@ -104,7 +104,13 @@ Python import on that board. x86 ELF inspection is not a substitute.
 
 The driver uses the spdlog logger named `dexhand` from worker threads. If an
 application externally pre-registers that logger, all attached sinks must be
-thread-safe `_mt` sinks.
+thread-safe `_mt` sinks. SocketCAN worker and process-global callback-boundary
+diagnostics use only that named logger, remain silent when it is absent, and
+swallow logging exceptions at `noexcept` boundaries.
+
+The vendor DOF probe reports `(total, active)` as `(11, 6)` for the 6-DOF model
+and `(21, 16)` for the 16-DOF model. Initialization accepts only the exact pair
+for the selected model, and `get_dof()` returns that validated snapshot.
 
 Python users must explicitly call `deinit_hand()` before releasing the final
 hand object reference. The current pybind11 2.11 binding has no

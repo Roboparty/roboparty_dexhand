@@ -39,8 +39,8 @@ struct Fixture {
     sdk = sdk_owner.get();
     transport = transport_owner.get();
     if (model == LHandProModel::Dof16) {
-      sdk->total_dof = 16;
-      sdk->active_dof = 6;
+      sdk->total_dof = 21;
+      sdk->active_dof = 16;
     }
     driver = std::make_unique<LHandProDriver>(
         "can-test", model, 1, std::move(sdk_owner),
@@ -137,16 +137,43 @@ std::unique_ptr<LHandProDriver> make_driver(
       std::move(transport));
 }
 
+void check_dof_mismatch_and_retry(LHandProModel model, int reported_total,
+                                  int reported_active, int expected_total,
+                                  int expected_active) {
+  Fixture fixture(model);
+  fixture.sdk->total_dof = reported_total;
+  fixture.sdk->active_dof = reported_active;
+  CHECK(!fixture.driver->init_hand(false, false, 0.0F));
+  CHECK(fixture.released_once());
+
+  int total = -1;
+  int active = -1;
+  fixture.driver->get_dof(total, active);
+  CHECK_EQ(total, 0);
+  CHECK_EQ(active, 0);
+
+  fixture.sdk->total_dof = expected_total;
+  fixture.sdk->active_dof = expected_active;
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.driver->get_dof(total, active);
+  CHECK_EQ(total, expected_total);
+  CHECK_EQ(active, expected_active);
+  fixture.driver->deinit_hand();
+  fixture.driver->get_dof(total, active);
+  CHECK_EQ(total, 0);
+  CHECK_EQ(active, 0);
+}
+
 void check_concurrent_dof_snapshot() {
   DofSnapshotProbe probe;
-  probe.set_dof(6, 6);
+  probe.set_dof(11, 6);
 
   std::promise<void> first_value_written_promise;
   auto first_value_written = first_value_written_promise.get_future();
   std::promise<void> release_writer_promise;
   auto release_writer = release_writer_promise.get_future().share();
   auto writer = std::async(std::launch::async, [&] {
-    probe.set_dof_with_barrier(16, 6, first_value_written_promise,
+    probe.set_dof_with_barrier(21, 16, first_value_written_promise,
                                release_writer);
   });
   CHECK(first_value_written.wait_for(2s) == std::future_status::ready);
@@ -164,8 +191,8 @@ void check_concurrent_dof_snapshot() {
   writer.get();
   CHECK(reader.wait_for(2s) == std::future_status::ready);
   const auto snapshot = reader.get();
-  CHECK_EQ(snapshot.first, 16);
-  CHECK_EQ(snapshot.second, 6);
+  CHECK_EQ(snapshot.first, 21);
+  CHECK_EQ(snapshot.second, 16);
 }
 
 void check_constructor_and_home_wait_validation() {
@@ -296,12 +323,12 @@ void check_models_and_initializing_callbacks() {
   int total = 0;
   int active = 0;
   six.driver->get_dof(total, active);
-  CHECK_EQ(total, 6);
+  CHECK_EQ(total, 11);
   CHECK_EQ(active, 6);
   six.sdk->total_dof = 99;
   six.sdk->active_dof = 99;
   six.driver->get_dof(total, active);
-  CHECK_EQ(total, 6);
+  CHECK_EQ(total, 11);
   CHECK_EQ(active, 6);
 
   const int create_calls = six.sdk->count("create");
@@ -333,8 +360,8 @@ void check_models_and_initializing_callbacks() {
   CHECK(sixteen.driver->init_hand(false, false, 0.0F));
   CHECK_EQ(sixteen.sdk->hand_type, 2);
   sixteen.driver->get_dof(total, active);
-  CHECK_EQ(total, 16);
-  CHECK_EQ(active, 6);
+  CHECK_EQ(total, 21);
+  CHECK_EQ(active, 16);
   sixteen.driver->deinit_hand();
 
   Fixture wrong_initial_model(LHandProModel::Dof6);
@@ -354,20 +381,16 @@ void check_models_and_initializing_callbacks() {
   CHECK(wrong_second_model.released_once());
   CHECK_EQ(wrong_second_model.sdk->count("get_hand_type"), 2);
 
-  Fixture wrong_total(LHandProModel::Dof6);
-  wrong_total.sdk->total_dof = 16;
-  CHECK(!wrong_total.driver->init_hand(false, false, 0.0F));
-  CHECK(wrong_total.released_once());
-
-  Fixture no_active(LHandProModel::Dof6);
-  no_active.sdk->active_dof = 0;
-  CHECK(!no_active.driver->init_hand(false, false, 0.0F));
-  CHECK(no_active.released_once());
-
-  Fixture excessive_active(LHandProModel::Dof6);
-  excessive_active.sdk->active_dof = 7;
-  CHECK(!excessive_active.driver->init_hand(false, false, 0.0F));
-  CHECK(excessive_active.released_once());
+  check_dof_mismatch_and_retry(LHandProModel::Dof6, 12, 6, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6, 10, 6, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6, 11, 5, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6, 11, 7, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6, 21, 16, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof16, 22, 16, 21, 16);
+  check_dof_mismatch_and_retry(LHandProModel::Dof16, 20, 16, 21, 16);
+  check_dof_mismatch_and_retry(LHandProModel::Dof16, 21, 15, 21, 16);
+  check_dof_mismatch_and_retry(LHandProModel::Dof16, 21, 17, 21, 16);
+  check_dof_mismatch_and_retry(LHandProModel::Dof16, 11, 6, 21, 16);
 }
 
 void check_public_contracts_and_cleanup_order() {

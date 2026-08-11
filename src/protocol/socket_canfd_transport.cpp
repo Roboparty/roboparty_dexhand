@@ -3,16 +3,17 @@
 
 #include "protocol/socket_canfd_transport.hpp"
 
+#include "logging.hpp"
+
 #include <arpa/inet.h>
-#include <cerrno>
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <poll.h>
 #include <stdexcept>
+#include <system_error>
 #include <sys/ioctl.h>
 #include <unistd.h>
-
-#include <spdlog/spdlog.h>
 
 namespace roboparty::dexhand::detail {
 
@@ -63,18 +64,30 @@ bool SocketCanFdTransport::open(const std::string& interface,
   if (interface.empty() || standard_ids.empty() ||
       std::any_of(standard_ids.begin(), standard_ids.end(),
                   [](std::uint32_t id) { return id > CAN_SFF_MASK; })) {
-    spdlog::error("Invalid CAN-FD interface or standard filter list");
+    with_dexhand_logger([](spdlog::logger& logger) {
+      logger.error("Invalid CAN-FD interface or standard filter list");
+    });
     return false;
   }
 
   const int candidate = ops_->socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK, CAN_RAW);
   if (candidate < 0) {
-    spdlog::error("SocketCAN socket failed: errno={}", ops_->last_error());
+    const int error_number = ops_->last_error();
+    with_dexhand_logger(
+        [&interface, error_number](spdlog::logger& logger) {
+          logger.error("SocketCAN socket failed on {}: errno={} ({})",
+                       interface, error_number,
+                       std::system_category().message(error_number));
+        });
     return false;
   }
-  auto fail = [&](const char* operation) {
-    spdlog::error("SocketCAN {} failed on {}: errno={}", operation, interface,
-                  ops_->last_error());
+  auto fail = [&](const char* operation, int error_number) {
+    with_dexhand_logger(
+        [&interface, operation, error_number](spdlog::logger& logger) {
+          logger.error("SocketCAN {} failed on {}: errno={} ({})", operation,
+                       interface, error_number,
+                       std::system_category().message(error_number));
+        });
     ops_->close(candidate);
     return false;
   };
@@ -82,7 +95,8 @@ bool SocketCanFdTransport::open(const std::string& interface,
   const int enabled = 1;
   if (ops_->set_option(candidate, SOL_CAN_RAW, CAN_RAW_FD_FRAMES, &enabled,
                        sizeof(enabled)) < 0) {
-    return fail("CAN_RAW_FD_FRAMES");
+    const int error_number = ops_->last_error();
+    return fail("CAN_RAW_FD_FRAMES", error_number);
   }
 
   std::vector<can_filter> filters;
@@ -92,15 +106,22 @@ bool SocketCanFdTransport::open(const std::string& interface,
   }
   if (ops_->set_option(candidate, SOL_CAN_RAW, CAN_RAW_FILTER, filters.data(),
                        static_cast<socklen_t>(filters.size() * sizeof(can_filter))) < 0) {
-    return fail("CAN_RAW_FILTER");
+    const int error_number = ops_->last_error();
+    return fail("CAN_RAW_FILTER", error_number);
   }
 
   const int index = ops_->interface_index(candidate, interface);
-  if (index < 0) return fail("SIOCGIFINDEX");
+  if (index < 0) {
+    const int error_number = ops_->last_error();
+    return fail("SIOCGIFINDEX", error_number);
+  }
   sockaddr_can address{};
   address.can_family = AF_CAN;
   address.can_ifindex = index;
-  if (ops_->bind(candidate, address) < 0) return fail("bind");
+  if (ops_->bind(candidate, address) < 0) {
+    const int error_number = ops_->last_error();
+    return fail("bind", error_number);
+  }
 
   {
     std::lock_guard<std::mutex> lock(transmit_mutex_);
@@ -109,7 +130,9 @@ bool SocketCanFdTransport::open(const std::string& interface,
     try {
       receive_thread_ = std::thread(&SocketCanFdTransport::receive_loop_, this);
     } catch (const std::exception& error) {
-      spdlog::error("SocketCAN receive thread failed: {}", error.what());
+      with_dexhand_logger([&error](spdlog::logger& logger) {
+        logger.error("SocketCAN receive thread failed: {}", error.what());
+      });
       running_.store(false, std::memory_order_release);
       fd_ = -1;
       ops_->close(candidate);
@@ -136,9 +159,21 @@ bool SocketCanFdTransport::transmit(const CanFdFrame& source) noexcept {
   std::lock_guard<std::mutex> lock(transmit_mutex_);
   if (!running_.load(std::memory_order_acquire) || fd_ < 0) return false;
   const auto written = ops_->write(fd_, frame);
+  if (written < 0) {
+    const int error_number = ops_->last_error();
+    with_dexhand_logger(
+        [written, error_number](spdlog::logger& logger) {
+          logger.error("SocketCAN write failed: result={}, errno={} ({})",
+                       written, error_number,
+                       std::system_category().message(error_number));
+        });
+    return false;
+  }
   if (written != CANFD_MTU) {
-    spdlog::error("SocketCAN write failed or short: result={}, errno={}",
-                  written, ops_->last_error());
+    with_dexhand_logger([written](spdlog::logger& logger) {
+      logger.error("SocketCAN write short: result={}, expected={}", written,
+                   CANFD_MTU);
+    });
     return false;
   }
   return true;
@@ -189,21 +224,29 @@ void SocketCanFdTransport::dispatch_(const canfd_frame& source) noexcept {
 void SocketCanFdTransport::receive_loop_() noexcept {
   while (running_.load(std::memory_order_acquire)) {
     const int ready = ops_->poll_readable(fd_, 50);
+    const int poll_error = ready < 0 ? ops_->last_error() : 0;
     if (!running_.load(std::memory_order_acquire)) break;
     if (ready == 0) continue;
     if (ready < 0) {
-      if (ops_->last_error() != EINTR) {
-        spdlog::error("SocketCAN poll failed: errno={}", ops_->last_error());
+      if (poll_error != EINTR) {
+        with_dexhand_logger([poll_error](spdlog::logger& logger) {
+          logger.error("SocketCAN poll failed: errno={} ({})", poll_error,
+                       std::system_category().message(poll_error));
+        });
       }
       continue;
     }
     canfd_frame frame{};
     const auto bytes = ops_->read(fd_, frame);
+    const int read_error = bytes < 0 ? ops_->last_error() : 0;
     if (bytes == CANFD_MTU) {
       dispatch_(frame);
-    } else if (bytes < 0 && ops_->last_error() != EAGAIN &&
-               ops_->last_error() != EWOULDBLOCK) {
-      spdlog::error("SocketCAN read failed: errno={}", ops_->last_error());
+    } else if (bytes < 0 && read_error != EAGAIN &&
+               read_error != EWOULDBLOCK) {
+      with_dexhand_logger([read_error](spdlog::logger& logger) {
+        logger.error("SocketCAN read failed: errno={} ({})", read_error,
+                     std::system_category().message(read_error));
+      });
     }
   }
 }

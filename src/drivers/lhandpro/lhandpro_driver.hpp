@@ -16,6 +16,10 @@ namespace roboparty::dexhand::detail {
 
 enum class LHandProModel { Dof6, Dof16 };
 enum class DriverState { Created, Initializing, Ready, Stopping };
+struct ExpectedDof {
+  int total;
+  int active;
+};
 struct TxContext;
 struct SlotToken;
 
@@ -69,7 +73,7 @@ class LHandProDriver final : public HandDriver {
   bool sdk_ok_(int code, const char* operation) const noexcept;
   bool ready_() const noexcept;
   int expected_vendor_model_() const noexcept;
-  int expected_total_dof_() const noexcept;
+  roboparty::dexhand::detail::ExpectedDof expected_dof_() const noexcept;
 
   roboparty::dexhand::detail::LHandProModel model_;
   std::unique_ptr<roboparty::dexhand::detail::LHandProSdk> sdk_;

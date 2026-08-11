@@ -3,6 +3,7 @@
 
 #include "drivers/lhandpro/lhandpro_driver.hpp"
 
+#include "logging.hpp"
 #include "protocol/callback_gate.hpp"
 #include "protocol/socket_canfd_transport.hpp"
 
@@ -36,6 +37,7 @@ using roboparty::dexhand::detail::CanFdFrame;
 using roboparty::dexhand::detail::CanFdTransport;
 using roboparty::dexhand::detail::CapiLHandProSdk;
 using roboparty::dexhand::detail::DriverState;
+using roboparty::dexhand::detail::ExpectedDof;
 using roboparty::dexhand::detail::LHandProModel;
 using roboparty::dexhand::detail::SlotToken;
 using roboparty::dexhand::detail::SocketCanFdTransport;
@@ -49,10 +51,8 @@ std::weak_ptr<TxContext> active_tx_context;
 std::weak_ptr<SlotToken> active_slot_owner;
 
 void log_boundary_error(const char* message) noexcept {
-  try {
-    spdlog::error("{}", message);
-  } catch (...) {
-  }
+  roboparty::dexhand::detail::with_dexhand_logger(
+      [message](spdlog::logger& logger) { logger.error("{}", message); });
 }
 
 bool claim_process_slot(const std::shared_ptr<SlotToken>& owner) noexcept {
@@ -132,10 +132,11 @@ bool transmit_bridge(unsigned int id, const unsigned char* data,
     if (size > 0) std::copy_n(data, size, frame.data.begin());
     return context->transport->transmit(frame);
   } catch (const std::exception& error) {
-    try {
-      spdlog::error("LHandPro transmit callback exception: {}", error.what());
-    } catch (...) {
-    }
+    roboparty::dexhand::detail::with_dexhand_logger(
+        [&error](spdlog::logger& logger) {
+          logger.error("LHandPro transmit callback exception: {}",
+                       error.what());
+        });
   } catch (...) {
     log_boundary_error("LHandPro transmit callback exception");
   }
@@ -198,8 +199,9 @@ int LHandProDriver::expected_vendor_model_() const noexcept {
   return model_ == LHandProModel::Dof6 ? 0 : 2;
 }
 
-int LHandProDriver::expected_total_dof_() const noexcept {
-  return model_ == LHandProModel::Dof6 ? 6 : 16;
+ExpectedDof LHandProDriver::expected_dof_() const noexcept {
+  return model_ == LHandProModel::Dof6 ? ExpectedDof{11, 6}
+                                      : ExpectedDof{21, 16};
 }
 
 bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,
@@ -292,13 +294,14 @@ bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,
 
     int total = 0;
     int active = 0;
+    const auto expected_dof = expected_dof_();
     if (!sdk_ok_(sdk_->get_dof(total, active), "get_dof") ||
-        total != expected_total_dof_() || active <= 0 || active > total) {
+        total != expected_dof.total || active != expected_dof.active) {
       try {
         logger_->error(
-            "LHandPro DOF validation failed: expected total={}, got total={}, "
-            "active={}",
-            expected_total_dof_(), total, active);
+            "LHandPro DOF validation failed: expected total={}, active={}; "
+            "got total={}, active={}",
+            expected_dof.total, expected_dof.active, total, active);
       } catch (...) {
       }
       return fail();

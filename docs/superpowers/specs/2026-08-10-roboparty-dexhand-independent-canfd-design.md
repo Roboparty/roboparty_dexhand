@@ -162,8 +162,8 @@ handle and before communication initialization, the driver calls
 `lhandprolib_set_hand_type` with the mapped vendor value and verifies it with
 `lhandprolib_get_hand_type`. This ordering is supported by a hardware-free
 probe against the supplied SDK. After communication initialization, the driver
-also compares the reported total DOF with the expected model. Any failure or
-mismatch performs full rollback.
+also compares the exact reported `(total, active)` DOF pair with the expected
+model. Any failure or mismatch performs full rollback.
 
 ### Communication Type Compatibility
 
@@ -203,7 +203,9 @@ The interface is not installed and is not part of the supported consumer API.
 - Serializes callback replacement and shutdown.
 - Rejects transmission while closed or when `write` does not return
   `CANFD_MTU`.
-- Records and logs socket, read, and write errors.
+- Snapshots each failed syscall's error code immediately and logs its numeric
+  value plus system text. A positive short write reports byte counts without
+  consulting or reporting stale `errno`.
 - Never changes bitrate, data bitrate, link state, or restart policy.
 - Makes `close()` idempotent and joins the receive thread before returning.
 
@@ -268,7 +270,9 @@ mutex, check `Ready` again, and only then enter the vendor API.
 4. Install the SDK transmit callback and transport receive callback.
 5. Call `lhandprolib_initial_ex` for CAN-FD and the selected node.
 6. Start SDK monitoring and read DOF information.
-7. Verify reported hand type and DOF against the requested model.
+7. Verify reported hand type and the exact vendor DOF pair against the requested
+   model: Dof6 is `(total=11, active=6)` and Dof16 is
+   `(total=21, active=16)`.
 8. Optionally enable and home motors.
 9. Enable movement without completed homing, matching current behavior.
 10. Transition to `Ready`.
@@ -312,6 +316,10 @@ Every vendor function that returns an SDK error code is checked.
 - Existing `void` control methods retain their signature and log SDK failures.
 - Getters log SDK failures and return a type-safe zero value.
 - Destructor and callback paths never propagate exceptions.
+- SocketCAN worker and process-global callback-boundary diagnostics resolve only
+  the registered `dexhand` logger. They are silent if it is absent, and logger
+  lookup, formatting, and sink failures cannot escape `noexcept` paths. Any
+  externally registered sink must be an `_mt` sink.
 - Socket setup errors include the interface and system error text.
 - Transmit callback success means that the serialized SocketCAN `write` was
   accepted by the kernel; short write, closed socket, and system errors return
@@ -430,7 +438,8 @@ Hardware-free tests cover:
    quiescence, and repeated transport shutdown.
 4. `FakeLHandProSdk` and `FakeCanFdTransport` are injected through the private
    driver constructor. They exercise each initialization failure stage,
-   hand-type mapping, rollback, repeated deinitialization, DOF mismatch,
+   hand-type mapping, rollback, repeated deinitialization, exact DOF pair
+   success and per-field mismatch for both models,
    callback blocking during deinit, concurrent init rejection, successful
    retry after failure, and the single-active-instance guard.
 5. Python exports, method coverage, enum names, defaults, and module import.
@@ -443,6 +452,9 @@ Hardware-free tests cover:
 9. XML validation, compiler warnings, and cppcheck.
 10. ELF inspection verifies that each packaged SDK binary matches its source
     architecture and that CMake selects the expected path.
+11. Logging tests distinguish the process default logger from the named
+    `dexhand` logger, exercise concurrent and throwing sinks, and verify
+    setup/write/poll/read errno handling without hardware.
 
 A vcan integration test verifies that two independent sockets can bind the same
 virtual interface, transmit from both sockets, filter unrelated IDs, and shut

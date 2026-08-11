@@ -18,7 +18,7 @@ class FakeLHandProSdk final : public LHandProSdk {
  public:
   std::string fail_operation;
   int hand_type{0};
-  int total_dof{6};
+  int total_dof{11};
   int active_dof{6};
   TxCallback tx_callback{nullptr};
   bool created{false};

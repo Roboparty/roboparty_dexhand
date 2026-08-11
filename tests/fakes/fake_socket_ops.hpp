@@ -5,6 +5,7 @@
 
 #include "protocol/socket_canfd_transport.hpp"
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
@@ -26,6 +27,9 @@ class FakeSocketOps final : public SocketOps {
   int poll_result{0};
   ssize_t write_result{CANFD_MTU};
   int error_number{EAGAIN};
+  int close_error_number{ESTALE};
+  bool overwrite_error_on_close{false};
+  mutable std::atomic<int> last_error_calls{0};
   int close_calls{0};
   int recv_own_msgs_calls{0};
   int fd_frames_calls{0};
@@ -64,6 +68,11 @@ class FakeSocketOps final : public SocketOps {
     }
     {
       std::lock_guard<std::mutex> lock(queue_mutex_);
+      if (!poll_results_.empty()) {
+        const int result = poll_results_.front();
+        poll_results_.pop_front();
+        return result;
+      }
       if (!incoming_.empty()) return 1;
     }
     if (poll_result != 0) return poll_result;
@@ -72,6 +81,11 @@ class FakeSocketOps final : public SocketOps {
   }
   ssize_t read(int, canfd_frame& frame) noexcept override {
     std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (!read_results_.empty()) {
+      const auto result = read_results_.front();
+      read_results_.pop_front();
+      return result;
+    }
     if (incoming_.empty()) {
       error_number = EAGAIN;
       return -1;
@@ -86,9 +100,21 @@ class FakeSocketOps final : public SocketOps {
   }
   int close(int) noexcept override {
     ++close_calls;
+    if (overwrite_error_on_close) error_number = close_error_number;
     return 0;
   }
-  int last_error() const noexcept override { return error_number; }
+  int last_error() const noexcept override {
+    last_error_calls.fetch_add(1, std::memory_order_relaxed);
+    return error_number;
+  }
+  void queue_poll_result(int result) {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    poll_results_.push_back(result);
+  }
+  void queue_read_result(ssize_t result) {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    read_results_.push_back(result);
+  }
   void queue(canfd_frame frame) {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     incoming_.push_back(frame);
@@ -117,6 +143,8 @@ class FakeSocketOps final : public SocketOps {
   bool block_poll_{false};
   bool poll_blocked_{false};
   std::mutex queue_mutex_;
+  std::deque<int> poll_results_;
+  std::deque<ssize_t> read_results_;
   std::deque<canfd_frame> incoming_;
 };
 

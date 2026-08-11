@@ -46,6 +46,10 @@ add_test(NAME sdk_artifacts
   COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P
   ${CMAKE_CURRENT_SOURCE_DIR}/check_sdk_artifacts.cmake)
 
+add_test(NAME logging_boundaries
+  COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P
+  ${CMAKE_CURRENT_SOURCE_DIR}/check_logging_boundaries.cmake)
+
 if(DEXHAND_ENABLE_VCAN_TESTS)
   add_executable(vcan_two_socket test_vcan_two_socket.cpp)
   target_compile_features(vcan_two_socket PRIVATE cxx_std_17)
