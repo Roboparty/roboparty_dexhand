@@ -5,6 +5,7 @@
 
 #include <spdlog/spdlog.h>
 #include <memory>
+#include <mutex>
 #include <string>
 
 /**
@@ -148,7 +149,11 @@ class HandDriver {
     // ===== Info =====
 
     /// Get DOF info: total joints and active (motor) DOFs.
-    virtual void get_dof(int& total, int& active) = 0;
+    virtual void get_dof(int& total, int& active) {
+        std::lock_guard<std::mutex> lock(dof_mutex_);
+        total = dof_total_;
+        active = dof_active_;
+    }
 
     /// CAN interface name (e.g. "can0").
     virtual std::string get_can_name() { return can_interface_; }
@@ -158,6 +163,7 @@ class HandDriver {
     std::string can_interface_;
     HandCommType comm_type_{HandCommType::CANFD};
     int canfd_node_id_{1};
+    mutable std::mutex dof_mutex_;
     int dof_total_{0};
     int dof_active_{0};
 };

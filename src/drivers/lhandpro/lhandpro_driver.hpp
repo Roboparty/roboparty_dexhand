@@ -3,109 +3,86 @@
 
 #pragma once
 
+#include "drivers/lhandpro/lhandpro_sdk.hpp"
 #include "hand_driver.hpp"
-#include "LHandProLib.h"
+#include "protocol/canfd_transport.hpp"
 
 #include <atomic>
-#include <map>
 #include <memory>
 #include <mutex>
-#include <unordered_set>
+#include <string>
 
-// Forward declaration from roboparty_motors protocol layer
-class MotorsCANFD;
+namespace roboparty::dexhand::detail {
+
+enum class LHandProModel { Dof6, Dof16 };
+enum class DriverState { Created, Initializing, Ready, Stopping };
+struct TxContext;
+struct SlotToken;
+
+}  // namespace roboparty::dexhand::detail
 
 /**
- * @brief Dexterous hand driver for LHandPro (RP_Hand) series.
+ * @brief LHandPro CAN-FD driver with transaction-safe resource ownership.
  *
- * This driver wraps the closed-source libLHandProLib.so SDK.
- * The SDK handles all CANopen protocol encoding/decoding internally;
- * our driver's job is purely CAN frame relay:
- *
- *   TX: SDK → send_canfd_callback → MotorsCANFD::transmit → socket
- *   RX: socket → MotorsCANFD receive thread → canfd_data_decode → SDK
- *
- * By using MotorsCANFD::get(interface) (the same singleton as arm motors),
- * arm and hand share ONE socket on the same CAN bus.
- *
- * @note Multi-instance support: unlike a single static pointer, this driver
- *       uses a registry (sdk_handle_ → instance) so multiple hands can coexist
- *       on different CAN buses or different node IDs.
+ * The vendor transmit callback has no handle or user-data parameter, so one
+ * LHandPro driver may own the process-wide callback route at a time.
  */
-class LHandProDriver : public HandDriver {
-   public:
-    LHandProDriver(const std::string& interface_type,
-                   const std::string& can_interface,
-                   int hand_model,
-                   int canfd_node_id,
-                   int canfd_nom_baudrate,
-                   int canfd_dat_baudrate);
+class LHandProDriver final : public HandDriver {
+ public:
+  LHandProDriver(std::string can_interface,
+                 roboparty::dexhand::detail::LHandProModel model,
+                 int canfd_node_id);
+  LHandProDriver(
+      std::string can_interface,
+      roboparty::dexhand::detail::LHandProModel model,
+      int canfd_node_id,
+      std::unique_ptr<roboparty::dexhand::detail::LHandProSdk> sdk,
+      std::unique_ptr<roboparty::dexhand::detail::CanFdTransport> transport);
+  ~LHandProDriver() override;
 
-    ~LHandProDriver() override;
+  bool init_hand(bool enable_motors, bool home_motors,
+                 float home_wait_time) override;
+  void deinit_hand() override;
 
-    // ---- HandDriver interface ----
-    bool init_hand(bool enable_motors = true,
-                   bool home_motors = true,
-                   float home_wait_time = 5.0) override;
-    void deinit_hand() override;
+  void move_motors(int finger_id) override;
+  void stop_motors(int finger_id) override;
+  void set_target_position(int finger_id, int position) override;
+  void set_target_angle(int finger_id, float angle) override;
+  void set_position_velocity(int finger_id, int velocity) override;
+  void set_max_current(int finger_id, int current) override;
+  void set_enable(int finger_id, bool enable) override;
+  void home_motors(int finger_id) override;
+  void set_move_no_home(int enable) override;
+  int get_now_position(int finger_id) override;
+  float get_now_angle(int finger_id) override;
+  int get_now_status(int finger_id) override;
+  int get_now_current(int finger_id) override;
+  int get_now_alarm(int finger_id) override;
+  void clear_alarm(int finger_id) override;
 
-    void move_motors(int finger_id = 0) override;
-    void stop_motors(int finger_id = 0) override;
+  roboparty::dexhand::detail::DriverState state_for_test() const noexcept {
+    return state_.load(std::memory_order_acquire);
+  }
 
-    void set_target_position(int finger_id, int position) override;
-    void set_target_angle(int finger_id, float angle) override;
-    void set_position_velocity(int finger_id, int velocity) override;
-    void set_max_current(int finger_id, int current) override;
+ private:
+  void cleanup_locked_() noexcept;
+  bool sdk_ok_(int code, const char* operation) const noexcept;
+  bool ready_() const noexcept;
+  int expected_vendor_model_() const noexcept;
+  int expected_total_dof_() const noexcept;
 
-    void set_enable(int finger_id, bool enable) override;
-    void home_motors(int finger_id = 0) override;
-    void set_move_no_home(int enable) override;
-
-    int   get_now_position(int finger_id) override;
-    float get_now_angle(int finger_id) override;
-    int   get_now_status(int finger_id) override;
-    int   get_now_current(int finger_id) override;
-    int   get_now_alarm(int finger_id) override;
-    void  clear_alarm(int finger_id = 0) override;
-
-    void get_dof(int& total, int& active) override;
-
-   private:
-    /// Shared CAN bus singleton (same socket as arm motors).
-    std::shared_ptr<MotorsCANFD> canfd_;
-
-    /// LHandPro SDK handle (opaque void*).
-    lhandprolib_handle sdk_handle_{nullptr};
-
-    /// Whether init_hand() succeeded.
-    std::atomic<bool> initialized_{false};
-
-    /// CAN IDs registered for this hand's node (for cleanup on deinit).
-    std::unordered_set<uint16_t> registered_can_ids_;
-
-    // ---------------------------------------------------------------
-    // Multi-instance send callback bridge
-    // ---------------------------------------------------------------
-    // The SDK's send callback is a C function pointer (no-capture
-    // lambda). To support multiple hand instances simultaneously,
-    // we maintain a registry mapping sdk_handle → LHandProDriver*.
-    // The no-capture lambda looks up the driver by handle.
-
-    /// Registry: sdk_handle → driver instance (for multi-hand support).
-    static std::map<lhandprolib_handle, LHandProDriver*> instance_registry_;
-    static std::mutex registry_mutex_;
-
-    /// Lookup driver by SDK handle (used by the static send callback).
-    static LHandProDriver* find_instance_(lhandprolib_handle handle);
-
-    /// Setup: create SDK handle, register send/receive callbacks.
-    void setup_sdk_callbacks_();
-
-    /// Register receive callback for a specific CAN ID on the shared bus.
-    void register_rx_id_(uint16_t can_id);
-
-    /// Compute the CANopen COB-ID for a given base and node_id.
-    static constexpr uint16_t cob_id_(uint16_t base, int node_id) {
-        return static_cast<uint16_t>(base + node_id);
-    }
+  roboparty::dexhand::detail::LHandProModel model_;
+  std::unique_ptr<roboparty::dexhand::detail::LHandProSdk> sdk_;
+  std::unique_ptr<roboparty::dexhand::detail::CanFdTransport> transport_;
+  std::atomic<roboparty::dexhand::detail::DriverState> state_;
+  std::mutex lifecycle_mutex_;
+  std::mutex sdk_call_mutex_;
+  bool sdk_created_{false};
+  bool transport_open_{false};
+  bool tx_callback_installed_{false};
+  bool communication_started_{false};
+  bool monitor_started_{false};
+  bool slot_claimed_{false};
+  std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
+  std::shared_ptr<roboparty::dexhand::detail::SlotToken> slot_token_;
 };

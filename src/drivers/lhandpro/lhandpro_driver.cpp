@@ -1,366 +1,509 @@
 // SPDX-License-Identifier: GPL-3.0
 // Copyright (C) 2026 Roboparty
 
-#include "lhandpro_driver.hpp"
+#include "drivers/lhandpro/lhandpro_driver.hpp"
+
+#include "protocol/callback_gate.hpp"
+#include "protocol/socket_canfd_transport.hpp"
 
 #include <linux/can.h>
-#include <unistd.h>
 
 #include <algorithm>
-#include <cstring>
+#include <chrono>
+#include <cmath>
+#include <exception>
+#include <stdexcept>
 #include <thread>
+#include <utility>
+#include <vector>
 
-// MotorsCANFD full definition (needed for get() and transmit())
-#include "protocol/canfd_iso.hpp"
+#include <spdlog/spdlog.h>
 
-// ============================================================================
-// Static registry for multi-instance send callback bridge
-// ============================================================================
-std::map<lhandprolib_handle, LHandProDriver*> LHandProDriver::instance_registry_;
-std::mutex LHandProDriver::registry_mutex_;
+namespace roboparty::dexhand::detail {
 
-LHandProDriver* LHandProDriver::find_instance_(lhandprolib_handle handle) {
-    std::lock_guard<std::mutex> lock(registry_mutex_);
-    auto it = instance_registry_.find(handle);
-    return (it != instance_registry_.end()) ? it->second : nullptr;
+struct TxContext {
+  CallbackGate gate;
+  CanFdTransport* transport{nullptr};
+};
+
+struct SlotToken {};
+
+}  // namespace roboparty::dexhand::detail
+
+namespace {
+
+using roboparty::dexhand::detail::CanFdFrame;
+using roboparty::dexhand::detail::CanFdTransport;
+using roboparty::dexhand::detail::CapiLHandProSdk;
+using roboparty::dexhand::detail::DriverState;
+using roboparty::dexhand::detail::LHandProModel;
+using roboparty::dexhand::detail::SlotToken;
+using roboparty::dexhand::detail::SocketCanFdTransport;
+using roboparty::dexhand::detail::TxContext;
+
+constexpr int kSdkSuccess = 0;
+constexpr int kCanFdMode = 1;
+
+std::mutex process_callback_mutex;
+std::weak_ptr<TxContext> active_tx_context;
+std::weak_ptr<SlotToken> active_slot_owner;
+
+void log_boundary_error(const char* message) noexcept {
+  try {
+    spdlog::error("{}", message);
+  } catch (...) {
+  }
 }
 
-// ============================================================================
-// Constructor / Destructor
-// ============================================================================
+bool claim_process_slot(const std::shared_ptr<SlotToken>& owner) noexcept {
+  if (!owner) return false;
+  try {
+    std::lock_guard<std::mutex> lock(process_callback_mutex);
+    if (!active_slot_owner.expired()) return false;
+    active_slot_owner = owner;
+    return true;
+  } catch (...) {
+    log_boundary_error("LHandPro process slot claim failed");
+    return false;
+  }
+}
 
-LHandProDriver::LHandProDriver(const std::string& interface_type,
-                               const std::string& can_interface,
-                               int hand_model,
-                               int canfd_node_id,
-                               int canfd_nom_baudrate,
-                               int canfd_dat_baudrate) {
-    can_interface_ = can_interface;
-    canfd_node_id_ = canfd_node_id;
+void release_process_slot(const std::shared_ptr<SlotToken>& owner) noexcept {
+  if (!owner) return;
+  try {
+    std::lock_guard<std::mutex> lock(process_callback_mutex);
+    if (active_slot_owner.lock() == owner) active_slot_owner.reset();
+  } catch (...) {
+    log_boundary_error("LHandPro process slot release failed");
+  }
+}
 
-    if (interface_type != "canfd" && interface_type != "ethercanfd") {
-        throw std::runtime_error(
-            "LHandPro driver currently supports CANFD only, got: " + interface_type);
+bool publish_context(const std::shared_ptr<TxContext>& context) noexcept {
+  if (!context || !context->transport) return false;
+  try {
+    std::lock_guard<std::mutex> lock(process_callback_mutex);
+    if (!active_tx_context.expired()) return false;
+    context->gate.open();
+    active_tx_context = context;
+    return true;
+  } catch (...) {
+    log_boundary_error("LHandPro transmit context publication failed");
+    return false;
+  }
+}
+
+void unpublish_context(const std::shared_ptr<TxContext>& context) noexcept {
+  if (!context) return;
+  try {
+    {
+      std::lock_guard<std::mutex> lock(process_callback_mutex);
+      if (active_tx_context.lock() == context) active_tx_context.reset();
     }
-    comm_type_ = HandCommType::CANFD;
+    context->gate.close_and_wait();
+  } catch (...) {
+    log_boundary_error("LHandPro transmit context shutdown failed");
+  }
+}
 
-    // Store baudrates for documentation/debugging (MotorsCANFD handles actual setup)
-    (void)canfd_nom_baudrate;  // MotorsCANFD configures the interface itself
-    (void)canfd_dat_baudrate;
-    (void)hand_model;  // Reserved for future model-specific parameters
+bool transmit_bridge(unsigned int id, const unsigned char* data,
+                     unsigned int size, int is_extended) noexcept {
+  try {
+    std::shared_ptr<TxContext> context;
+    {
+      std::lock_guard<std::mutex> lock(process_callback_mutex);
+      context = active_tx_context.lock();
+    }
+    if (!context || !context->transport || (!data && size > 0) || size > 64) {
+      return false;
+    }
+
+    auto lease = context->gate.try_enter();
+    if (!lease) return false;
+
+    CanFdFrame frame;
+    frame.extended = is_extended != 0;
+    if ((frame.extended && id > CAN_EFF_MASK) ||
+        (!frame.extended && id > CAN_SFF_MASK)) {
+      return false;
+    }
+    frame.id = id;
+    frame.len = static_cast<std::uint8_t>(size);
+    frame.brs = size > 8;
+    if (size > 0) std::copy_n(data, size, frame.data.begin());
+    return context->transport->transmit(frame);
+  } catch (const std::exception& error) {
+    try {
+      spdlog::error("LHandPro transmit callback exception: {}", error.what());
+    } catch (...) {
+    }
+  } catch (...) {
+    log_boundary_error("LHandPro transmit callback exception");
+  }
+  return false;
+}
+
+}  // namespace
+
+LHandProDriver::LHandProDriver(std::string can_interface,
+                               LHandProModel model, int canfd_node_id)
+    : LHandProDriver(std::move(can_interface), model, canfd_node_id,
+                     std::make_unique<CapiLHandProSdk>(),
+                     std::make_unique<SocketCanFdTransport>()) {}
+
+LHandProDriver::LHandProDriver(
+    std::string can_interface, LHandProModel model, int canfd_node_id,
+    std::unique_ptr<roboparty::dexhand::detail::LHandProSdk> sdk,
+    std::unique_ptr<CanFdTransport> transport)
+    : model_(model),
+      sdk_(std::move(sdk)),
+      transport_(std::move(transport)),
+      state_(DriverState::Created) {
+  if (can_interface.empty()) {
+    throw std::invalid_argument("CAN interface must not be empty");
+  }
+  if (canfd_node_id < 1 || canfd_node_id > 127) {
+    throw std::invalid_argument("CAN-FD node ID must be in [1, 127]");
+  }
+  if (model != LHandProModel::Dof6 && model != LHandProModel::Dof16) {
+    throw std::invalid_argument("Unsupported LHandPro model");
+  }
+  if (!sdk_ || !transport_) {
+    throw std::invalid_argument("SDK and transport must not be null");
+  }
+
+  can_interface_ = std::move(can_interface);
+  canfd_node_id_ = canfd_node_id;
+  comm_type_ = HandCommType::CANFD;
 }
 
 LHandProDriver::~LHandProDriver() {
-    deinit_hand();
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+  cleanup_locked_();
 }
 
-// ============================================================================
-// Init / Deinit
-// ============================================================================
+bool LHandProDriver::ready_() const noexcept {
+  return state_.load(std::memory_order_acquire) == DriverState::Ready;
+}
 
-bool LHandProDriver::init_hand(bool enable_motors,
-                               bool home_motors,
+bool LHandProDriver::sdk_ok_(int code, const char* operation) const noexcept {
+  if (code == kSdkSuccess) return true;
+  try {
+    logger_->error("LHandPro {} failed: SDK error={}", operation, code);
+  } catch (...) {
+  }
+  return false;
+}
+
+int LHandProDriver::expected_vendor_model_() const noexcept {
+  return model_ == LHandProModel::Dof6 ? 0 : 2;
+}
+
+int LHandProDriver::expected_total_dof_() const noexcept {
+  return model_ == LHandProModel::Dof6 ? 6 : 16;
+}
+
+bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,
                                float home_wait_time) {
-    if (initialized_) {
-        logger_->warn("LHandPro already initialized");
-        return true;
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+  const auto current = state_.load(std::memory_order_acquire);
+  if (current == DriverState::Ready) return true;
+  if (current != DriverState::Created) return false;
+  if (!std::isfinite(home_wait_time) || home_wait_time < 0.0F) {
+    try {
+      logger_->error("home_wait_time must be finite and nonnegative");
+    } catch (...) {
+    }
+    return false;
+  }
+
+  state_.store(DriverState::Initializing, std::memory_order_release);
+  auto fail = [this]() noexcept {
+    cleanup_locked_();
+    return false;
+  };
+
+  try {
+    tx_context_ = std::make_shared<TxContext>();
+    tx_context_->transport = transport_.get();
+    slot_token_ = std::make_shared<SlotToken>();
+    if (!claim_process_slot(slot_token_)) return fail();
+    slot_claimed_ = true;
+    if (!publish_context(tx_context_)) return fail();
+
+    if (!sdk_->create()) return fail();
+    sdk_created_ = true;
+
+    if (!sdk_ok_(sdk_->set_hand_type(expected_vendor_model_()),
+                 "set_hand_type")) {
+      return fail();
+    }
+    int reported_model = -1;
+    if (!sdk_ok_(sdk_->get_hand_type(reported_model), "get_hand_type") ||
+        reported_model != expected_vendor_model_()) {
+      try {
+        logger_->error("LHandPro model readback mismatch: expected={}, got={}",
+                       expected_vendor_model_(), reported_model);
+      } catch (...) {
+      }
+      return fail();
     }
 
-    // 1. Get the shared CAN bus singleton (same socket as arm motors!)
-    canfd_ = MotorsCANFD::get(can_interface_, "socketcan");
-    if (!canfd_) {
-        logger_->error("Failed to get CANFD bus for {}", can_interface_);
-        return false;
+    const std::vector<std::uint32_t> response_ids{
+        static_cast<std::uint32_t>(0x500 + canfd_node_id_),
+        static_cast<std::uint32_t>(0x480 + canfd_node_id_),
+        static_cast<std::uint32_t>(0x580 + canfd_node_id_),
+        static_cast<std::uint32_t>(0x180 + canfd_node_id_)};
+    if (!transport_->open(can_interface_, response_ids)) return fail();
+    transport_open_ = true;
+
+    transport_->set_receive_callback([this](const CanFdFrame& frame) {
+      if (state_.load(std::memory_order_acquire) == DriverState::Created) {
+        return;
+      }
+      try {
+        sdk_ok_(sdk_->decode_canfd(frame.id, frame.data.data(),
+                                   static_cast<int>(frame.len)),
+                "decode_canfd");
+      } catch (...) {
+      }
+    });
+
+    sdk_->set_send_canfd_callback(&transmit_bridge);
+    tx_callback_installed_ = true;
+
+    communication_started_ = true;
+    if (!sdk_ok_(sdk_->initial_ex(kCanFdMode, canfd_node_id_), "initial_ex")) {
+      return fail();
     }
 
-    // 2. Create SDK handle
-    sdk_handle_ = lhandprolib_create();
-    if (!sdk_handle_) {
-        logger_->error("Failed to create LHandPro SDK handle");
-        return false;
+    sdk_->start_monitor();
+    monitor_started_ = true;
+
+    reported_model = -1;
+    if (!sdk_ok_(sdk_->get_hand_type(reported_model), "get_hand_type") ||
+        reported_model != expected_vendor_model_()) {
+      try {
+        logger_->error("LHandPro model readback mismatch: expected={}, got={}",
+                       expected_vendor_model_(), reported_model);
+      } catch (...) {
+      }
+      return fail();
     }
 
-    // 3. Register this instance in the multi-instance registry
+    int total = 0;
+    int active = 0;
+    if (!sdk_ok_(sdk_->get_dof(total, active), "get_dof") ||
+        total != expected_total_dof_() || active <= 0 || active > total) {
+      try {
+        logger_->error(
+            "LHandPro DOF validation failed: expected total={}, got total={}, "
+            "active={}",
+            expected_total_dof_(), total, active);
+      } catch (...) {
+      }
+      return fail();
+    }
     {
-        std::lock_guard<std::mutex> lock(registry_mutex_);
-        instance_registry_[sdk_handle_] = this;
+      std::lock_guard<std::mutex> dof_lock(dof_mutex_);
+      dof_total_ = total;
+      dof_active_ = active;
     }
 
-    // 4. Register send/receive callbacks (before initial_ex!)
-    setup_sdk_callbacks_();
-
-    // 5. Initialize SDK in CANFD mode with node_id
-    int ret = lhandprolib_initial_ex(sdk_handle_, C_LCN_CANFD, canfd_node_id_);
-    if (ret != C_LER_NONE) {
-        logger_->error("LHandPro initial_ex failed, error={}", ret);
-        // Cleanup: unregister callbacks, remove from registry, destroy handle
-        for (uint16_t id : registered_can_ids_) {
-            if (canfd_) canfd_->remove_canfd_callback(id);
-        }
-        registered_can_ids_.clear();
-        {
-            std::lock_guard<std::mutex> lock(registry_mutex_);
-            instance_registry_.erase(sdk_handle_);
-        }
-        lhandprolib_destroy(sdk_handle_);
-        sdk_handle_ = nullptr;
-        return false;
-    }
-
-    // 5b. Start SDK background monitor thread.
-    // This thread periodically polls the hand for status, which triggers the
-    // hand to send back TPDO feedback frames (0x481 etc.) at ~2000fps.
-    // Without start_monitor(), get_now_position() etc. always return stale/0.
-    lhandprolib_start_monitor(sdk_handle_);
-
-    // 6. Read DOF info
-    int total = 0, active = 0;
-    lhandprolib_get_dof(sdk_handle_, &total, &active);
-    dof_total_ = total;
-    dof_active_ = active;
-    logger_->info("LHandPro connected: DOF total={}, active={}", total, active);
-
-    // 7. Enable motors
     if (enable_motors) {
-        lhandprolib_set_enable(sdk_handle_, 0, 1);
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      if (!sdk_ok_(sdk_->set_enable(0, true), "set_enable")) return fail();
+      std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-
-    // 8. Home motors
     if (home_motors) {
-        lhandprolib_home_motors(sdk_handle_, 0);
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(static_cast<int>(home_wait_time * 1000)));
+      if (!sdk_ok_(sdk_->home_motors(0), "home_motors")) return fail();
+      std::this_thread::sleep_for(std::chrono::duration<float>(home_wait_time));
+    }
+    if (!sdk_ok_(sdk_->set_move_no_home(1), "set_move_no_home")) {
+      return fail();
     }
 
-    // 9. Allow motion without completed homing (safety net for move_motors)
-    lhandprolib_set_move_no_home(sdk_handle_, 1);
-
-    initialized_ = true;
+    state_.store(DriverState::Ready, std::memory_order_release);
     return true;
+  } catch (const std::exception& error) {
+    try {
+      logger_->error("LHandPro initialization exception: {}", error.what());
+    } catch (...) {
+    }
+    return fail();
+  } catch (...) {
+    return fail();
+  }
 }
 
 void LHandProDriver::deinit_hand() {
-    if (!initialized_ && !sdk_handle_) return;
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+  if (state_.load(std::memory_order_acquire) == DriverState::Created &&
+      !sdk_created_ && !transport_open_ && !tx_callback_installed_ &&
+      !communication_started_ && !monitor_started_ && !slot_claimed_ &&
+      !tx_context_ && !slot_token_) {
+    return;
+  }
+  cleanup_locked_();
+}
 
-    // 1. Stop monitor thread first (stops feedback polling → no new 0x481 frames)
-    if (sdk_handle_) {
-        lhandprolib_stop_monitor(sdk_handle_);
+void LHandProDriver::cleanup_locked_() noexcept {
+  state_.store(DriverState::Stopping, std::memory_order_release);
+
+  {
+    std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
+    if (monitor_started_) {
+      sdk_->stop_monitor();
+      monitor_started_ = false;
     }
+  }
 
-    // 2. Close SDK (stops internal monitoring threads)
-    if (sdk_handle_) {
-        lhandprolib_close(sdk_handle_);
+  if (transport_open_) transport_->clear_receive_callback();
+
+  {
+    std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
+    if (communication_started_) {
+      sdk_->close();
+      communication_started_ = false;
     }
-
-    // 2. Remove all CAN receive callbacks BEFORE destroying handle.
-    //    This prevents the receive thread from calling set_canfd_data_decode
-    //    with a stale handle (use-after-free).
-    for (uint16_t id : registered_can_ids_) {
-        if (canfd_) {
-            canfd_->remove_canfd_callback(id);
-        }
+    if (tx_callback_installed_) {
+      sdk_->set_send_canfd_callback(nullptr);
+      tx_callback_installed_ = false;
     }
-    registered_can_ids_.clear();
+  }
 
-    // 3. Remove from instance registry
-    if (sdk_handle_) {
-        std::lock_guard<std::mutex> lock(registry_mutex_);
-        instance_registry_.erase(sdk_handle_);
+  unpublish_context(tx_context_);
+
+  if (transport_open_) {
+    transport_->close();
+    transport_open_ = false;
+  }
+
+  {
+    std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
+    if (sdk_created_) {
+      sdk_->destroy();
+      sdk_created_ = false;
     }
+  }
 
-    // 4. Destroy SDK handle
-    if (sdk_handle_) {
-        lhandprolib_destroy(sdk_handle_);
-        sdk_handle_ = nullptr;
-    }
-
-    initialized_ = false;
+  {
+    std::lock_guard<std::mutex> dof_lock(dof_mutex_);
+    dof_total_ = 0;
+    dof_active_ = 0;
+  }
+  tx_context_.reset();
+  if (slot_claimed_) release_process_slot(slot_token_);
+  slot_claimed_ = false;
+  slot_token_.reset();
+  state_.store(DriverState::Created, std::memory_order_release);
 }
 
-// ============================================================================
-// CAN frame relay setup (the core bridge)
-// ============================================================================
-
-void LHandProDriver::setup_sdk_callbacks_() {
-    // --- TX: SDK → SocketCAN ---
-    // No-capture lambda → C function pointer. Uses the instance registry
-    // to find the correct driver for this SDK handle (multi-instance safe).
-    lhandprolib_set_send_canfd_callback(
-        sdk_handle_,
-        [](unsigned int id, const unsigned char* data,
-           unsigned int size, int is_extended) -> bool {
-            // The SDK doesn't pass the handle to the callback, so we can only
-            // support one active hand per process via this approach.
-            // For multi-hand, each hand must use a separate process or the
-            // SDK must provide a user-data pointer in the callback.
-            // Current workaround: find the first registered instance.
-            LHandProDriver* self = nullptr;
-            {
-                std::lock_guard<std::mutex> lock(registry_mutex_);
-                if (!instance_registry_.empty()) {
-                    // Find the instance whose handle matches by checking if
-                    // any registered instance's CAN ID range covers this frame.
-                    // Simple approach: use the first (only) instance.
-                    self = instance_registry_.begin()->second;
-                }
-            }
-            if (!self || !self->canfd_) return false;
-
-            struct canfd_frame tx;
-            std::memset(&tx, 0, sizeof(tx));
-            tx.can_id = is_extended ? (id | CAN_EFF_FLAG) : id;
-            tx.len = static_cast<__u8>(std::min((unsigned int)64, size));
-            std::memcpy(tx.data, data, tx.len);
-            // Only set CANFD_BRS for frames > 8 bytes.
-            // The hand's SDO/command frames are 8 bytes (standard CAN);
-            // sending them as CANFD-BRS causes the hand to not respond.
-            // Feedback frames (0x501) from the hand are CANFD (up to 64 bytes).
-            if (tx.len > 8) {
-                tx.flags = CANFD_BRS;
-            }
-            self->canfd_->transmit(tx);
-            return true;
-        });
-
-    // --- RX: SocketCAN → SDK ---
-    // Register receive callbacks for the CAN IDs this hand uses.
-    // Observed via candump (node_id=1):
-    //   0x501 = SDO/feedback response (the hand replies to 0x601 commands with this ID)
-    // The hand may also use other IDs at runtime; we register the observed set.
-    // NOTE: The LHandPro uses non-standard CANopen COB-IDs (0x500+node instead
-    // of 0x580+node for SDO response). This was confirmed by candump analysis.
-    const uint16_t response_ids[] = {
-        cob_id_(0x500, canfd_node_id_),  // 0x501 SDO response (observed)
-        cob_id_(0x480, canfd_node_id_),  // 0x481 TPDO feedback (observed in Python version)
-        cob_id_(0x580, canfd_node_id_),  // 0x581 standard CANopen SDO response
-        cob_id_(0x180, canfd_node_id_),  // 0x181 TPDO1
-    };
-    for (uint16_t id : response_ids) {
-        register_rx_id_(id);
-    }
+void LHandProDriver::move_motors(int id) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->move_motors(id), "move_motors");
 }
 
-void LHandProDriver::register_rx_id_(uint16_t can_id) {
-    if (!canfd_) return;
-
-    // Capture sdk_handle_ by value (it's a void*, stable for this hand's lifetime).
-    // The callback is removed in deinit_hand() before the handle is destroyed,
-    // preventing use-after-free.
-    lhandprolib_handle sdk = sdk_handle_;
-    canfd_->add_canfd_callback(
-        [sdk](const struct canfd_frame& rx) {
-            // Strip CAN_EFF_FLAG if present, feed raw ID + data to SDK for decoding.
-            // data_size is always 64 (CANFD buffer size) per SDK documentation.
-            uint32_t raw_id = rx.can_id & CAN_EFF_MASK;
-            lhandprolib_set_canfd_data_decode(sdk, raw_id, rx.data, 64);
-        },
-        can_id);
-    registered_can_ids_.insert(can_id);
+void LHandProDriver::stop_motors(int id) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->stop_motors(id), "stop_motors");
 }
 
-// ============================================================================
-// Motion control (thin wrappers around C API)
-// ============================================================================
-
-void LHandProDriver::move_motors(int finger_id) {
-    if (!sdk_handle_) return;
-    lhandprolib_move_motors(sdk_handle_, finger_id);
+void LHandProDriver::set_target_position(int id, int value) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) {
+    sdk_ok_(sdk_->set_target_position(id, value), "set_target_position");
+  }
 }
 
-void LHandProDriver::stop_motors(int finger_id) {
-    if (!sdk_handle_) return;
-    lhandprolib_stop_motors(sdk_handle_, finger_id);
+void LHandProDriver::set_target_angle(int id, float value) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->set_target_angle(id, value), "set_target_angle");
 }
 
-// ============================================================================
-// Target setters
-// ============================================================================
-
-void LHandProDriver::set_target_position(int finger_id, int position) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_target_position(sdk_handle_, finger_id, position);
+void LHandProDriver::set_position_velocity(int id, int value) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) {
+    sdk_ok_(sdk_->set_position_velocity(id, value), "set_position_velocity");
+  }
 }
 
-void LHandProDriver::set_target_angle(int finger_id, float angle) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_target_angle(sdk_handle_, finger_id, angle);
+void LHandProDriver::set_max_current(int id, int value) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->set_max_current(id, value), "set_max_current");
 }
 
-void LHandProDriver::set_position_velocity(int finger_id, int velocity) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_position_velocity(sdk_handle_, finger_id, velocity);
+void LHandProDriver::set_enable(int id, bool enable) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->set_enable(id, enable), "set_enable");
 }
 
-void LHandProDriver::set_max_current(int finger_id, int current) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_max_current(sdk_handle_, finger_id, current);
-}
-
-// ============================================================================
-// Enable / Homing
-// ============================================================================
-
-void LHandProDriver::set_enable(int finger_id, bool enable) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_enable(sdk_handle_, finger_id, enable ? 1 : 0);
-}
-
-void LHandProDriver::home_motors(int finger_id) {
-    if (!sdk_handle_) return;
-    lhandprolib_home_motors(sdk_handle_, finger_id);
+void LHandProDriver::home_motors(int id) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->home_motors(id), "home_motors");
 }
 
 void LHandProDriver::set_move_no_home(int enable) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_move_no_home(sdk_handle_, enable);
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) {
+    sdk_ok_(sdk_->set_move_no_home(enable), "set_move_no_home");
+  }
 }
 
-// ============================================================================
-// Status getters (read cached values from SDK)
-// ============================================================================
-
-int LHandProDriver::get_now_position(int finger_id) {
-    if (!sdk_handle_) return 0;
-    int val = 0;
-    lhandprolib_get_now_position(sdk_handle_, finger_id, &val);
-    return val;
+void LHandProDriver::clear_alarm(int id) {
+  if (!ready_()) return;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (ready_()) sdk_ok_(sdk_->clear_alarm(id), "clear_alarm");
 }
 
-float LHandProDriver::get_now_angle(int finger_id) {
-    if (!sdk_handle_) return 0.0f;
-    float val = 0.0f;
-    lhandprolib_get_now_angle(sdk_handle_, finger_id, &val);
-    return val;
+int LHandProDriver::get_now_position(int id) {
+  if (!ready_()) return 0;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (!ready_()) return 0;
+  int value = 0;
+  return sdk_ok_(sdk_->get_now_position(id, value), "get_now_position")
+             ? value
+             : 0;
 }
 
-int LHandProDriver::get_now_status(int finger_id) {
-    if (!sdk_handle_) return 0;
-    int val = 0;
-    lhandprolib_get_now_status(sdk_handle_, finger_id, &val);
-    return val;
+float LHandProDriver::get_now_angle(int id) {
+  if (!ready_()) return 0.0F;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (!ready_()) return 0.0F;
+  float value = 0.0F;
+  return sdk_ok_(sdk_->get_now_angle(id, value), "get_now_angle") ? value
+                                                                  : 0.0F;
 }
 
-int LHandProDriver::get_now_current(int finger_id) {
-    if (!sdk_handle_) return 0;
-    int val = 0;
-    lhandprolib_get_now_current(sdk_handle_, finger_id, &val);
-    return val;
+int LHandProDriver::get_now_status(int id) {
+  if (!ready_()) return 0;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (!ready_()) return 0;
+  int value = 0;
+  return sdk_ok_(sdk_->get_now_status(id, value), "get_now_status") ? value
+                                                                    : 0;
 }
 
-int LHandProDriver::get_now_alarm(int finger_id) {
-    if (!sdk_handle_) return 0;
-    int val = 0;
-    lhandprolib_get_now_alarm(sdk_handle_, finger_id, &val);
-    return val;
+int LHandProDriver::get_now_current(int id) {
+  if (!ready_()) return 0;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (!ready_()) return 0;
+  int value = 0;
+  return sdk_ok_(sdk_->get_now_current(id, value), "get_now_current") ? value
+                                                                      : 0;
 }
 
-void LHandProDriver::clear_alarm(int finger_id) {
-    if (!sdk_handle_) return;
-    lhandprolib_set_clear_alarm(sdk_handle_, finger_id);
-}
-
-void LHandProDriver::get_dof(int& total, int& active) {
-    total = dof_total_;
-    active = dof_active_;
+int LHandProDriver::get_now_alarm(int id) {
+  if (!ready_()) return 0;
+  std::lock_guard<std::mutex> lock(sdk_call_mutex_);
+  if (!ready_()) return 0;
+  int value = 0;
+  return sdk_ok_(sdk_->get_now_alarm(id, value), "get_now_alarm") ? value : 0;
 }
