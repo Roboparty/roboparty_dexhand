@@ -1,20 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 Roboparty
+
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
-
-# Dependencies
-find_dependency(spdlog)
 find_dependency(fmt)
-find_dependency(roboparty_motors)
-
-# Import targets
+find_dependency(spdlog)
 include("${CMAKE_CURRENT_LIST_DIR}/roboparty_dexhandTargets.cmake")
-
-# Convenience aggregate target
-if(TARGET roboparty_dexhand::dexhand AND NOT TARGET roboparty_dexhand::roboparty_dexhand)
-    add_library(roboparty_dexhand::roboparty_dexhand INTERFACE IMPORTED)
-    set_target_properties(roboparty_dexhand::roboparty_dexhand PROPERTIES
-        INTERFACE_LINK_LIBRARIES "roboparty_dexhand::dexhand;roboparty_dexhand::lhandpro_driver")
-endif()
-
 check_required_components(roboparty_dexhand)
