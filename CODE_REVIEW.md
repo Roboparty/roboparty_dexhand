@@ -1,3 +1,9 @@
+> Status: historical review, superseded by the approved independent-CAN-FD
+> design in
+> `docs/superpowers/specs/2026-08-10-roboparty-dexhand-independent-canfd-design.md`.
+> In particular, recommendations to modify `roboparty_motors` or share its
+> private `MotorsCANFD` target must not be implemented.
+
 # roboparty_dexhand 代码审查报告
 
 > **审查日期**: 2026-08-09
@@ -131,6 +137,11 @@ if (tx.len > 8) {
 
 ## 二、已解决的运行时问题(根因分析)
 
+> Historical diagnosis only: the receive-own-message change below was explored
+> against the old shared-socket implementation. It is not part of the accepted
+> fix and must not be applied to `roboparty_motors`; dexhand now owns a separate
+> socket and leaves `CAN_RAW_RECV_OWN_MSGS` disabled.
+
 ### ✅ 问题8(原"待排查"): MotorsCANFD 接收线程收不到灵巧手反馈帧
 
 **现象**:
@@ -194,7 +205,7 @@ setsockopt(sockfd_, SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, &recv_own_msgs, sizeof(r
 | 每厂商独立子目录 | drivers/{dm,evo,lro,xyn} | drivers/lhandpro | ✅ 一致 |
 | 每厂商独立静态库 | dm_motors.a 等 | lhandpro_driver.a | ✅ 一致 |
 | CMake 双模式(ament + 纯CMake) | 是 | 是 | ✅ 一致 |
-| CAN 总线复用单例 | `MotorsCANFD::get()` | 同(复用motors的) | ✅ 一致(核心设计) |
+| CAN transport ownership | motors owns its transport | dexhand owns its private transport | consistent module boundary; separate sockets may bind the same interface |
 | 版本号从 package.xml 读 | 是 | 是 | ✅ 一致 |
 | spdlog 日志 | 基类构造创建 logger | 同 | ✅ 一致 |
 | 线程安全(atomic + mutex) | atomic状态 + shared_mutex | atomic状态 + mutex | ✅ 一致 |

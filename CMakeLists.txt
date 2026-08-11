@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0
 # Copyright (C) 2026 Roboparty
 
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.15)
 
 file(READ "package.xml" PACKAGE_XML_CONTENT)
 string(REGEX MATCH "<version>([0-9\\.]+)</version>" _ "${PACKAGE_XML_CONTENT}")
@@ -68,7 +68,7 @@ install(
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/roboparty_dexhandConfigVersion.cmake"
   VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion)
+  COMPATIBILITY SameMinorVersion)
 configure_package_config_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake/roboparty_dexhandConfig.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/roboparty_dexhandConfig.cmake"
