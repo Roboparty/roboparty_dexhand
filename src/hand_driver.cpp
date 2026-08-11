@@ -4,33 +4,72 @@
 #include "hand_driver.hpp"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <mutex>
+#include <stdexcept>
+
 // Vendor driver headers (included only here, not in the public header)
 #include "drivers/lhandpro/lhandpro_driver.hpp"
 
-HandDriver::HandDriver() {
-    // Create or reuse a shared "dexhand" logger
-    logger_ = spdlog::get("dexhand");
-    if (!logger_) {
-        auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
-        logger_ = std::make_shared<spdlog::logger>("dexhand", sink);
-        spdlog::register_logger(logger_);
+namespace {
+
+std::mutex logger_creation_mutex;
+
+std::shared_ptr<spdlog::logger> get_or_create_logger() {
+    std::lock_guard<std::mutex> lock(logger_creation_mutex);
+
+    // An externally registered logger must use thread-safe sinks because driver
+    // callbacks, lifecycle operations, and public calls can log concurrently.
+    if (auto existing = spdlog::get("dexhand")) {
+        return existing;
+    }
+
+    try {
+        return spdlog::stderr_color_mt("dexhand");
+    } catch (const spdlog::spdlog_ex&) {
+        if (auto existing = spdlog::get("dexhand")) {
+            return existing;
+        }
+        throw;
     }
 }
+
+}  // namespace
+
+HandDriver::HandDriver() : logger_(get_or_create_logger()) {}
 
 std::shared_ptr<HandDriver> HandDriver::create_hand(
     const std::string& hand_type,
     const std::string& interface_type,
     const std::string& interface,
     int hand_model,
-    int canfd_node_id,
-    int canfd_nom_baudrate,
-    int canfd_dat_baudrate) {
-
-    if (hand_type == "LHandPro") {
-        return std::make_shared<LHandProDriver>(
-            interface_type, interface, hand_model, canfd_node_id,
-            canfd_nom_baudrate, canfd_dat_baudrate);
+    int canfd_node_id) {
+    if (hand_type != "LHandPro") {
+        throw std::invalid_argument("Unsupported hand_type: " + hand_type);
+    }
+    if (interface_type != "canfd") {
+        throw std::invalid_argument("Unsupported interface_type: " +
+                                    interface_type);
+    }
+    if (interface.empty()) {
+        throw std::invalid_argument("interface must not be empty");
+    }
+    if (canfd_node_id < 1 || canfd_node_id > 127) {
+        throw std::invalid_argument("canfd_node_id must be in [1, 127], got " +
+                                    std::to_string(canfd_node_id));
     }
 
-    throw std::runtime_error("Hand type not supported: " + hand_type);
+    using roboparty::dexhand::detail::LHandProModel;
+    LHandProModel model;
+    switch (hand_model) {
+        case HAND_LHANDPRO_6DOF:
+            model = LHandProModel::Dof6;
+            break;
+        case HAND_LHANDPRO_16DOF:
+            model = LHandProModel::Dof16;
+            break;
+        default:
+            throw std::invalid_argument("Unsupported hand_model: " +
+                                        std::to_string(hand_model));
+    }
+    return std::make_shared<LHandProDriver>(interface, model, canfd_node_id);
 }

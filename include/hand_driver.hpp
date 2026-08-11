@@ -11,11 +11,7 @@
 /**
  * @brief Communication transport for dexterous hand.
  */
-enum class HandCommType {
-    CANFD = 0,
-    ETHERCAT = 1,
-    RS485 = 2,
-};
+enum class HandCommType { CANFD = 0 };
 
 /**
  * @brief Dexterous hand models (extensible for future vendors).
@@ -44,25 +40,21 @@ class HandDriver {
     virtual ~HandDriver() = default;
 
     /**
-     * @brief Factory: create a dexterous hand driver by vendor name.
-     *
-     * @param hand_type           Vendor string: "LHandPro", (future: "Inspire", ...)
-     * @param interface_type      "canfd" | "ethercat" | "rs485"
-     * @param interface           Bus device, e.g. "can0"
-     * @param hand_model          Hand model enum (see HandModel)
-     * @param canfd_node_id       CANopen node ID (1-255, default 1)
-     * @param canfd_nom_baudrate  Arbitration bitrate (default 1 Mbps)
-     * @param canfd_dat_baudrate  Data bitrate (default 5 Mbps)
-     * @return std::shared_ptr<HandDriver>
+     * @brief Create a supported dexterous-hand driver.
+     * @param hand_type Exact vendor name, currently `LHandPro`.
+     * @param interface_type Exact transport name, currently `canfd`.
+     * @param interface Non-empty Linux SocketCAN interface such as `can0`.
+     * @param hand_model Stable public HandModel numeric value.
+     * @param canfd_node_id CANopen node ID in the inclusive range 1-127.
+     * @return Driver object; construction performs no communication I/O.
+     * @throws std::invalid_argument if any configuration value is unsupported.
      */
     static std::shared_ptr<HandDriver> create_hand(
         const std::string& hand_type,
         const std::string& interface_type,
         const std::string& interface,
-        int hand_model = 0,
-        int canfd_node_id = 1,
-        int canfd_nom_baudrate = 1000000,
-        int canfd_dat_baudrate = 5000000);
+        int hand_model = HAND_LHANDPRO_6DOF,
+        int canfd_node_id = 1);
 
     // ===== Lifecycle =====
 
