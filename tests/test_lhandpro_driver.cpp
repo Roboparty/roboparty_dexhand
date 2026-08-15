@@ -197,23 +197,23 @@ void check_concurrent_dof_snapshot() {
 
 void check_constructor_and_home_wait_validation() {
   CHECK(throws_invalid_argument([] {
-    make_driver("", LHandProModel::Dof6, 1);
+    make_driver("", LHandProModel::Dof6S, 1);
   }));
   CHECK(throws_invalid_argument([] {
-    make_driver("can-test", LHandProModel::Dof6, 0);
+    make_driver("can-test", LHandProModel::Dof6S, 0);
   }));
   CHECK(throws_invalid_argument([] {
-    make_driver("can-test", LHandProModel::Dof6, 128);
+    make_driver("can-test", LHandProModel::Dof6S, 128);
   }));
   CHECK(throws_invalid_argument([] {
     make_driver("can-test", static_cast<LHandProModel>(99), 1);
   }));
   CHECK(throws_invalid_argument([] {
-    make_driver("can-test", LHandProModel::Dof6, 1, nullptr,
+    make_driver("can-test", LHandProModel::Dof6S, 1, nullptr,
                 std::make_unique<FakeCanFdTransport>());
   }));
   CHECK(throws_invalid_argument([] {
-    make_driver("can-test", LHandProModel::Dof6, 1,
+    make_driver("can-test", LHandProModel::Dof6S, 1,
                 std::make_unique<FakeLHandProSdk>(), nullptr);
   }));
 
@@ -287,7 +287,7 @@ void check_failure_rollback_and_retry() {
 }
 
 void check_models_and_initializing_callbacks() {
-  Fixture six(LHandProModel::Dof6);
+  Fixture six(LHandProModel::Dof6S);
   six.sdk->during_initial_ex = [&] {
     CHECK_EQ(six.driver->state_for_test(), DriverState::Initializing);
     const unsigned char command[9]{0, 1, 2, 3, 4, 5, 6, 7, 8};
@@ -301,7 +301,7 @@ void check_models_and_initializing_callbacks() {
   };
 
   CHECK(six.driver->init_hand(false, false, 0.0F));
-  CHECK_EQ(six.sdk->hand_type, 0);
+  CHECK_EQ(six.sdk->hand_type, 1);
   CHECK_EQ(six.sdk->count("get_hand_type"), 2);
   CHECK_EQ(six.sdk->last_mode, 1);
   CHECK_EQ(six.sdk->last_node, 1);
@@ -364,13 +364,13 @@ void check_models_and_initializing_callbacks() {
   CHECK_EQ(active, 16);
   sixteen.driver->deinit_hand();
 
-  Fixture wrong_initial_model(LHandProModel::Dof6);
-  wrong_initial_model.sdk->reported_hand_type_override = 2;
-  CHECK(!wrong_initial_model.driver->init_hand(false, false, 0.0F));
-  CHECK(wrong_initial_model.released_once());
-  CHECK_EQ(wrong_initial_model.transport->open_calls.load(), 0);
+  Fixture ordinary_six_dof(LHandProModel::Dof6S);
+  ordinary_six_dof.sdk->reported_hand_type_override = 0;
+  CHECK(!ordinary_six_dof.driver->init_hand(false, false, 0.0F));
+  CHECK(ordinary_six_dof.released_once());
+  CHECK_EQ(ordinary_six_dof.transport->open_calls.load(), 0);
 
-  Fixture wrong_second_model(LHandProModel::Dof6);
+  Fixture wrong_second_model(LHandProModel::Dof6S);
   int model_reads = 0;
   wrong_second_model.sdk->before_call = [&](const std::string& operation) {
     if (operation == "get_hand_type" && ++model_reads == 2) {
@@ -381,11 +381,11 @@ void check_models_and_initializing_callbacks() {
   CHECK(wrong_second_model.released_once());
   CHECK_EQ(wrong_second_model.sdk->count("get_hand_type"), 2);
 
-  check_dof_mismatch_and_retry(LHandProModel::Dof6, 12, 6, 11, 6);
-  check_dof_mismatch_and_retry(LHandProModel::Dof6, 10, 6, 11, 6);
-  check_dof_mismatch_and_retry(LHandProModel::Dof6, 11, 5, 11, 6);
-  check_dof_mismatch_and_retry(LHandProModel::Dof6, 11, 7, 11, 6);
-  check_dof_mismatch_and_retry(LHandProModel::Dof6, 21, 16, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6S, 12, 6, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6S, 10, 6, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6S, 11, 5, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6S, 11, 7, 11, 6);
+  check_dof_mismatch_and_retry(LHandProModel::Dof6S, 21, 16, 11, 6);
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 22, 16, 21, 16);
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 20, 16, 21, 16);
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 21, 15, 21, 16);

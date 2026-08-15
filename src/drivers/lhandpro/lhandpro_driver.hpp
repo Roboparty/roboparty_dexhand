@@ -14,7 +14,7 @@
 
 namespace roboparty::dexhand::detail {
 
-enum class LHandProModel { Dof6, Dof16 };
+enum class LHandProModel { Dof6S, Dof16 };
 enum class DriverState { Created, Initializing, Ready, Stopping };
 struct ExpectedDof {
   int total;

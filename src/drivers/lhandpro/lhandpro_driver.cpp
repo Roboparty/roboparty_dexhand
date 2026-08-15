@@ -45,6 +45,8 @@ using roboparty::dexhand::detail::TxContext;
 
 constexpr int kSdkSuccess = 0;
 constexpr int kCanFdMode = 1;
+constexpr int kVendorModel6DofS = 1;
+constexpr int kVendorModel16Dof = 2;
 
 std::mutex process_callback_mutex;
 std::weak_ptr<TxContext> active_tx_context;
@@ -165,7 +167,7 @@ LHandProDriver::LHandProDriver(
   if (canfd_node_id < 1 || canfd_node_id > 127) {
     throw std::invalid_argument("CAN-FD node ID must be in [1, 127]");
   }
-  if (model != LHandProModel::Dof6 && model != LHandProModel::Dof16) {
+  if (model != LHandProModel::Dof6S && model != LHandProModel::Dof16) {
     throw std::invalid_argument("Unsupported LHandPro model");
   }
   if (!sdk_ || !transport_) {
@@ -196,12 +198,13 @@ bool LHandProDriver::sdk_ok_(int code, const char* operation) const noexcept {
 }
 
 int LHandProDriver::expected_vendor_model_() const noexcept {
-  return model_ == LHandProModel::Dof6 ? 0 : 2;
+  return model_ == LHandProModel::Dof6S ? kVendorModel6DofS
+                                       : kVendorModel16Dof;
 }
 
 ExpectedDof LHandProDriver::expected_dof_() const noexcept {
-  return model_ == LHandProModel::Dof6 ? ExpectedDof{11, 6}
-                                      : ExpectedDof{21, 16};
+  return model_ == LHandProModel::Dof6S ? ExpectedDof{11, 6}
+                                       : ExpectedDof{21, 16};
 }
 
 bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,

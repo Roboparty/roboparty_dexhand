@@ -118,6 +118,9 @@ void check_invalid(const std::string& hand_type,
 }
 
 int main() {
+  CHECK_EQ(HAND_LHANDPRO_6DOF, 0);
+  CHECK_EQ(HAND_LHANDPRO_16DOF, 1);
+
   using Factory = std::shared_ptr<HandDriver> (*)(
       const std::string&, const std::string&, const std::string&, int, int);
   Factory factory = &HandDriver::create_hand;

@@ -62,7 +62,7 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
     LHandProModel model;
     switch (hand_model) {
         case HAND_LHANDPRO_6DOF:
-            model = LHandProModel::Dof6;
+            model = LHandProModel::Dof6S;
             break;
         case HAND_LHANDPRO_16DOF:
             model = LHandProModel::Dof16;
