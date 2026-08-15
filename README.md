@@ -56,8 +56,12 @@ finally:
 
 Version 0.2.0 removes `canfd_nom_baudrate` and `canfd_dat_baudrate`; configure
 the Linux CAN interface in deployment tooling. It also removes the unimplemented
-`ETHERCAT` and `RS485` enum exports. Public hand-model numeric values remain 0
-for 6-DOF and 1 for 16-DOF.
+`ETHERCAT` and `RS485` enum exports. Public hand-model numeric values remain
+unchanged: public value 0 now denotes the supported LHandPro 6DOF S model, and
+public value 1 continues to denote the existing 16DOF model. The ordinary vendor
+6DOF model is outside this deployment's support contract. Although the public
+API and numeric values are unchanged, this meaning is deliberately incompatible
+for users of that ordinary 6DOF hardware.
 
 ## Testing
 
@@ -108,7 +112,7 @@ thread-safe `_mt` sinks. SocketCAN worker and process-global callback-boundary
 diagnostics use only that named logger, remain silent when it is absent, and
 swallow logging exceptions at `noexcept` boundaries.
 
-The vendor DOF probe reports `(total, active)` as `(11, 6)` for the 6-DOF model
+The vendor DOF probe reports `(total, active)` as `(11, 6)` for the 6DOF S model
 and `(21, 16)` for the 16-DOF model. Initialization accepts only the exact pair
 for the selected model, and `get_dof()` returns that validated snapshot.
 
