@@ -21,6 +21,44 @@ SocketCAN CAN-FD, shell/SSH evidence capture, SHA-256.
 
 ---
 
+## Execution Amendment: Approved Offline Contract
+
+Task 1's seven-test listing and Task 2's harness listing below are the initial
+implementation sketch. They are retained to show the design's evolution, but
+they are no longer the executable source of truth. Independent specification
+and quality review required a stronger offline contract before any harness or
+hardware action.
+
+The approved Task 1 artifact is:
+
+- path:
+  `/tmp/roboparty-dexhand-motion-1a7c820/test_staged_motion_validation.py`;
+- SHA-256:
+  `f16ec7de265f937576678fca7da4a2dd7d1dcb9c06137fee118ba15287d0ee15`;
+- size: 68,414 bytes and 1,959 lines; and
+- inventory: 42 test definitions, with the same 42 tests registered by
+  `main()`.
+
+Its required RED is exit 1 solely because
+`staged_motion_validation.py` does not yet exist. The staging directory must
+contain only that test file at the Task 1 boundary. The contract additionally
+locks all-six-joint command and telemetry ordering, exact 100/1,000-count
+direction boundaries, alarm/range checks at every sample, delayed failures,
+primary and cleanup interrupts, globally exact cleanup calls, structured
+evidence values and ordering, deferred `dexhand_py` import, and the public
+`LHANDPRO_6DOF` CLI binding. Factory creation failure is explicitly the only
+path with no device cleanup because no hand object was acquired. Cleanup
+attribute lookup is covered by the corresponding step's exception boundary,
+and exception handling never relies on an exception object's truth value.
+
+Task 2 must implement the smallest harness that makes this approved artifact
+GREEN. In particular, it must reject an invalid phase before factory creation
+and must not copy the historical harness listing verbatim. Any change to the
+approved test artifact invalidates this hash and both reviews; Tasks 1-3 must
+then be repeated before any Orange Pi access.
+
+---
+
 ## File Map
 
 - Create temporarily:
@@ -44,7 +82,7 @@ SocketCAN CAN-FD, shell/SSH evidence capture, SHA-256.
 - Test:
   `/tmp/roboparty-dexhand-motion-1a7c820/test_staged_motion_validation.py`
 
-- [ ] **Step 1: Prove the staging directory is new**
+- [x] **Step 1: Prove the staging directory is new**
 
 Run:
 
@@ -55,7 +93,7 @@ test ! -e /tmp/roboparty-dexhand-motion-1a7c820
 Expected: exit 0. If it already exists, stop and choose a new design-bound
 suffix before creating anything.
 
-- [ ] **Step 2: Create the isolated directory**
+- [x] **Step 2: Create the isolated directory**
 
 Run:
 
@@ -65,9 +103,12 @@ mkdir /tmp/roboparty-dexhand-motion-1a7c820
 
 Expected: exit 0.
 
-- [ ] **Step 3: Add the complete fake contract with `apply_patch`**
+- [x] **Step 3: Add the reviewed fake contract with `apply_patch`**
 
-Create the test file with this exact content:
+The following block is the superseded initial seven-test sketch. The approved
+42-test artifact and hash in the execution amendment are authoritative.
+
+Historical sketch:
 
 ```python
 #!/usr/bin/env python3
@@ -279,7 +320,7 @@ if __name__ == '__main__':
     main()
 ```
 
-- [ ] **Step 4: Run the contract and capture the required RED**
+- [x] **Step 4: Run the contract and capture the required RED**
 
 Run:
 
@@ -299,9 +340,12 @@ The failure must be an import/file error, not a syntax error in the test.
 - Test:
   `/tmp/roboparty-dexhand-motion-1a7c820/test_staged_motion_validation.py`
 
-- [ ] **Step 1: Add the complete harness with `apply_patch`**
+- [ ] **Step 1: Implement the minimal harness against the approved contract**
 
-Create the script with this exact content:
+The following block is the superseded initial harness sketch. It is useful as
+design context only and is not the Task 2 implementation specification.
+
+Historical sketch:
 
 ```python
 #!/usr/bin/env python3
@@ -487,7 +531,7 @@ Run:
   /tmp/roboparty-dexhand-motion-1a7c820/test_staged_motion_validation.py
 ```
 
-Expected: seven `PASS test_*` lines, `PASS all=7`, exit 0. No SDK or
+Expected: forty-two `PASS test_*` lines, `PASS all=42`, exit 0. No SDK or
 `dexhand_py` import occurs because the fake calls `run_phase` directly.
 
 - [ ] **Step 3: Parse both Python files without creating source caches**
