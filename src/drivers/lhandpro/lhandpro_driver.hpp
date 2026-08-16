@@ -7,15 +7,20 @@
 #include "hand_driver.hpp"
 #include "protocol/canfd_transport.hpp"
 
+#include <array>
 #include <atomic>
+#include <cstddef>
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 namespace roboparty::dexhand::detail {
 
 enum class LHandProModel { Dof6S, Dof16 };
-enum class DriverState { Created, Initializing, Ready, Stopping };
+enum class DriverState { Created, Initializing, Ready, Stopping, Faulted };
 struct ExpectedDof {
   int total;
   int active;
@@ -63,15 +68,65 @@ class LHandProDriver final : public HandDriver {
   int get_now_current(int finger_id) override;
   int get_now_alarm(int finger_id) override;
   void clear_alarm(int finger_id) override;
+  void check_health() const override;
 
   roboparty::dexhand::detail::DriverState state_for_test() const noexcept {
     return state_.load(std::memory_order_acquire);
   }
 
+  void set_ready_transition_hook_for_test(std::function<void()> hook) {
+    ready_transition_hook_for_test_ = std::move(hook);
+  }
+
+  void set_rx_registered_hook_for_test(std::function<void()> hook) {
+    rx_registered_hook_for_test_ = std::move(hook);
+  }
+
+  void set_rx_entry_attempt_hook_for_test(std::function<void()> hook) {
+    rx_entry_attempt_hook_for_test_ = std::move(hook);
+  }
+
+  void set_final_commit_hook_for_test(std::function<void()> hook) {
+    final_commit_hook_for_test_ = std::move(hook);
+  }
+
+  unsigned int pending_rx_callbacks_for_test() const noexcept {
+    return pending_rx_callbacks_.load(std::memory_order_acquire);
+  }
+
+  bool rx_entry_registration_locked_for_test() noexcept {
+    if (!rx_entry_registration_mutex_.try_lock()) return true;
+    rx_entry_registration_mutex_.unlock();
+    return false;
+  }
+
  private:
-  void cleanup_locked_() noexcept;
+  enum class FaultSource { Sync, Async, Cleanup };
+  struct FaultRecord {
+    const char* operation{nullptr};
+    int code{0};
+    FaultSource source{FaultSource::Sync};
+  };
+  struct CleanupResult {
+    bool failed{false};
+    FaultRecord first_failure{};
+  };
+
+  CleanupResult cleanup_locked_() noexcept;
   bool sdk_ok_(int code, const char* operation) const noexcept;
-  bool ready_() const noexcept;
+  void record_fault_(const char* operation, int code,
+                     FaultSource source) noexcept;
+  void record_cleanup_fault_(const char* operation, int code) noexcept;
+  bool begin_rx_callback_() noexcept;
+  void finish_rx_callback_(bool failed, int code) noexcept;
+  bool initialization_healthy_() const noexcept;
+  void validate_call_state_(bool allow_faulted,
+                            const char* operation) const;
+  void throw_if_sdk_failed_(int code, const char* operation);
+  [[noreturn]] void throw_sticky_fault_() const;
+  static const char* fault_source_name_(FaultSource source) noexcept;
+  static std::string fault_message_(const FaultRecord& fault);
+  std::string fault_report_() const;
   int expected_vendor_model_() const noexcept;
   roboparty::dexhand::detail::ExpectedDof expected_dof_() const noexcept;
 
@@ -80,13 +135,28 @@ class LHandProDriver final : public HandDriver {
   std::unique_ptr<roboparty::dexhand::detail::CanFdTransport> transport_;
   std::atomic<roboparty::dexhand::detail::DriverState> state_;
   std::mutex lifecycle_mutex_;
+  std::mutex rx_entry_registration_mutex_;
+  std::mutex rx_init_admission_mutex_;
+  std::condition_variable rx_init_admission_cv_;
+  std::atomic<unsigned int> pending_rx_callbacks_{0};
+  std::atomic<unsigned int> active_rx_callbacks_{0};
+  std::function<void()> ready_transition_hook_for_test_;
+  std::function<void()> rx_registered_hook_for_test_;
+  std::function<void()> rx_entry_attempt_hook_for_test_;
+  std::function<void()> final_commit_hook_for_test_;
   std::mutex sdk_call_mutex_;
+  mutable std::mutex health_mutex_;
+  std::optional<FaultRecord> first_fault_;
+  std::array<FaultRecord, 3> cleanup_faults_{};
+  std::size_t cleanup_fault_count_{0};
   bool sdk_created_{false};
   bool transport_open_{false};
   bool tx_callback_installed_{false};
   bool communication_started_{false};
   bool monitor_started_{false};
   bool slot_claimed_{false};
+  bool initial_ex_attempted_{false};
+  bool safety_cleanup_attempted_{false};
   std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
   std::shared_ptr<roboparty::dexhand::detail::SlotToken> slot_token_;
 };

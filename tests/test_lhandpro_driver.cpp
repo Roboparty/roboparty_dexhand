@@ -12,7 +12,9 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <future>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -137,6 +139,185 @@ std::unique_ptr<LHandProDriver> make_driver(
       std::move(transport));
 }
 
+template <typename Exception, typename Callable>
+std::string expect_exception(Callable&& callable) {
+  try {
+    std::forward<Callable>(callable)();
+  } catch (const Exception& error) {
+    return error.what();
+  } catch (...) {
+    CHECK(false);
+  }
+  CHECK(false);
+  return {};
+}
+
+std::string fault_message(const std::string& operation, int code,
+                          const std::string& source) {
+  return "LHandPro " + operation + " failed: code=" + std::to_string(code) +
+         ", source=" + source;
+}
+
+void check_fault_message(const std::string& message,
+                         const std::string& operation, int code,
+                         const std::string& source) {
+  CHECK_EQ(message, fault_message(operation, code, source));
+}
+
+void check_fault_report_entry(const std::string& report,
+                              const std::string& operation, int code,
+                              const std::string& source,
+                              std::size_t expected_count = 1) {
+  const auto entry = fault_message(operation, code, source);
+  std::size_t count = 0;
+  std::size_t position = 0;
+  while ((position = report.find(entry, position)) != std::string::npos) {
+    ++count;
+    position += entry.size();
+  }
+  CHECK_EQ(count, expected_count);
+}
+
+void check_safety_trio_once(const Fixture& fixture) {
+  CHECK_EQ(fixture.sdk->count_stop_motors(0), 1);
+  CHECK_EQ(fixture.sdk->count_set_enable(0, false), 1);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(0), 1);
+}
+
+void check_safety_trio_order(const Fixture& fixture) {
+  const auto events = fixture.sdk->event_snapshot();
+  const auto stop_reverse =
+      std::find(events.rbegin(), events.rend(), "stop_motors");
+  CHECK(stop_reverse != events.rend());
+  const auto stop = std::prev(stop_reverse.base());
+  const auto disable = std::find(std::next(stop), events.end(), "set_enable");
+  CHECK(disable != events.end());
+  const auto no_home =
+      std::find(std::next(disable), events.end(), "set_move_no_home");
+  CHECK(no_home != events.end());
+  const auto stop_monitor =
+      std::find(std::next(no_home), events.end(), "stop_monitor");
+  const auto close = std::find(std::next(no_home), events.end(), "close");
+  CHECK(close != events.end());
+  if (fixture.sdk->count("start_monitor") != 0) {
+    CHECK(stop_monitor != events.end());
+    CHECK(stop_monitor < close);
+  }
+}
+
+void check_fully_released(const Fixture& fixture) {
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+  CHECK(!fixture.sdk->created);
+  CHECK(!fixture.sdk->monitor_started);
+  CHECK(fixture.sdk->tx_callback == nullptr);
+  CHECK(!fixture.transport->is_open());
+  CHECK(!fixture.transport->callback_active());
+  CHECK_EQ(fixture.sdk->count("destroy"), 1);
+  CHECK_EQ(fixture.sdk->count("close"), 1);
+  CHECK_EQ(fixture.sdk->count("clear_tx"), 1);
+  CHECK_EQ(fixture.transport->clear_calls.load(), 1);
+  CHECK_EQ(fixture.transport->close_calls.load(), 1);
+}
+
+void check_cleanup_resources_are_live(Fixture& fixture,
+                                      int& safety_observations,
+                                      const std::string& operation,
+                                      LHandProDriver* driver = nullptr) {
+  const bool is_stop =
+      operation == "stop_motors" && fixture.sdk->last_stop_id == 0;
+  const bool is_disable = operation == "set_enable" &&
+                          fixture.sdk->last_enable_id == 0 &&
+                          !fixture.sdk->last_enable;
+  const bool is_no_home = operation == "set_move_no_home" &&
+                          fixture.sdk->last_move_no_home == 0;
+  if (!is_stop && !is_disable && !is_no_home) return;
+
+  if (driver == nullptr) driver = fixture.driver.get();
+  CHECK(driver != nullptr);
+  CHECK_EQ(driver->state_for_test(), DriverState::Stopping);
+  CHECK(fixture.sdk->created);
+  CHECK(fixture.transport->is_open());
+  CHECK(fixture.transport->callback_active());
+  CHECK(fixture.sdk->tx_callback != nullptr);
+  if (fixture.sdk->count("start_monitor") != 0) {
+    CHECK(fixture.sdk->monitor_started);
+  }
+  ++safety_observations;
+}
+
+struct DriverCall {
+  std::string operation;
+  std::function<void(Fixture&)> invoke;
+};
+
+std::vector<DriverCall> all_public_sdk_calls() {
+  return {
+      {"move_motors", [](Fixture& fixture) {
+         fixture.driver->move_motors(2);
+       }},
+      {"stop_motors", [](Fixture& fixture) {
+         fixture.driver->stop_motors(2);
+       }},
+      {"set_target_position", [](Fixture& fixture) {
+         fixture.driver->set_target_position(2, 100);
+       }},
+      {"set_target_angle", [](Fixture& fixture) {
+         fixture.driver->set_target_angle(2, 10.0F);
+       }},
+      {"set_position_velocity", [](Fixture& fixture) {
+         fixture.driver->set_position_velocity(2, 20);
+       }},
+      {"set_max_current", [](Fixture& fixture) {
+         fixture.driver->set_max_current(2, 30);
+       }},
+      {"set_enable", [](Fixture& fixture) {
+         fixture.driver->set_enable(2, true);
+       }},
+      {"home_motors", [](Fixture& fixture) {
+         fixture.driver->home_motors(2);
+       }},
+      {"set_move_no_home", [](Fixture& fixture) {
+         fixture.driver->set_move_no_home(1);
+       }},
+      {"clear_alarm", [](Fixture& fixture) {
+         fixture.driver->clear_alarm(2);
+       }},
+      {"get_now_position", [](Fixture& fixture) {
+         (void)fixture.driver->get_now_position(2);
+       }},
+      {"get_now_angle", [](Fixture& fixture) {
+         (void)fixture.driver->get_now_angle(2);
+       }},
+      {"get_now_status", [](Fixture& fixture) {
+         (void)fixture.driver->get_now_status(2);
+       }},
+      {"get_now_current", [](Fixture& fixture) {
+         (void)fixture.driver->get_now_current(2);
+       }},
+      {"get_now_alarm", [](Fixture& fixture) {
+         (void)fixture.driver->get_now_alarm(2);
+       }},
+  };
+}
+
+void check_not_ready_calls_throw_without_sdk(Fixture& fixture) {
+  for (const auto& call : all_public_sdk_calls()) {
+    const int calls_before = fixture.sdk->count(call.operation);
+    (void)expect_exception<std::logic_error>([&] { call.invoke(fixture); });
+    CHECK_EQ(fixture.sdk->count(call.operation), calls_before);
+  }
+
+  const int enable_calls = fixture.sdk->count("set_enable");
+  (void)expect_exception<std::logic_error>(
+      [&] { fixture.driver->set_enable(2, false); });
+  CHECK_EQ(fixture.sdk->count("set_enable"), enable_calls);
+
+  const int no_home_calls = fixture.sdk->count("set_move_no_home");
+  (void)expect_exception<std::logic_error>(
+      [&] { fixture.driver->set_move_no_home(0); });
+  CHECK_EQ(fixture.sdk->count("set_move_no_home"), no_home_calls);
+}
+
 void check_dof_mismatch_and_retry(LHandProModel model, int reported_total,
                                   int reported_active, int expected_total,
                                   int expected_active) {
@@ -227,6 +408,7 @@ void check_constructor_and_home_wait_validation() {
     CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
     CHECK_EQ(fixture.sdk->count("create"), 0);
     CHECK_EQ(fixture.transport->open_calls.load(), 0);
+    fixture.driver->check_health();
   }
   CHECK(fixture.driver->init_hand(false, false, 0.0F));
   fixture.driver->deinit_hand();
@@ -301,6 +483,8 @@ void check_models_and_initializing_callbacks() {
   };
 
   CHECK(six.driver->init_hand(false, false, 0.0F));
+  CHECK_EQ(six.driver->state_for_test(), DriverState::Ready);
+  six.driver->check_health();
   CHECK_EQ(six.sdk->hand_type, 1);
   CHECK_EQ(six.sdk->count("get_hand_type"), 2);
   CHECK_EQ(six.sdk->last_mode, 1);
@@ -393,25 +577,830 @@ void check_models_and_initializing_callbacks() {
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 11, 6, 21, 16);
 }
 
-void check_public_contracts_and_cleanup_order() {
+void check_ready_async_decode_faults() {
+  Fixture healthy;
+  CHECK(healthy.driver->init_hand(false, false, 0.0F));
+  const int healthy_decode_calls = healthy.sdk->count("decode_canfd");
+  CanFdFrame healthy_feedback;
+  healthy_feedback.id = 0x501;
+  healthy_feedback.len = 6;
+  healthy.transport->deliver(healthy_feedback);
+  CHECK_EQ(healthy.sdk->count("decode_canfd"), healthy_decode_calls + 1);
+  CHECK_EQ(healthy.driver->state_for_test(), DriverState::Ready);
+  healthy.driver->check_health();
+  healthy.driver->deinit_hand();
+
+  Fixture faulted;
+  CHECK(faulted.driver->init_hand(false, false, 0.0F));
+  faulted.sdk->fail_operation = "decode_canfd";
+  faulted.sdk->failure_code = 7;
+  CanFdFrame failed_feedback;
+  failed_feedback.id = 0x501;
+  failed_feedback.len = 8;
+  const int failed_decode_calls = faulted.sdk->count("decode_canfd");
+  faulted.transport->deliver(failed_feedback);
+  CHECK_EQ(faulted.sdk->count("decode_canfd"), failed_decode_calls + 1);
+  CHECK_EQ(faulted.driver->state_for_test(), DriverState::Faulted);
+  const auto first_fault = expect_exception<std::runtime_error>(
+      [&] { faulted.driver->check_health(); });
+  check_fault_message(first_fault, "decode_canfd", 7, "async");
+
+  faulted.sdk->failure_code = 9;
+  faulted.transport->deliver(failed_feedback);
+  CHECK_EQ(faulted.sdk->count("decode_canfd"), failed_decode_calls + 2);
+  CHECK_EQ(faulted.driver->state_for_test(), DriverState::Faulted);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { faulted.driver->check_health(); }),
+           first_fault);
+}
+
+void check_decode_exception_is_contained_as_async_fault() {
   Fixture fixture;
-  fixture.driver->move_motors(1);
-  fixture.driver->stop_motors(1);
-  fixture.driver->set_target_position(1, 100);
-  fixture.driver->set_target_angle(1, 10.0F);
-  fixture.driver->set_position_velocity(1, 20);
-  fixture.driver->set_max_current(1, 30);
-  fixture.driver->set_enable(1, true);
-  fixture.driver->home_motors(1);
-  fixture.driver->set_move_no_home(1);
-  fixture.driver->clear_alarm(1);
-  CHECK_EQ(fixture.sdk->count("move_motors"), 0);
-  CHECK_EQ(fixture.sdk->count("stop_motors"), 0);
-  CHECK_EQ(fixture.driver->get_now_position(1), 0);
-  CHECK_EQ(fixture.driver->get_now_angle(1), 0.0F);
-  CHECK_EQ(fixture.driver->get_now_status(1), 0);
-  CHECK_EQ(fixture.driver->get_now_current(1), 0);
-  CHECK_EQ(fixture.driver->get_now_alarm(1), 0);
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.sdk->throw_decode_exception = true;
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 15;
+  fixture.transport->deliver(feedback);
+
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 1);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", -1, "async");
+}
+
+void check_initializing_async_decode_fault_aborts_risky_init() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+  bool callback_checked = false;
+  fixture.sdk->during_initial_ex = [&] {
+    CanFdFrame feedback;
+    feedback.id = 0x501;
+    feedback.len = 4;
+    fixture.transport->deliver(feedback);
+
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+    const auto callback_fault = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    check_fault_message(callback_fault, "decode_canfd", 7, "async");
+    callback_checked = true;
+  };
+
+  CHECK(!fixture.driver->init_hand(true, true, 0.0F));
+  CHECK(callback_checked);
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 1);
+  CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
+  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+}
+
+void check_completed_async_fault_blocks_later_risky_init() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+
+  std::promise<void> get_dof_entered_promise;
+  auto get_dof_entered = get_dof_entered_promise.get_future();
+  std::promise<void> release_get_dof_promise;
+  auto release_get_dof = release_get_dof_promise.get_future().share();
+  std::atomic<bool> get_dof_blocked{false};
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "get_dof" && !get_dof_blocked.exchange(true)) {
+      get_dof_entered_promise.set_value();
+      release_get_dof.wait();
+    }
+  };
+
+  auto initialization = std::async(std::launch::async, [&] {
+    return fixture.driver->init_hand(true, true, 0.0F);
+  });
+  CHECK(get_dof_entered.wait_for(2s) == std::future_status::ready);
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 9;
+  auto receive = std::async(std::launch::async,
+                            [&] { fixture.transport->deliver(feedback); });
+  CHECK(receive.wait_for(2s) == std::future_status::ready);
+  receive.get();
+  CHECK(initialization.wait_for(50ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+
+  release_get_dof_promise.set_value();
+  CHECK(initialization.wait_for(2s) == std::future_status::ready);
+  CHECK(!initialization.get());
+  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+}
+
+void check_admitted_risky_init_serializes_async_fault() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+
+  std::promise<void> enable_entered_promise;
+  auto enable_entered = enable_entered_promise.get_future();
+  std::promise<void> release_enable_promise;
+  auto release_enable = release_enable_promise.get_future().share();
+  std::atomic<bool> enable_blocked{false};
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_enable" && !enable_blocked.exchange(true)) {
+      enable_entered_promise.set_value();
+      release_enable.wait();
+    }
+  };
+
+  auto initialization = std::async(std::launch::async, [&] {
+    return fixture.driver->init_hand(true, true, 0.0F);
+  });
+  CHECK(enable_entered.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Initializing);
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 10;
+  std::promise<void> receive_started_promise;
+  auto receive_started = receive_started_promise.get_future();
+  auto receive = std::async(std::launch::async, [&] {
+    receive_started_promise.set_value();
+    fixture.transport->deliver(feedback);
+  });
+  CHECK(receive_started.wait_for(2s) == std::future_status::ready);
+  CHECK(receive.wait_for(50ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Initializing);
+  fixture.driver->check_health();
+
+  release_enable_promise.set_value();
+  CHECK(receive.wait_for(2s) == std::future_status::ready);
+  receive.get();
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+
+  CHECK(initialization.wait_for(3s) == std::future_status::ready);
+  CHECK(!initialization.get());
+  CHECK_EQ(fixture.sdk->count_set_enable(true), 1);
+  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+}
+
+void check_async_fault_precedes_final_ready_transition() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+
+  std::promise<void> home_entered_promise;
+  auto home_entered = home_entered_promise.get_future();
+  std::promise<void> release_home_promise;
+  auto release_home = release_home_promise.get_future().share();
+  std::atomic<bool> home_blocked{false};
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "home_motors" && !home_blocked.exchange(true)) {
+      home_entered_promise.set_value();
+      release_home.wait();
+    }
+  };
+
+  auto initialization = std::async(std::launch::async, [&] {
+    return fixture.driver->init_hand(false, true, 0.25F);
+  });
+  CHECK(home_entered.wait_for(2s) == std::future_status::ready);
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 12;
+  std::promise<void> receive_started_promise;
+  auto receive_started = receive_started_promise.get_future();
+  auto receive = std::async(std::launch::async, [&] {
+    receive_started_promise.set_value();
+    fixture.transport->deliver(feedback);
+  });
+  CHECK(receive_started.wait_for(2s) == std::future_status::ready);
+  CHECK(receive.wait_for(50ms) == std::future_status::timeout);
+
+  release_home_promise.set_value();
+  CHECK(receive.wait_for(2s) == std::future_status::ready);
+  receive.get();
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+
+  CHECK(initialization.wait_for(2s) == std::future_status::ready);
+  CHECK(!initialization.get());
+  CHECK_EQ(fixture.sdk->count("home_motors"), 1);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+}
+
+void check_rx_queued_during_no_home_decodes_after_release() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+
+  std::promise<void> no_home_entered_promise;
+  auto no_home_entered = no_home_entered_promise.get_future();
+  std::promise<void> release_no_home_promise;
+  auto release_no_home = release_no_home_promise.get_future().share();
+  std::promise<void> decode_entered_promise;
+  auto decode_entered = decode_entered_promise.get_future();
+  std::promise<void> registration_entered_promise;
+  auto registration_entered = registration_entered_promise.get_future();
+  std::atomic<bool> no_home_blocked{false};
+  std::atomic<bool> decode_observed{false};
+  fixture.driver->set_rx_registered_hook_for_test(
+      [&] { registration_entered_promise.set_value(); });
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_move_no_home" &&
+        !no_home_blocked.exchange(true)) {
+      no_home_entered_promise.set_value();
+      release_no_home.wait();
+    } else if (operation == "decode_canfd" &&
+               !decode_observed.exchange(true)) {
+      decode_entered_promise.set_value();
+    }
+  };
+
+  auto initialization = std::async(std::launch::async, [&] {
+    return fixture.driver->init_hand(false, false, 0.0F);
+  });
+  CHECK(no_home_entered.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 1);
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 13;
+  std::promise<void> receive_started_promise;
+  auto receive_started = receive_started_promise.get_future();
+  auto receive = std::async(std::launch::async, [&] {
+    receive_started_promise.set_value();
+    fixture.transport->deliver(feedback);
+  });
+  CHECK(receive_started.wait_for(2s) == std::future_status::ready);
+  CHECK(registration_entered.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(fixture.driver->pending_rx_callbacks_for_test(), 1U);
+  CHECK(decode_entered.wait_for(50ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 0);
+  CHECK(receive.wait_for(50ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Initializing);
+  fixture.driver->check_health();
+
+  release_no_home_promise.set_value();
+  CHECK(decode_entered.wait_for(2s) == std::future_status::ready);
+  CHECK(wait_until([&] { return fixture.sdk->count("decode_canfd") == 1; }));
+  CHECK(receive.wait_for(2s) == std::future_status::ready);
+  receive.get();
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+
+  CHECK(initialization.wait_for(2s) == std::future_status::ready);
+  CHECK(!initialization.get());
+  CHECK(fixture.driver->state_for_test() != DriverState::Ready);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 1);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+}
+
+void check_registered_rx_blocks_final_ready_transition() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+
+  std::promise<void> transition_entered_promise;
+  auto transition_entered = transition_entered_promise.get_future();
+  std::promise<void> release_transition_promise;
+  auto release_transition = release_transition_promise.get_future().share();
+  std::promise<void> registration_entered_promise;
+  auto registration_entered = registration_entered_promise.get_future();
+  std::promise<void> release_registration_promise;
+  auto release_registration = release_registration_promise.get_future().share();
+  fixture.driver->set_ready_transition_hook_for_test([&] {
+    transition_entered_promise.set_value();
+    release_transition.wait();
+  });
+  fixture.driver->set_rx_registered_hook_for_test([&] {
+    registration_entered_promise.set_value();
+    release_registration.wait();
+  });
+
+  auto initialization = std::async(std::launch::async, [&] {
+    return fixture.driver->init_hand(false, false, 0.0F);
+  });
+  CHECK(transition_entered.wait_for(2s) == std::future_status::ready);
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 14;
+  auto receive = std::async(std::launch::async,
+                            [&] { fixture.transport->deliver(feedback); });
+  CHECK(registration_entered.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(fixture.driver->pending_rx_callbacks_for_test(), 1U);
+
+  release_transition_promise.set_value();
+  CHECK(initialization.wait_for(50ms) == std::future_status::timeout);
+  release_registration_promise.set_value();
+  CHECK(initialization.wait_for(2s) == std::future_status::ready);
+  const bool initialized = initialization.get();
+  CHECK(receive.wait_for(2s) == std::future_status::ready);
+  receive.get();
+
+  CHECK(!initialized);
+  CHECK(fixture.driver->state_for_test() != DriverState::Ready);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+}
+
+void check_final_commit_excludes_late_rx_registration() {
+  Fixture fixture;
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 7;
+
+  std::promise<void> final_commit_entered_promise;
+  auto final_commit_entered = final_commit_entered_promise.get_future();
+  std::promise<void> release_final_commit_promise;
+  auto release_final_commit = release_final_commit_promise.get_future().share();
+  std::promise<void> entry_attempted_promise;
+  auto entry_attempted = entry_attempted_promise.get_future();
+  std::promise<void> release_entry_attempt_promise;
+  auto release_entry_attempt = release_entry_attempt_promise.get_future().share();
+  std::promise<void> registered_promise;
+  auto registered = registered_promise.get_future();
+
+  fixture.driver->set_final_commit_hook_for_test([&] {
+    final_commit_entered_promise.set_value();
+    release_final_commit.wait();
+  });
+  fixture.driver->set_rx_entry_attempt_hook_for_test([&] {
+    entry_attempted_promise.set_value();
+    release_entry_attempt.wait();
+  });
+  fixture.driver->set_rx_registered_hook_for_test(
+      [&] { registered_promise.set_value(); });
+
+  auto initialization = std::async(std::launch::async, [&] {
+    return fixture.driver->init_hand(false, false, 0.0F);
+  });
+  CHECK(final_commit_entered.wait_for(2s) == std::future_status::ready);
+  CHECK(fixture.driver->rx_entry_registration_locked_for_test());
+
+  CanFdFrame feedback;
+  feedback.id = 0x501;
+  feedback.len = 16;
+  auto receive = std::async(std::launch::async,
+                            [&] { fixture.transport->deliver(feedback); });
+  CHECK(entry_attempted.wait_for(2s) == std::future_status::ready);
+  release_entry_attempt_promise.set_value();
+  CHECK(registered.wait_for(50ms) == std::future_status::timeout);
+
+  release_final_commit_promise.set_value();
+  CHECK(initialization.wait_for(2s) == std::future_status::ready);
+  CHECK(initialization.get());
+  CHECK(registered.wait_for(2s) == std::future_status::ready);
+  CHECK(receive.wait_for(2s) == std::future_status::ready);
+  receive.get();
+
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+}
+
+void check_health_contract_and_state_guards() {
+  DofSnapshotProbe probe;
+  const auto unsupported = expect_exception<std::logic_error>(
+      [&] { probe.check_health(); });
+  CHECK(unsupported.find("health check unsupported") != std::string::npos);
+
+  Fixture fixture;
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+  fixture.driver->check_health();
+  check_not_ready_calls_throw_without_sdk(fixture);
+
+  int total = -1;
+  int active = -1;
+  fixture.driver->get_dof(total, active);
+  CHECK_EQ(total, 0);
+  CHECK_EQ(active, 0);
+  CHECK_EQ(fixture.driver->get_can_name(), std::string("can-test"));
+  fixture.driver->deinit_hand();
+  CHECK_EQ(fixture.sdk->count("destroy"), 0);
+
+  bool initializing_checked = false;
+  fixture.sdk->during_initial_ex = [&] {
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Initializing);
+    fixture.driver->check_health();
+    check_not_ready_calls_throw_without_sdk(fixture);
+    initializing_checked = true;
+  };
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  CHECK(initializing_checked);
+  fixture.driver->check_health();
+
+  bool stopping_checked = false;
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation != "stop_monitor") return;
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Stopping);
+    fixture.driver->check_health();
+    check_not_ready_calls_throw_without_sdk(fixture);
+    stopping_checked = true;
+  };
+  fixture.driver->deinit_hand();
+  CHECK(stopping_checked);
+  fixture.driver->check_health();
+}
+
+void check_ready_sdk_failures_are_faults() {
+  for (const auto& call : all_public_sdk_calls()) {
+    Fixture fixture;
+    CHECK(fixture.driver->init_hand(false, false, 0.0F));
+    fixture.driver->check_health();
+    const int calls_before = fixture.sdk->count(call.operation);
+    fixture.sdk->fail_operation = call.operation;
+
+    const auto call_error =
+        expect_exception<std::runtime_error>([&] { call.invoke(fixture); });
+    check_fault_message(call_error, call.operation, 7, "sync");
+    CHECK_EQ(fixture.sdk->count(call.operation), calls_before + 1);
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+
+    const auto health_error = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    CHECK_EQ(health_error, call_error);
+  }
+
+  Fixture zero_feedback;
+  CHECK(zero_feedback.driver->init_hand(false, false, 0.0F));
+  zero_feedback.sdk->int_feedback = 0;
+  zero_feedback.sdk->angle_feedback = 0.0F;
+  CHECK_EQ(zero_feedback.driver->get_now_position(1), 0);
+  CHECK_EQ(zero_feedback.driver->get_now_angle(1), 0.0F);
+  CHECK_EQ(zero_feedback.driver->get_now_status(1), 0);
+  CHECK_EQ(zero_feedback.driver->get_now_current(1), 0);
+  CHECK_EQ(zero_feedback.driver->get_now_alarm(1), 0);
+  CHECK_EQ(zero_feedback.driver->state_for_test(), DriverState::Ready);
+  zero_feedback.driver->check_health();
+}
+
+std::vector<DriverCall> faulted_blocked_calls() {
+  auto calls = all_public_sdk_calls();
+  calls.erase(std::remove_if(calls.begin(), calls.end(),
+                             [](const DriverCall& call) {
+                               return call.operation == "stop_motors";
+                             }),
+              calls.end());
+  return calls;
+}
+
+void check_faulted_call_policy_and_sticky_fault() {
+  Fixture fixture;
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.sdk->fail_operation = "move_motors";
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->move_motors(1); });
+  check_fault_message(root, "move_motors", 7, "sync");
+  fixture.sdk->fail_operation.clear();
+
+  for (const auto& call : faulted_blocked_calls()) {
+    const int calls_before = fixture.sdk->count(call.operation);
+    const auto error =
+        expect_exception<std::runtime_error>([&] { call.invoke(fixture); });
+    CHECK_EQ(error, root);
+    CHECK_EQ(fixture.sdk->count(call.operation), calls_before);
+  }
+
+  const int stop_before = fixture.sdk->count("stop_motors");
+  fixture.driver->stop_motors(5);
+  CHECK_EQ(fixture.sdk->count("stop_motors"), stop_before + 1);
+  CHECK_EQ(fixture.sdk->last_stop_id, 5);
+
+  const int enable_before = fixture.sdk->count("set_enable");
+  fixture.driver->set_enable(6, false);
+  CHECK_EQ(fixture.sdk->count("set_enable"), enable_before + 1);
+  CHECK_EQ(fixture.sdk->last_enable_id, 6);
+  CHECK(!fixture.sdk->last_enable);
+
+  const int no_home_before = fixture.sdk->count("set_move_no_home");
+  fixture.driver->set_move_no_home(0);
+  CHECK_EQ(fixture.sdk->count("set_move_no_home"), no_home_before + 1);
+  CHECK_EQ(fixture.sdk->last_move_no_home, 0);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+  fixture.driver->deinit_hand();
+
+  const std::vector<DriverCall> safety_calls{
+      {"stop_motors", [](Fixture& target) {
+         target.driver->stop_motors(7);
+       }},
+      {"set_enable", [](Fixture& target) {
+         target.driver->set_enable(7, false);
+       }},
+      {"set_move_no_home", [](Fixture& target) {
+         target.driver->set_move_no_home(0);
+       }},
+  };
+  for (const auto& safety : safety_calls) {
+    Fixture target;
+    CHECK(target.driver->init_hand(false, false, 0.0F));
+    target.sdk->fail_operation = "move_motors";
+    const auto first = expect_exception<std::runtime_error>(
+        [&] { target.driver->move_motors(1); });
+    target.sdk->fail_operation = safety.operation;
+    const int calls_before = target.sdk->count(safety.operation);
+
+    const auto safety_error = expect_exception<std::runtime_error>(
+        [&] { safety.invoke(target); });
+    check_fault_message(safety_error, safety.operation, 7, "sync");
+    CHECK_EQ(target.sdk->count(safety.operation), calls_before + 1);
+    CHECK_EQ(expect_exception<std::runtime_error>(
+                 [&] { target.driver->check_health(); }),
+             first);
+  }
+}
+
+void check_fault_epoch_reset() {
+  Fixture fixture;
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.sdk->fail_operation = "get_now_alarm";
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { (void)fixture.driver->get_now_alarm(1); });
+  CHECK(!fixture.driver->init_hand(false, false, 0.0F));
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+
+  fixture.sdk->fail_operation.clear();
+  fixture.driver->deinit_hand();
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+  CHECK_EQ(expect_exception<std::runtime_error>(
+               [&] { fixture.driver->check_health(); }),
+           root);
+
+  bool healthy_during_initialization = false;
+  fixture.sdk->during_initial_ex = [&] {
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Initializing);
+    fixture.driver->check_health();
+    healthy_during_initialization = true;
+  };
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  CHECK(healthy_during_initialization);
+  fixture.driver->check_health();
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+}
+
+void check_cleanup_threshold_and_late_init_matrix() {
+  const std::vector<std::string> early_failures{
+      "create", "set_hand_type", "get_hand_type", "transport.open"};
+  for (const auto& failure : early_failures) {
+    Fixture fixture;
+    fixture.fail(failure);
+    CHECK(!fixture.driver->init_hand(false, false, 0.0F));
+    CHECK_EQ(fixture.sdk->count_stop_motors(0), 0);
+    CHECK_EQ(fixture.sdk->count_set_enable(0, false), 0);
+    CHECK_EQ(fixture.sdk->count_set_move_no_home(0), 0);
+    const int code = failure == "create" || failure == "transport.open" ? -1
+                                                                          : 7;
+    const auto root = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    check_fault_message(root, failure, code, "sync");
+  }
+
+  Fixture model_mismatch;
+  model_mismatch.sdk->reported_hand_type_override = 1;
+  CHECK(!model_mismatch.driver->init_hand(false, false, 0.0F));
+  CHECK_EQ(model_mismatch.sdk->count_stop_motors(0), 0);
+  CHECK_EQ(model_mismatch.sdk->count_set_enable(0, false), 0);
+  CHECK_EQ(model_mismatch.sdk->count_set_move_no_home(0), 0);
+  const auto mismatch_root = expect_exception<std::runtime_error>(
+      [&] { model_mismatch.driver->check_health(); });
+  check_fault_message(mismatch_root, "get_hand_type", -2, "sync");
+
+  struct LateFailure {
+    std::string name;
+    std::string operation;
+    bool enable;
+    bool home;
+    std::function<void(FakeLHandProSdk&)> configure;
+  };
+  const std::vector<LateFailure> late_failures{
+      {"initial_ex", "initial_ex", false, false,
+       [](FakeLHandProSdk& sdk) { sdk.script_result("initial_ex", 7); }},
+      {"second model", "get_hand_type", false, false,
+       [](FakeLHandProSdk& sdk) {
+         sdk.script_result("get_hand_type", 0);
+         sdk.script_result("get_hand_type", 7);
+       }},
+      {"DOF", "get_dof", false, false,
+       [](FakeLHandProSdk& sdk) { sdk.script_result("get_dof", 7); }},
+      {"enable", "set_enable", true, false,
+       [](FakeLHandProSdk& sdk) {
+         sdk.script_result("set_enable:true", 7);
+       }},
+      {"home after enable", "home_motors", true, true,
+       [](FakeLHandProSdk& sdk) { sdk.script_result("home_motors", 7); }},
+      {"no-home after enable and home", "set_move_no_home", true, true,
+       [](FakeLHandProSdk& sdk) {
+         sdk.script_result("set_move_no_home:1", 7);
+       }},
+  };
+
+  for (const auto& failure : late_failures) {
+    Fixture fixture;
+    failure.configure(*fixture.sdk);
+    int safety_observations = 0;
+    fixture.sdk->before_call = [&](const std::string& operation) {
+      check_cleanup_resources_are_live(fixture, safety_observations,
+                                       operation);
+    };
+
+    CHECK(!fixture.driver->init_hand(failure.enable, failure.home, 0.0F));
+    CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
+    check_safety_trio_once(fixture);
+    check_safety_trio_order(fixture);
+    CHECK_EQ(safety_observations, 3);
+    check_fully_released(fixture);
+    const auto root = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    check_fault_message(root, failure.operation, 7, "sync");
+  }
+}
+
+void check_cleanup_failure_matrix() {
+  struct Injection {
+    std::string key;
+    std::string operation;
+    int code;
+  };
+  struct Scenario {
+    std::vector<Injection> injections;
+    std::string first_operation;
+    int first_code;
+  };
+  const std::vector<Scenario> scenarios{
+      {{{"stop_motors:0", "stop_motors", 31}}, "stop_motors", 31},
+      {{{"set_enable:false", "set_enable", 32}}, "set_enable", 32},
+      {{{"set_move_no_home:0", "set_move_no_home", 33}},
+       "set_move_no_home", 33},
+      {{{"stop_motors:0", "stop_motors", 31},
+        {"set_enable:false", "set_enable", 32},
+        {"set_move_no_home:0", "set_move_no_home", 33}},
+       "stop_motors", 31},
+  };
+
+  for (const auto& scenario : scenarios) {
+    Fixture fixture;
+    CHECK(fixture.driver->init_hand(false, false, 0.0F));
+    for (const auto& injection : scenario.injections) {
+      fixture.sdk->script_result(injection.key, injection.code);
+    }
+
+    int safety_observations = 0;
+    fixture.sdk->before_call = [&](const std::string& operation) {
+      check_cleanup_resources_are_live(fixture, safety_observations,
+                                       operation);
+    };
+    const auto cleanup_error = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->deinit_hand(); });
+    check_fault_message(cleanup_error, scenario.first_operation,
+                        scenario.first_code, "cleanup");
+    check_safety_trio_once(fixture);
+    check_safety_trio_order(fixture);
+    CHECK_EQ(safety_observations, 3);
+    check_fully_released(fixture);
+    const auto health_error = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    CHECK(health_error.rfind(cleanup_error, 0) == 0);
+    for (const auto& injection : scenario.injections) {
+      check_fault_report_entry(health_error, injection.operation,
+                               injection.code, "cleanup");
+    }
+
+    fixture.driver->deinit_hand();
+    CHECK_EQ(safety_observations, 3);
+    fixture.driver.reset();
+    CHECK_EQ(safety_observations, 3);
+  }
+}
+
+void check_failed_init_cleanup_preserves_primary() {
+  Fixture synchronous;
+  synchronous.sdk->script_result("initial_ex", 7);
+  synchronous.sdk->script_result("stop_motors:0", 31);
+  synchronous.sdk->script_result("set_enable:false", 32);
+  synchronous.sdk->script_result("set_move_no_home:0", 33);
+  CHECK(!synchronous.driver->init_hand(false, false, 0.0F));
+  check_safety_trio_once(synchronous);
+  check_fully_released(synchronous);
+  const auto synchronous_root = expect_exception<std::runtime_error>(
+      [&] { synchronous.driver->check_health(); });
+  CHECK(synchronous_root.rfind(
+            fault_message("initial_ex", 7, "sync"), 0) == 0);
+  check_fault_report_entry(synchronous_root, "initial_ex", 7, "sync");
+  check_fault_report_entry(synchronous_root, "stop_motors", 31, "cleanup");
+  check_fault_report_entry(synchronous_root, "set_enable", 32, "cleanup");
+  check_fault_report_entry(synchronous_root, "set_move_no_home", 33,
+                           "cleanup");
+
+  Fixture asynchronous;
+  asynchronous.sdk->fail_operation = "decode_canfd";
+  asynchronous.sdk->failure_code = 7;
+  asynchronous.sdk->script_result("stop_motors:0", 31);
+  asynchronous.sdk->script_result("set_enable:false", 32);
+  asynchronous.sdk->script_result("set_move_no_home:0", 33);
+  asynchronous.sdk->during_initial_ex = [&] {
+    CanFdFrame frame;
+    frame.id = 0x501;
+    frame.len = 5;
+    asynchronous.transport->deliver(frame);
+  };
+  CHECK(!asynchronous.driver->init_hand(true, true, 0.0F));
+  CHECK_EQ(asynchronous.sdk->count_set_enable(true), 0);
+  CHECK_EQ(asynchronous.sdk->count("home_motors"), 0);
+  CHECK_EQ(asynchronous.sdk->count_set_move_no_home(1), 0);
+  check_safety_trio_once(asynchronous);
+  check_fully_released(asynchronous);
+  const auto asynchronous_root = expect_exception<std::runtime_error>(
+      [&] { asynchronous.driver->check_health(); });
+  CHECK(asynchronous_root.rfind(
+            fault_message("decode_canfd", 7, "async"), 0) == 0);
+  check_fault_report_entry(asynchronous_root, "decode_canfd", 7, "async");
+  check_fault_report_entry(asynchronous_root, "stop_motors", 31, "cleanup");
+  check_fault_report_entry(asynchronous_root, "set_enable", 32, "cleanup");
+  check_fault_report_entry(asynchronous_root, "set_move_no_home", 33,
+                           "cleanup");
+}
+
+void check_faulted_deinit_cleanup_and_epoch_reset() {
+  Fixture fixture;
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.sdk->fail_operation = "move_motors";
+  const auto primary = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->move_motors(1); });
+  check_fault_message(primary, "move_motors", 7, "sync");
+  fixture.sdk->fail_operation.clear();
+  fixture.sdk->script_result("set_enable:false", 32);
+
+  const auto cleanup_error = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->deinit_hand(); });
+  check_fault_message(cleanup_error, "set_enable", 32, "cleanup");
+  check_safety_trio_once(fixture);
+  check_fully_released(fixture);
+  const auto health_error = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  CHECK(health_error.rfind(primary, 0) == 0);
+  check_fault_report_entry(health_error, "move_motors", 7, "sync");
+  check_fault_report_entry(health_error, "set_enable", 32, "cleanup");
+
+  fixture.driver->deinit_hand();
+  fixture.sdk->before_call = {};
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.driver->check_health();
+  fixture.driver->deinit_hand();
+}
+
+void check_destructor_contains_cleanup_failures() {
+  Fixture fixture;
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  fixture.sdk->script_result("stop_motors:0", 31);
+  fixture.sdk->script_result("set_enable:false", 32);
+  fixture.sdk->script_result("set_move_no_home:0", 33);
+  int safety_observations = 0;
+  auto* driver = fixture.driver.get();
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    check_cleanup_resources_are_live(fixture, safety_observations, operation,
+                                     driver);
+  };
+
+  fixture.driver.reset();
+  CHECK_EQ(safety_observations, 3);
+}
+
+void check_public_successes_and_cleanup_order() {
+  Fixture fixture;
 
   CHECK(fixture.driver->init_hand(false, false, 0.0F));
   fixture.driver->move_motors(1);
@@ -440,21 +1429,7 @@ void check_public_contracts_and_cleanup_order() {
   CHECK_EQ(fixture.driver->get_now_status(1), fixture.sdk->int_feedback);
   CHECK_EQ(fixture.driver->get_now_current(1), fixture.sdk->int_feedback);
   CHECK_EQ(fixture.driver->get_now_alarm(1), fixture.sdk->int_feedback);
-
-  fixture.sdk->fail_operation = "get_now_position";
-  CHECK_EQ(fixture.driver->get_now_position(1), 0);
-  fixture.sdk->fail_operation = "get_now_angle";
-  CHECK_EQ(fixture.driver->get_now_angle(1), 0.0F);
-  fixture.sdk->fail_operation = "get_now_status";
-  CHECK_EQ(fixture.driver->get_now_status(1), 0);
-  fixture.sdk->fail_operation = "get_now_current";
-  CHECK_EQ(fixture.driver->get_now_current(1), 0);
-  fixture.sdk->fail_operation = "get_now_alarm";
-  CHECK_EQ(fixture.driver->get_now_alarm(1), 0);
-  fixture.sdk->fail_operation = "move_motors";
-  fixture.driver->move_motors(1);
-  CHECK_EQ(fixture.sdk->count("move_motors"), 2);
-  fixture.sdk->fail_operation.clear();
+  fixture.driver->check_health();
 
   fixture.sdk->before_call = [&](const std::string& operation) {
     if (operation == "stop_monitor") {
@@ -492,9 +1467,11 @@ void check_public_contracts_and_cleanup_order() {
   CHECK_EQ(fixture.transport->close_calls.load(), 1);
 
   const int stopped_calls = fixture.sdk->count("stop_motors");
-  fixture.driver->stop_motors(1);
+  (void)expect_exception<std::logic_error>(
+      [&] { fixture.driver->stop_motors(1); });
   CHECK_EQ(fixture.sdk->count("stop_motors"), stopped_calls);
-  CHECK_EQ(fixture.driver->get_now_position(1), 0);
+  (void)expect_exception<std::logic_error>(
+      [&] { (void)fixture.driver->get_now_position(1); });
   fixture.driver->deinit_hand();
   CHECK_EQ(fixture.sdk->count("destroy"), 1);
   CHECK_EQ(fixture.transport->close_calls.load(), 1);
@@ -608,7 +1585,8 @@ void check_public_call_drain() {
   CHECK(cleanup.wait_for(50ms) == std::future_status::timeout);
 
   const int stop_calls = fixture.sdk->count("stop_motors");
-  fixture.driver->stop_motors(1);
+  (void)expect_exception<std::logic_error>(
+      [&] { fixture.driver->stop_motors(1); });
   CHECK_EQ(fixture.sdk->count("stop_motors"), stop_calls);
   CHECK_EQ(fixture.sdk->count("destroy"), 0);
 
@@ -666,6 +1644,12 @@ void check_single_active_instance() {
   CHECK_EQ(loser->driver->state_for_test(), DriverState::Created);
   CHECK_EQ(loser->sdk->count("create"), 0);
   CHECK_EQ(loser->transport->open_calls.load(), 0);
+  CHECK_EQ(loser->sdk->count_stop_motors(0), 0);
+  CHECK_EQ(loser->sdk->count_set_enable(0, false), 0);
+  CHECK_EQ(loser->sdk->count_set_move_no_home(0), 0);
+  const auto loser_root = expect_exception<std::runtime_error>(
+      [&] { loser->driver->check_health(); });
+  check_fault_message(loser_root, "claim_process_slot", -1, "sync");
 
   winner->driver->deinit_hand();
   CHECK(loser->driver->init_hand(false, false, 0.0F));
@@ -772,7 +1756,25 @@ int main() {
   check_constructor_and_home_wait_validation();
   check_failure_rollback_and_retry();
   check_models_and_initializing_callbacks();
-  check_public_contracts_and_cleanup_order();
+  check_ready_async_decode_faults();
+  check_decode_exception_is_contained_as_async_fault();
+  check_initializing_async_decode_fault_aborts_risky_init();
+  check_completed_async_fault_blocks_later_risky_init();
+  check_admitted_risky_init_serializes_async_fault();
+  check_async_fault_precedes_final_ready_transition();
+  check_rx_queued_during_no_home_decodes_after_release();
+  check_registered_rx_blocks_final_ready_transition();
+  check_final_commit_excludes_late_rx_registration();
+  check_health_contract_and_state_guards();
+  check_ready_sdk_failures_are_faults();
+  check_faulted_call_policy_and_sticky_fault();
+  check_fault_epoch_reset();
+  check_failed_init_cleanup_preserves_primary();
+  check_cleanup_threshold_and_late_init_matrix();
+  check_cleanup_failure_matrix();
+  check_faulted_deinit_cleanup_and_epoch_reset();
+  check_destructor_contains_cleanup_failures();
+  check_public_successes_and_cleanup_order();
   check_rx_drain();
   check_tx_drain_and_old_callback_silence();
   check_public_call_drain();

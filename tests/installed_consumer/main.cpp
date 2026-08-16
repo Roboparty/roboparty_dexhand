@@ -5,5 +5,7 @@
 
 int main() {
   auto hand = HandDriver::create_hand("LHandPro", "canfd", "can0");
-  return hand && hand->get_can_name() == "can0" ? 0 : 1;
+  if (!hand) return 1;
+  hand->check_health();
+  return hand->get_can_name() == "can0" ? 0 : 1;
 }

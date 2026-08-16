@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 
 /**
@@ -149,6 +150,11 @@ class HandDriver {
 
     /// CAN interface name (e.g. "can0").
     virtual std::string get_can_name() { return can_interface_; }
+
+    /// Throw if the driver has an unhealthy or unsupported health state.
+    virtual void check_health() const {
+        throw std::logic_error("HandDriver health check unsupported");
+    }
 
    protected:
     std::shared_ptr<spdlog::logger> logger_;

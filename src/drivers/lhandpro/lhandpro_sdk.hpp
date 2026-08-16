@@ -21,7 +21,7 @@ class LHandProSdk {
   virtual void stop_monitor() noexcept = 0;
   virtual void close() noexcept = 0;
   virtual int decode_canfd(unsigned int id, const unsigned char* data,
-                           int size) noexcept = 0;
+                           int size) = 0;
   virtual int get_dof(int& total, int& active) noexcept = 0;
   virtual int move_motors(int id) noexcept = 0;
   virtual int stop_motors(int id) noexcept = 0;

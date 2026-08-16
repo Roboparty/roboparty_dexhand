@@ -6,9 +6,12 @@
 #include "drivers/lhandpro/lhandpro_sdk.hpp"
 
 #include <algorithm>
+#include <deque>
 #include <functional>
 #include <mutex>
+#include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -17,6 +20,7 @@ namespace roboparty::dexhand::detail {
 class FakeLHandProSdk final : public LHandProSdk {
  public:
   std::string fail_operation;
+  int failure_code{7};
   int hand_type{0};
   int total_dof{11};
   int active_dof{6};
@@ -28,6 +32,7 @@ class FakeLHandProSdk final : public LHandProSdk {
   std::function<void(const std::string&)> before_call;
   std::function<void()> during_initial_ex;
   int reported_hand_type_override{-1};
+  bool throw_decode_exception{false};
 
   std::vector<std::string> event_snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -37,6 +42,43 @@ class FakeLHandProSdk final : public LHandProSdk {
   int count(const std::string& operation) const {
     const auto copy = event_snapshot();
     return static_cast<int>(std::count(copy.begin(), copy.end(), operation));
+  }
+
+  int count_set_enable(bool enable) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return static_cast<int>(std::count_if(
+        set_enable_arguments_.begin(), set_enable_arguments_.end(),
+        [enable](const auto& argument) { return argument.second == enable; }));
+  }
+
+  int count_set_enable(int id, bool enable) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return static_cast<int>(std::count(
+        set_enable_arguments_.begin(), set_enable_arguments_.end(),
+        std::make_pair(id, enable)));
+  }
+
+  int count_set_move_no_home(int enable) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return static_cast<int>(
+        std::count(set_move_no_home_arguments_.begin(),
+                   set_move_no_home_arguments_.end(), enable));
+  }
+
+  int count_stop_motors(int id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return static_cast<int>(std::count(stop_motors_arguments_.begin(),
+                                       stop_motors_arguments_.end(), id));
+  }
+
+  void script_result(const std::string& operation, int code) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    scripted_results_[operation].push_back(code);
+  }
+
+  void clear_scripts() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    scripted_results_.clear();
   }
 
   bool create() noexcept override {
@@ -96,8 +138,12 @@ class FakeLHandProSdk final : public LHandProSdk {
 
   void close() noexcept override { record_("close"); }
 
-  int decode_canfd(unsigned int, const unsigned char*, int size) noexcept override {
+  int decode_canfd(unsigned int, const unsigned char*, int size) override {
     last_decode_size = size;
+    if (throw_decode_exception) {
+      record_("decode_canfd");
+      throw std::runtime_error("decode failure");
+    }
     return result_("decode_canfd");
   }
 
@@ -111,7 +157,14 @@ class FakeLHandProSdk final : public LHandProSdk {
   }
 
   int move_motors(int) noexcept override { return result_("move_motors"); }
-  int stop_motors(int) noexcept override { return result_("stop_motors"); }
+  int stop_motors(int id) noexcept override {
+    last_stop_id = id;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stop_motors_arguments_.push_back(id);
+    }
+    return result_("stop_motors", "stop_motors:" + std::to_string(id));
+  }
 
   int set_target_position(int, int) noexcept override {
     return result_("set_target_position");
@@ -129,11 +182,28 @@ class FakeLHandProSdk final : public LHandProSdk {
     return result_("set_max_current");
   }
 
-  int set_enable(int, bool) noexcept override { return result_("set_enable"); }
+  int set_enable(int id, bool enable) noexcept override {
+    last_enable_id = id;
+    last_enable = enable;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      set_enable_arguments_.emplace_back(id, enable);
+    } catch (...) {
+    }
+    return result_("set_enable",
+                   enable ? "set_enable:true" : "set_enable:false");
+  }
   int home_motors(int) noexcept override { return result_("home_motors"); }
 
-  int set_move_no_home(int) noexcept override {
-    return result_("set_move_no_home");
+  int set_move_no_home(int enable) noexcept override {
+    last_move_no_home = enable;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      set_move_no_home_arguments_.push_back(enable);
+    } catch (...) {
+    }
+    return result_("set_move_no_home",
+                   "set_move_no_home:" + std::to_string(enable));
   }
 
   int get_now_position(int, int& value) noexcept override {
@@ -164,13 +234,43 @@ class FakeLHandProSdk final : public LHandProSdk {
   int clear_alarm(int) noexcept override { return result_("clear_alarm"); }
 
   int last_decode_size{-1};
+  int last_stop_id{-1};
+  int last_enable_id{-1};
+  bool last_enable{false};
+  int last_move_no_home{-1};
   int int_feedback{123};
   float angle_feedback{12.5F};
 
  private:
-  int result_(const std::string& operation) noexcept {
+  int result_(const std::string& operation,
+              const std::string& qualified_operation = {}) noexcept {
     record_(operation);
-    return fail_operation == operation ? 7 : 0;
+    return scripted_result_(operation, qualified_operation);
+  }
+
+  int scripted_result_(const std::string& operation,
+                       const std::string& qualified_operation) noexcept {
+    int outcome = 0;
+    bool scripted = false;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto take = [&](const std::string& key) {
+        const auto found = scripted_results_.find(key);
+        if (found == scripted_results_.end() || found->second.empty()) {
+          return false;
+        }
+        outcome = found->second.front();
+        found->second.pop_front();
+        if (found->second.empty()) scripted_results_.erase(found);
+        return true;
+      };
+      if (!qualified_operation.empty()) scripted = take(qualified_operation);
+      if (!scripted) scripted = take(operation);
+    } catch (...) {
+      return fail_operation == operation ? failure_code : 0;
+    }
+    if (scripted) return outcome;
+    return fail_operation == operation ? failure_code : 0;
   }
 
   void record_(const std::string& operation) noexcept {
@@ -184,6 +284,10 @@ class FakeLHandProSdk final : public LHandProSdk {
 
   mutable std::mutex mutex_;
   std::vector<std::string> events_;
+  std::vector<int> stop_motors_arguments_;
+  std::vector<std::pair<int, bool>> set_enable_arguments_;
+  std::vector<int> set_move_no_home_arguments_;
+  std::unordered_map<std::string, std::deque<int>> scripted_results_;
 };
 
 }  // namespace roboparty::dexhand::detail

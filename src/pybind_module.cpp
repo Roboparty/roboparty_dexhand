@@ -62,6 +62,7 @@ PYBIND11_MODULE(dexhand_py, module) {
            py::arg("finger_id"))
       .def("clear_alarm", &HandDriver::clear_alarm,
            py::arg("finger_id") = 0)
+      .def("check_health", &HandDriver::check_health)
       .def("get_dof", [](HandDriver& self) {
         int total = 0;
         int active = 0;

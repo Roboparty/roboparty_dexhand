@@ -47,6 +47,7 @@ class DexhandApiTest(unittest.TestCase):
             'home_motors', 'set_move_no_home', 'get_now_position',
             'get_now_angle', 'get_now_status', 'get_now_current',
             'get_now_alarm', 'clear_alarm', 'get_dof', 'get_can_name',
+            'check_health',
         }
         public_names = {
             name for name in dir(dexhand_py.HandDriver)
@@ -56,6 +57,46 @@ class DexhandApiTest(unittest.TestCase):
 
     def test_vendor_subclass_is_not_exported(self):
         self.assertFalse(hasattr(dexhand_py, 'LHandProDriver'))
+
+    def test_constructed_hand_is_healthy_without_initialization(self):
+        hand = dexhand_py.HandDriver.create_hand(
+            'LHandPro', 'canfd', 'no-such-can-interface')
+        self.assertIsNone(hand.check_health())
+
+    def test_not_ready_commands_raise_without_initialization(self):
+        hand = dexhand_py.HandDriver.create_hand(
+            'LHandPro', 'canfd', 'no-such-can-interface')
+        commands = {
+            'move_motors': lambda: hand.move_motors(),
+            'stop_motors': lambda: hand.stop_motors(),
+            'set_target_position': lambda: hand.set_target_position(1, 100),
+            'set_target_angle': lambda: hand.set_target_angle(1, 10.0),
+            'set_position_velocity': lambda: hand.set_position_velocity(1, 20),
+            'set_max_current': lambda: hand.set_max_current(1, 30),
+            'set_enable': lambda: hand.set_enable(0, False),
+            'home_motors': lambda: hand.home_motors(),
+            'set_move_no_home': lambda: hand.set_move_no_home(0),
+            'clear_alarm': lambda: hand.clear_alarm(),
+        }
+        for name, invoke in commands.items():
+            with self.subTest(name=name):
+                with self.assertRaises(RuntimeError):
+                    invoke()
+
+    def test_not_ready_feedback_getters_raise_without_initialization(self):
+        hand = dexhand_py.HandDriver.create_hand(
+            'LHandPro', 'canfd', 'no-such-can-interface')
+        getters = {
+            'get_now_position': lambda: hand.get_now_position(1),
+            'get_now_angle': lambda: hand.get_now_angle(1),
+            'get_now_status': lambda: hand.get_now_status(1),
+            'get_now_current': lambda: hand.get_now_current(1),
+            'get_now_alarm': lambda: hand.get_now_alarm(1),
+        }
+        for name, invoke in getters.items():
+            with self.subTest(name=name):
+                with self.assertRaises(RuntimeError):
+                    invoke()
 
 
 class ManualHardwareHelperTest(unittest.TestCase):
