@@ -28,6 +28,87 @@ release validation therefore uses a separate, evidence-bound test script with
 explicit stop and disable cleanup. The repository script and production code
 are not modified by this validation.
 
+## R1 Deployment Incident and R2 Boundary
+
+The first fixed local deployment stage
+`/tmp/roboparty-dexhand-deploy-db2da9f` is a historical failed attempt and is
+consumed. Its only `remote_fresh_root` capture ended with `rc=143`. Its stdout
+and stderr were both zero bytes; the command and selected-environment files
+existed and contained no credential value. The controller had inherited
+`SSH_AUTH_SOCK=/run/user/1000/keyring/ssh`; that desktop agent caused
+`ssh-add -l` itself to hang. After the SSH TCP connection, the socket was left
+in `CLOSE-WAIT`. Those facts prove neither that the remote command ran nor that
+it did not run.
+
+The historical local stage above and historical remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f` must never be reused or
+deleted. Because remote execution is uncertain, the old remote root is treated
+as consumed even if a later observation suggests it is absent. The only
+executable deployment suffix in this revision is r2: local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r2` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r2`.
+
+Before the local durable dispatch marker is created for Phase A—the first
+motion-capable session—any connection failure, timeout, or agent anomaly
+consumes the capture label and the entire r2 suffix. The `.command` file is
+created first under shell `noclobber`; the existence of any `<stem>.*` file
+permanently consumes that label. INT, TERM, HUP, controller failure, or a
+capture-process crash may leave a partial tuple, including a missing `.rc`.
+That partial evidence must not be rerun, filled in, or treated as retry
+authority, and neither path may be reused or deleted. Recovery at that boundary
+requires a reviewed documentation revision with a new suffix. This rule also
+applies whenever remote execution is uncertain.
+
+After a local dispatch marker exists, the operator must never replay motion
+for that phase, even if no remote movement can be proved. A postflight
+connection failure preserves every artifact actually written, whether a
+complete or partial tuple, and blocks every later step. Only
+another reviewed documentation revision may add a new, unique, read-only
+recovery label in the same evidence root to resume evidence collection. Such
+recovery never authorizes motion or reuse of a failed label, and it must not
+delete or abandon the physical evidence root. The remote physical attempt
+marker remains part of the remote evidence, but it does not decide whether the
+controller may reconnect or replay a phase. Any anomaly after Phase A dispatch
+blocks Phase B; Phase B remains blocked unless all Phase A postflight and
+acceptance evidence is complete and successful.
+
+The controller creates `PHASE_SMALL_DISPATCHED` before
+`motion_setup_session` and `PHASE_FULL_DISPATCHED` before
+`phase_full_execution_session`. Each local marker uses an atomic `mkdir`, an
+atomically installed and synced binding, and a parent-directory sync. The
+binding records the production commit, frozen harness, connection label, and
+boot evidence. Marker creation is the conservative no-replay boundary. The
+remote physical attempt marker is still created and synced immediately before
+the corresponding motion, but it is not the controller's reconnect boundary.
+
+The transport contract has nine unique connection labels, all implemented by
+one `/usr/bin/ssh` process. Each invocation runs through a checksum-bound
+normal or live capture helper and an outer GNU timeout with `--foreground`,
+`--preserve-status`, TERM, and a five-second kill grace. Every intermediate
+wrapper uses `exec`, so SSH is the timeout's direct final command. The two
+transfers use a single-process SSH tar stream: the normal helper feeds a closed
+archive on stdin, and command evidence binds the stdin archive path and
+SHA-256 before SSH extracts it into a new fixed remote staging directory.
+There is no SCP subprocess. Bootstrap and transfer calls are bounded at 120
+seconds, operator and motion-capable sessions at 1,800 seconds, and postflight
+sessions at 600 seconds. On normal completion the live helper sends output
+live-to-TTY without transcription and leaves zero-byte stdout/stderr sentinels,
+a capture-mode record, and rc. A terminal signal can instead leave only the
+already-created prefix of that tuple.
+
+Before OpenSSH starts, a checksum-bound wrapper opens `/dev/tty`, proves it is
+a controlling TTY, and fails closed otherwise. Each child explicitly removes
+`SSH_AUTH_SOCK`, sets `SSH_ASKPASS_REQUIRE=never`, uses the absolute OpenSSH
+binary, ignores user configuration with `-F /dev/null`, selects the explicit
+target `orangepi@192.168.13.1`, keeps strict known-host verification, disables
+ControlMaster, proxy, forwarding, and local-command paths, and supplies
+`IdentityAgent=none`,
+`PreferredAuthentications=password`, `PubkeyAuthentication=no`,
+`NumberOfPasswordPrompts=1`, `ConnectTimeout=10`, `ConnectionAttempts=1`,
+`ServerAliveInterval=5`, and `ServerAliveCountMax=2`. Only after a real
+OpenSSH password prompt appears may the operator enter the password once. No
+password value may appear in an argument, environment value, or evidence file.
+
 ## Scope
 
 The validation has two separately invoked phases:
@@ -35,8 +116,23 @@ The validation has two separately invoked phases:
 1. a low-speed, short-travel qualification phase; and
 2. the existing full motion profile after explicit operator approval.
 
+phase_small_postflight_session is strictly read-only with respect to motion:
+it may collect and aggregate Phase A postflight and record the operator's
+exact acceptance, but it cannot preflight or execute Phase B.
+phase_full_execution_session is the only session that may run Phase B
+preflight and motion, after the full-dispatch marker has been durably created.
+phase_full_postflight_session is strictly read-only with respect to motion.
+Only fully accepted Phase A evidence permits Phase B dispatch.
+Each local boundary uses atomic mkdir semantics before the connection opens.
+The two postflight labels execute the checksum-bound postflight drivers
+`phase_small_postflight_driver.sh` and `phase_full_postflight_driver.sh` via a
+fixed remote command after rechecking both driver manifests. Each uses a
+forced TTY only for its documented prompts and does not provide a general login
+shell. The small driver contains no Phase B preflight or motion, and the full
+driver contains only Phase B postflight collection and aggregation.
+
 Both phases use only the installed AArch64 artifacts under
-`/home/orangepi/roboparty_dexhand_motion_db2da9f/prefix`. They select the
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/prefix`. They select the
 public 6DOF model, `can0`, and node ID 1. Neither phase changes the configured
 maximum current. Source, build, plain-install prefix, relocatable install gate,
 and evidence paths are new, disjoint children of the new remote root. The
@@ -105,17 +201,17 @@ are not retained.
 
 The authoritative remote paths are:
 
-- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f`;
-- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f/source`;
-- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f/build`;
-- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f/prefix`;
+- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2`;
+- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/source`;
+- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/build`;
+- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/prefix`;
 - install/export gate:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f/install-gate` while the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/install-gate` while the
   gate is running, renamed by the gate to the final
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f/install-gate-relocated`;
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/install-gate-relocated`;
   and
 - evidence:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f/evidence`, containing the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/evidence`, containing the
   non-motion gate bundle `deployment-db2da9f` and the disjoint motion bundle
   `motion-validation-bacf6612`.
 
@@ -131,12 +227,21 @@ deleted.
 Every non-motion deployment command runs under Bash with
 `set -euo pipefail`, or captures and asserts each command's exit status.
 Commands, selected environment values, controller timestamps, stdout, stderr,
-and return codes are stored without credentials. Phase attempts use atomically
-created marker directories plus shell `noclobber`. A marker is described as
-persistent only after `/usr/bin/sync -f` on the evidence directory succeeds;
-motion cannot start before that verified sync, and the result/acceptance
-records are also synced. A failed or interrupted attempt therefore cannot be
-mistaken for an unstarted phase or overwrite earlier evidence. Postflight
+and return codes that were actually written are stored without credentials.
+Capture success is claimed only when the successful release inventory finds
+the exact nine command labels and all required tuple fields with rc zero. Any
+earlier failure audit begins with all existing `<stem>.*` artifacts, reports a
+partial tuple and missing `.rc` as permanent failure evidence, and never
+interprets absence of rc as permission to retry. Before either
+motion-capable connection, the controller uses an atomic `mkdir` for the local
+dispatch marker, atomically installs its binding, calls `/usr/bin/sync -f` on
+the binding and parent directory, and verifies the closed bytes. The remote
+phase attempts independently use atomically created marker directories plus
+shell `noclobber`. A remote marker is described as persistent only after
+`/usr/bin/sync -f` on the evidence directory succeeds; motion cannot start
+before that verified sync, and the result/acceptance records are also synced.
+A failed or interrupted attempt therefore cannot be mistaken for authorization
+to replay a phase or overwrite earlier evidence. Postflight
 capture occurs in a fresh connection
 regardless of whether the motion rc is missing, malformed, zero, or nonzero.
 An incomplete postflight runner does not suppress the remaining human-review,
@@ -216,17 +321,22 @@ homing and short-travel motion were physically normal, with no collision,
 unexpected direction, noise, or binding. Phase B cannot start without that
 new confirmation. Before prompting, strict JSON validation requires the exact
 small-phase success event sequence, labels, four cleanup completions, unique
-`phase_complete`, zero saved rc, and all postflight gates. Those files are
+`phase_complete`, zero saved rc, and all postflight gates. This work remains in
+the read-only `phase_small_postflight_session`. Those files are
 bound into a checksum-anchored automatic-success record that this evidence
 protocol never overwrites. The only accepted gate text is exactly
 `小行程正常`, read raw from `/dev/tty`; the acceptance record binds that text
 to the automatic-success checksum and Phase A boot ID. Phase B revalidates
-both records before preflight and again after its durable once-only marker is
-created.
+both records before local Phase B dispatch and again after its remote durable
+once-only marker is created.
 
 ## Phase B: Full Motion Profile
 
-Phase B uses a 60-second outer timeout and repeats the full preflight. It then
+After successful closure and local revalidation of the complete Phase A
+postflight and acceptance tuple, the controller durably creates
+`PHASE_FULL_DISPATCHED`. It then opens the separately labelled
+`phase_full_execution_session`. Phase B uses a 60-second motion timeout and
+repeats the full preflight in that session. It then
 performs this sequence:
 
 1. Initialize, enable, and home as in Phase A.
