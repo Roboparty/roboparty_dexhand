@@ -28,9 +28,9 @@ release validation therefore uses a separate, evidence-bound test script with
 explicit stop and disable cleanup. The repository script and production code
 are not modified by this validation.
 
-## R1 Deployment Incident and R2 Boundary
+## R2 Deployment Incident and R3 Boundary
 
-The first fixed local deployment stage
+The first fixed local deployment stage (R1)
 `/tmp/roboparty-dexhand-deploy-db2da9f` is a historical failed attempt and is
 consumed. Its only `remote_fresh_root` capture ended with `rc=143`. Its stdout
 and stderr were both zero bytes; the command and selected-environment files
@@ -38,19 +38,36 @@ existed and contained no credential value. The controller had inherited
 `SSH_AUTH_SOCK=/run/user/1000/keyring/ssh`; that desktop agent caused
 `ssh-add -l` itself to hang. After the SSH TCP connection, the socket was left
 in `CLOSE-WAIT`. Those facts prove neither that the remote command ran nor that
-it did not run.
-
-The historical local stage above and historical remote root
+it did not run. That historical local stage and historical remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f` must never be reused or
 deleted. Because remote execution is uncertain, the old remote root is treated
-as consumed even if a later observation suggests it is absent. The only
-executable deployment suffix in this revision is r2: local stage
+as consumed even if a later observation suggests it is absent.
+
+The second fixed local stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r2` and remote root
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r2`.
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r2` are the historical,
+consumed R2 Task 4 attempt. Task 4 passed archive/provenance, configuration and
+configuration-contract, build, exactly 8/8 CTests, plain-install,
+install/export relocation, and AArch64 artifact gates. The subsequent
+`python_construction` gate failed with `ModuleNotFoundError`; its enclosing
+`remote_operator_session` capture produced a complete tuple with `rc=1`.
+The locked invocation had the argument shape
+`python3 -I -c CODE dexhand-construction "$PYTHON_SITE" "$PREFIX_DIR"`.
+A local exact-shape reproduction produced
+`['-c', 'dexhand-construction', '/example/site', '/example/prefix']`.
+The code reads the site path from `sys.argv[1]` and the prefix from
+`sys.argv[2]`, so the extra `dexhand-construction` label shifted both
+positions and prevented the installed module from resolving. No CAN access,
+SDK initialization, `init_hand`, or motion occurred. The R2 local stage and
+remote root are consumed and must never be reused or deleted.
+
+The only executable deployment suffix in this revision is r3: local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r3` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3`.
 
 Before the local durable dispatch marker is created for Phase A—the first
 motion-capable session—any connection failure, timeout, or agent anomaly
-consumes the capture label and the entire r2 suffix. The `.command` file is
+consumes the capture label and the entire r3 suffix. The `.command` file is
 created first under shell `noclobber`; the existence of any `<stem>.*` file
 permanently consumes that label. INT, TERM, HUP, controller failure, or a
 capture-process crash may leave a partial tuple, including a missing `.rc`.
@@ -132,7 +149,7 @@ shell. The small driver contains no Phase B preflight or motion, and the full
 driver contains only Phase B postflight collection and aggregation.
 
 Both phases use only the installed AArch64 artifacts under
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/prefix`. They select the
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix`. They select the
 public 6DOF model, `can0`, and node ID 1. Neither phase changes the configured
 maximum current. Source, build, plain-install prefix, relocatable install gate,
 and evidence paths are new, disjoint children of the new remote root. The
@@ -201,17 +218,17 @@ are not retained.
 
 The authoritative remote paths are:
 
-- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2`;
-- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/source`;
-- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/build`;
-- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/prefix`;
+- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3`;
+- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/source`;
+- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/build`;
+- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix`;
 - install/export gate:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/install-gate` while the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/install-gate` while the
   gate is running, renamed by the gate to the final
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/install-gate-relocated`;
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/install-gate-relocated`;
   and
 - evidence:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r2/evidence`, containing the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence`, containing the
   non-motion gate bundle `deployment-db2da9f` and the disjoint motion bundle
   `motion-validation-bacf6612`.
 
