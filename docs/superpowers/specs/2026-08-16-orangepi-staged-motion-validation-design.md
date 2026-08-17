@@ -28,7 +28,7 @@ release validation therefore uses a separate, evidence-bound test script with
 explicit stop and disable cleanup. The repository script and production code
 are not modified by this validation.
 
-## R2 Deployment Incident and R3 Boundary
+## R3 Deployment Incident and R4 Boundary
 
 The first fixed local deployment stage (R1)
 `/tmp/roboparty-dexhand-deploy-db2da9f` is a historical failed attempt and is
@@ -61,13 +61,39 @@ positions and prevented the installed module from resolving. No CAN access,
 SDK initialization, `init_hand`, or motion occurred. The R2 local stage and
 remote root are consumed and must never be reused or deleted.
 
-The only executable deployment suffix in this revision is r3: local stage
+The third fixed local stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r3` and remote root
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3`.
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3` are the historical,
+consumed R3 Task 4 attempt. All nine remote deployment gates—archive
+provenance, configuration, configuration contract, build, exactly 8/8 CTests,
+plain install, install/export relocation, AArch64 artifact validation, and
+`python_construction`—produced complete command/stdout/stderr/rc/timestamp/
+environment tuples with rc `0`. A subsequent read-only audit rechecked those
+tuples, the runtime manifest and anchor, the exact CTest result, the installed
+objects and runpaths, the fixed SDK hash, the exact construction stdout and
+empty stderr, and the production source manifest. It reached its final
+explicit PASS `printf` and returned to the remote prompt.
+
+The enclosing `remote_operator_session` was a generic interactive SSH login
+without a fixed remote shell command. After the audit returned, the operator
+sent a plain `exit`, not `exit 0`; visible output showed logout and connection
+closure, but the complete local live-capture tuple recorded rc `1`. Existing
+evidence cannot determine why: the exact cause of that final rc remains
+unknown. In particular, there is no evidence that a login profile or
+`PROMPT_COMMAND` caused it. No CAN access, SDK initialization, `init_hand`, or
+motion occurred. Both R3 paths are consumed and must never be reused or
+deleted.
+
+The only executable deployment suffix in this revision is r4: local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r4` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r4`. The R4 operator session
+uses the fixed live-TTY remote command `/bin/bash --noprofile --norc`, captures
+a final `task4_completion` gate after all nine earlier remote gates, and must
+end with explicit `exit 0`. A parameterless `exit` is forbidden.
 
 Before the local durable dispatch marker is created for Phase A—the first
 motion-capable session—any connection failure, timeout, or agent anomaly
-consumes the capture label and the entire r3 suffix. The `.command` file is
+consumes the capture label and the entire r4 suffix. The `.command` file is
 created first under shell `noclobber`; the existence of any `<stem>.*` file
 permanently consumes that label. INT, TERM, HUP, controller failure, or a
 capture-process crash may leave a partial tuple, including a missing `.rc`.
@@ -106,12 +132,19 @@ wrapper uses `exec`, so SSH is the timeout's direct final command. The two
 transfers use a single-process SSH tar stream: the normal helper feeds a closed
 archive on stdin, and command evidence binds the stdin archive path and
 SHA-256 before SSH extracts it into a new fixed remote staging directory.
-There is no SCP subprocess. Bootstrap and transfer calls are bounded at 120
-seconds, operator and motion-capable sessions at 1,800 seconds, and postflight
-sessions at 600 seconds. On normal completion the live helper sends output
-live-to-TTY without transcription and leaves zero-byte stdout/stderr sentinels,
-a capture-mode record, and rc. A terminal signal can instead leave only the
-already-created prefix of that tuple.
+Before the motion-artifact transfer reads stdin, its fixed remote command
+revalidates all ten completed deployment gates and both runtime-manifest
+layers, proves the motion evidence leaf absent, atomically creates it, and
+copies and verifies the source and runtime manifests. Only then may it create
+its fresh spool directory and read the closed tar. There is no SCP subprocess.
+Bootstrap and transfer calls are bounded at 120 seconds, operator and
+motion-capable sessions at 1,800 seconds, and postflight sessions at 600
+seconds. `remote_operator_session` forces a live TTY but executes the fixed
+remote command `/bin/bash --noprofile --norc`; `task4_completion` must pass and
+the operator's final command must be `exit 0`. On normal completion the live
+helper sends output live-to-TTY without transcription and leaves zero-byte
+stdout/stderr sentinels, a capture-mode record, and rc. A terminal signal can
+instead leave only the already-created prefix of that tuple.
 
 Before OpenSSH starts, a checksum-bound wrapper opens `/dev/tty`, proves it is
 a controlling TTY, and fails closed otherwise. Each child explicitly removes
@@ -149,7 +182,7 @@ shell. The small driver contains no Phase B preflight or motion, and the full
 driver contains only Phase B postflight collection and aggregation.
 
 Both phases use only the installed AArch64 artifacts under
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix`. They select the
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix`. They select the
 public 6DOF model, `can0`, and node ID 1. Neither phase changes the configured
 maximum current. Source, build, plain-install prefix, relocatable install gate,
 and evidence paths are new, disjoint children of the new remote root. The
@@ -218,17 +251,17 @@ are not retained.
 
 The authoritative remote paths are:
 
-- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3`;
-- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/source`;
-- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/build`;
-- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix`;
+- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4`;
+- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/source`;
+- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/build`;
+- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix`;
 - install/export gate:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/install-gate` while the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/install-gate` while the
   gate is running, renamed by the gate to the final
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/install-gate-relocated`;
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/install-gate-relocated`;
   and
 - evidence:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence`, containing the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence`, containing the
   non-motion gate bundle `deployment-db2da9f` and the disjoint motion bundle
   `motion-validation-bacf6612`.
 
@@ -236,17 +269,20 @@ At first deployment, both the remote root and its parent `evidence` path must
 be absent; the captured bootstrap gate proves this and creates them with
 atomic `mkdir` operations. By Task 5, that parent and the completed
 `deployment-db2da9f` bundle must exist, while only the motion leaf
-`motion-validation-bacf6612` must still be absent. If a path violates the
-expectation for its stage, execution stops and a new, explicitly reviewed
-suffix is selected. Existing evidence is never reused, overwritten, or
-deleted.
+`motion-validation-bacf6612` must still be absent. The already-counted
+`motion_artifact_transfer` connection performs that absence assertion and
+atomic leaf creation before it accepts stdin; no additional connection label
+is introduced. If a path violates the expectation for its stage, execution
+stops and a new, explicitly reviewed suffix is selected. Existing evidence is
+never reused, overwritten, or deleted.
 
 Every non-motion deployment command runs under Bash with
 `set -euo pipefail`, or captures and asserts each command's exit status.
 Commands, selected environment values, controller timestamps, stdout, stderr,
 and return codes that were actually written are stored without credentials.
 Capture success is claimed only when the successful release inventory finds
-the exact nine command labels and all required tuple fields with rc zero. Any
+the exact ten remote command labels—the nine functional deployment gates plus
+`task4_completion`—and all required tuple fields with rc zero. Any
 earlier failure audit begins with all existing `<stem>.*` artifacts, reports a
 partial tuple and missing `.rc` as permanent failure evidence, and never
 interprets absence of rc as permission to retry. Before either

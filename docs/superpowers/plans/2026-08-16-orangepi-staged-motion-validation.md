@@ -76,7 +76,7 @@ used by either motion phase.
 
 ---
 
-## R2 Deployment Incident and Mandatory R3 Restart
+## R3 Deployment Incident and Mandatory R4 Restart
 
 The first fixed local deployment stage (R1)
 `/tmp/roboparty-dexhand-deploy-db2da9f` is a historical failed attempt and is
@@ -109,15 +109,44 @@ positions and prevented the installed module from resolving. No CAN access,
 SDK initialization, `init_hand`, or motion occurred. The R2 local stage and
 remote root are consumed and must never be reused or deleted.
 
-This revision starts only at local stage
+The third fixed local stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r3` and remote root
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3`; every deployment,
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r3` are the historical,
+consumed R3 Task 4 attempt. Each of the nine remote deployment gates—
+`remote_archive_provenance`, `configure`, `configure_contract`, `build`,
+`ctest`, `plain_install`, `install_export`, `artifact_gate`, and
+`python_construction`—has a complete command/stdout/stderr/rc/timestamp/
+environment tuple with rc `0`. Those gates passed archive and configuration
+contracts, the warning-clean build, exactly 8/8 CTests, both install gates,
+AArch64/runtime-manifest validation, and the construction-only Python probe.
+A subsequent read-only audit rechecked all nine tuples, the runtime manifest
+and anchor, the installed objects and runpaths, the fixed SDK hash, the exact
+CTest result, the exact construction stdout and empty stderr, and both source
+manifest records. The audit reached its final explicit PASS `printf` and
+returned to the remote prompt.
+
+The enclosing `remote_operator_session` was opened as a generic interactive
+SSH login without a fixed remote shell command. After the successful audit,
+the next input was a plain `exit`, not `exit 0`. Visible output showed logout
+and connection closure, but the complete local live-capture tuple recorded rc
+`1`. Existing evidence cannot determine why: the exact cause of that final rc
+remains unknown. There is no evidence that a login profile or
+`PROMPT_COMMAND` caused it. No CAN access, SDK initialization, `init_hand`, or
+motion occurred. The R3 local stage and remote root are consumed and must
+never be reused or deleted.
+
+This revision starts only at local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r4` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r4`; every deployment,
 source, build, prefix, install, evidence, and motion path below derives from
-those r3 paths.
+those r4 paths. The R4 operator session uses the fixed live-TTY remote command
+`/bin/bash --noprofile --norc`, records a tenth remote gate named
+`task4_completion`, and ends only with explicit `exit 0`. A parameterless
+`exit` is forbidden.
 
 Before the local durable dispatch marker is created for Phase A—the first
 motion-capable session—any connection failure, timeout, or agent anomaly
-consumes the capture label and the entire r3 suffix. The `.command` file is
+consumes the capture label and the entire r4 suffix. The `.command` file is
 created first under shell `noclobber`; any `<stem>.*` artifact permanently
 consumes that label. INT, TERM, HUP, controller failure, or capture-process
 failure may leave a partial tuple, including a missing `.rc`. Such evidence
@@ -170,6 +199,16 @@ the live helper sends output live-to-TTY without transcription and creates
 zero-byte stdout/stderr sentinels, a capture-mode record, and rc. A terminal
 signal or controller failure may instead leave only a partial tuple.
 
+`remote_operator_session` forces a live TTY and supplies the fixed remote
+command `/bin/bash --noprofile --norc`; it is not a generic login. After the
+captured `task4_completion` audit passes, the final command in that shell is
+`exit 0`. Task 5 does not keep that shell open. Its already-counted
+`motion_artifact_transfer` fixed remote script revalidates the deployment
+bundle and runtime anchors, proves the motion evidence leaf absent, atomically
+creates it, copies and verifies the source/runtime manifests, and only then
+reads stdin into a fresh spool directory. Any failure consumes the connection
+label and R4 namespace; it never authorizes a retry.
+
 Before OpenSSH starts, a checksum-bound wrapper opens `/dev/tty`, proves it is
 a controlling TTY, and fails closed otherwise. Every child explicitly runs
 through `/usr/bin/env -u SSH_AUTH_SOCK SSH_ASKPASS_REQUIRE=never`, uses
@@ -185,10 +224,13 @@ may the operator enter the password once on the controlling TTY. If no prompt
 appears, enter nothing. Password values must never appear in arguments,
 environment values, or evidence.
 
-The successful release inventory alone requires all nine complete tuples and
-rc `0`. Failure and recovery start by enumerating every matching `<stem>.*`
-artifact. A partial tuple or missing `.rc` is reported as permanently consumed
-evidence; it never changes a failed label into an unused label.
+The successful remote deployment inventory alone requires exactly ten
+complete tuples with rc `0`: the nine functional gates followed by
+`task4_completion`. The distinct SSH connection-label inventory remains
+exactly nine. Failure and recovery start by enumerating every matching
+`<stem>.*` artifact. A partial tuple or missing `.rc` is reported as
+permanently consumed evidence; it never changes a failed label into an unused
+label.
 
 ---
 
@@ -201,25 +243,25 @@ evidence; it never changes a failed label into an unused label.
   `/tmp/roboparty-dexhand-motion-1a7c820/staged_motion_validation.py`
   - Dependency-injected physical harness with `small` and `full` modes.
 - Create locally:
-  `/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence/`
+  `/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence/`
   - Closed local evidence for source archive, fresh remote root, source
     transfer, and remote gate bootstrap; this directory is never recursively
     copied while it is being written.
 - Create remotely from the clean production Git object:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/source/`
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/source/`
   - Exact `git archive` source for production commit `db2da9f`.
 - Create remotely and keep disjoint:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/build/`,
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix/`, and
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/install-gate/`
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/build/`,
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix/`, and
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/install-gate/`
   - Native build, authoritative motion install, and separate relocatable
     install/export gate.
 - Create remotely:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f/`
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/deployment-db2da9f/`
   - Immutable command, stdout, stderr, rc, timestamp, and selected-environment
     tuples for every authoritative non-motion gate.
 - Create remotely:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/`
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612/`
   - Immutable script and contract copies, hashes, exact commands, phase logs,
     and CAN pre/postflight evidence.
 - Do not modify production source, `scripts/test_dexhand.py`, the installed
@@ -772,9 +814,9 @@ record a new hash before proceeding.
 - Read locally:
   `/home/sjh/leisai_hand/roboparty_dexhand` Git objects.
 - Create locally:
-  `/tmp/roboparty-dexhand-deploy-db2da9f-r3/`.
+  `/tmp/roboparty-dexhand-deploy-db2da9f-r4/`.
 - Create remotely:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/`.
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/`.
 
 - [ ] **Precondition: Regress the Python `-c` argv contract locally**
 
@@ -799,6 +841,44 @@ Expected: exactly `PASS python -c argv contract`. No SDK module is imported,
 and no deployment path, network connection, CAN interface, or hardware is
 accessed.
 
+- [ ] **Precondition: Regress explicit remote-shell completion locally**
+
+Run locally before creating the deployment stage. This imports no SDK module,
+opens no network connection, and proves both the shell exit-status behavior and
+the Task 4 static ban on a parameterless operator-session exit:
+
+```bash
+set -euo pipefail
+set +e
+/bin/bash --noprofile --norc -c 'false; exit 0'
+REMOTE_SHELL_RC=$?
+set -e
+test "$REMOTE_SHELL_RC" = 0
+PLAN_PATH=docs/superpowers/plans/2026-08-16-orangepi-staged-motion-validation.md
+test -f "$PLAN_PATH"
+TASK4_TEXT=$(sed -n '/^### Task 4:/,/^### Task 5:/p' "$PLAN_PATH")
+REMOTE_OPERATOR_TEXT=$(sed -n \
+  '/^"\$LIVE_CAPTURE" remote_operator_session \\$/,/^```$/p' \
+  <<< "$TASK4_TEXT")
+test -n "$REMOTE_OPERATOR_TEXT"
+test "$(grep -Fxc '  -tt \' <<< "$REMOTE_OPERATOR_TEXT")" = 1
+test "$(grep -Fxc \
+  '  orangepi@192.168.13.1 /bin/bash --noprofile --norc' \
+  <<< "$REMOTE_OPERATOR_TEXT")" = 1
+if grep -Fxq exit <<< "$TASK4_TEXT"; then
+  printf '%s\n' 'parameterless Task 4 exit is forbidden' >&2
+  exit 1
+fi
+test "$(grep -Fxc 'exit 0' <<< "$TASK4_TEXT")" = 1
+printf '%s\n' 'PASS no-profile Bash explicit exit 0; plain exit absent'
+```
+
+Expected: exactly
+`PASS no-profile Bash explicit exit 0; plain exit absent`, with exit `0`.
+Changing Task 4's final command to plain `exit`, omitting the explicit
+`exit 0`, adding another exact `exit 0` line, removing the forced `-tt`, or
+changing the fixed no-profile Bash command makes this regression fail.
+
 - [ ] **Step 1: Create an exact source archive and provenance manifest**
 
 Run locally. This archives the clean commit object, never working-tree bytes:
@@ -806,7 +886,7 @@ Run locally. This archives the clean commit object, never working-tree bytes:
 ```bash
 set -euo pipefail
 DEXHAND_REPO=/home/sjh/leisai_hand/roboparty_dexhand
-DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r3
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r4
 DEPLOY_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
 PRODUCTION_COMMIT=db2da9fb90f407bdd5e3bbd3de691e775d27abd3
 PRODUCTION_TREE=aed385f28d3010fc167914872550f4bbb0a51057
@@ -1045,12 +1125,12 @@ an argument, environment value, or logged input:
 
 ```bash
 set -euo pipefail
-DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r3
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r4
 BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
 CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
 TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
-REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3
-REMOTE_SCRIPT='set -euo pipefail; root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3; test ! -e "$root"; test "$(uname -m)" = aarch64; boot_id=$(cat /proc/sys/kernel/random/boot_id); test "$(printf "%s" "$boot_id" | wc -c)" = 36; mkdir "$root"; mkdir "$root/evidence"; printf "boot_id=%s\n" "$boot_id"'
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
+REMOTE_SCRIPT='set -euo pipefail; root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4; test ! -e "$root"; test "$(uname -m)" = aarch64; boot_id=$(cat /proc/sys/kernel/random/boot_id); test "$(printf "%s" "$boot_id" | wc -c)" = 36; mkdir "$root"; mkdir "$root/evidence"; printf "boot_id=%s\n" "$boot_id"'
 printf -v REMOTE_COMMAND '/bin/bash -c %q' "$REMOTE_SCRIPT"
 "$CAPTURE" remote_fresh_root \
   /usr/bin/timeout \
@@ -1099,7 +1179,7 @@ rechecks the tar hash and records its absolute stdin path and SHA-256 in
 
 ```bash
 set -euo pipefail
-DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r3
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r4
 BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
 CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
 TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
@@ -1111,7 +1191,7 @@ test "$SOURCE_STREAM_NAME" = source-transfer-bundle.tar
 REMOTE_SCRIPT=$(cat <<'REMOTE'
 set -euo pipefail
 EXPECTED_STREAM_SHA256=$1
-root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3
+root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
 incoming="$root/.source-transfer-incoming"
 PAYLOAD="$incoming/payload.tar"
 UNPACK="$incoming/unpack"
@@ -1200,7 +1280,7 @@ printf -v REMOTE_COMMAND '/bin/bash -c %q _ %q' \
   -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/sjh/.ssh/known_hosts \
   orangepi@192.168.13.1 "$REMOTE_COMMAND"
-REMOTE_SCRIPT='set -euo pipefail; root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3; gate="$root/evidence/deployment-db2da9f"; test ! -e "$gate"; mkdir "$gate"; mv "$root/capture_gate.sh" "$root/capture_live_gate.sh" "$root/require_tty_exec.sh" "$root/CAPTURE_GATE_SHA256SUM" "$gate/"; cd "$gate"; sha256sum -c CAPTURE_GATE_SHA256SUM'
+REMOTE_SCRIPT='set -euo pipefail; root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4; gate="$root/evidence/deployment-db2da9f"; test ! -e "$gate"; mkdir "$gate"; mv "$root/capture_gate.sh" "$root/capture_live_gate.sh" "$root/require_tty_exec.sh" "$root/CAPTURE_GATE_SHA256SUM" "$gate/"; cd "$gate"; sha256sum -c CAPTURE_GATE_SHA256SUM'
 printf -v REMOTE_COMMAND '/bin/bash -c %q' "$REMOTE_SCRIPT"
 "$CAPTURE" remote_gate_bootstrap \
   /usr/bin/timeout \
@@ -1239,7 +1319,7 @@ independently captured remote gate:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
 LIVE_CAPTURE="$BOOTSTRAP_EVIDENCE/capture_live_gate.sh"
 TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
 "$LIVE_CAPTURE" remote_operator_session \
@@ -1249,6 +1329,7 @@ TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
   /usr/bin/env -u SSH_AUTH_SOCK SSH_ASKPASS_REQUIRE=never \
   /usr/bin/ssh \
   -F /dev/null \
+  -tt \
   -o IdentityAgent=none \
   -o PreferredAuthentications=password \
   -o PubkeyAuthentication=no \
@@ -1266,18 +1347,22 @@ TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
   -o ClearAllForwardings=yes \
   -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/sjh/.ssh/known_hosts \
-  orangepi@192.168.13.1
+  orangepi@192.168.13.1 /bin/bash --noprofile --norc
 ```
 
-The 1,800-second bound covers the complete interactive session. Its output is
-live on the controlling TTY and is not transcribed; the helper creates the
-explicit zero-byte stdout/stderr sentinels, `capture_mode`, and final rc after
-the operator exits or the timeout terminates the session, provided control
-returns to the helper. A controller-side signal can leave any suffix absent.
+The 1,800-second bound covers the complete interactive session. The forced TTY
+remains live, but the remote command is fixed to
+`/bin/bash --noprofile --norc`; that Bash reads neither profile nor rc files
+and does not alter the manual Task 4 commands below. Output is live on the
+controlling TTY and is not transcribed. The helper creates the explicit
+zero-byte stdout/stderr sentinels, `capture_mode`, and final rc after the
+operator's mandatory `exit 0` or after the timeout terminates the session,
+provided control returns to the helper. A controller-side signal can leave any
+suffix absent.
 
 ```bash
 set -euo pipefail
-REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
 PRODUCTION_COMMIT=db2da9fb90f407bdd5e3bbd3de691e775d27abd3
 PRODUCTION_TREE=aed385f28d3010fc167914872550f4bbb0a51057
 DEPLOY_EVIDENCE="$REMOTE_ROOT/evidence/deployment-db2da9f"
@@ -1312,7 +1397,7 @@ Run remotely using Unix Makefiles because Ninja is unavailable on the board:
 
 ```bash
 set -euo pipefail
-REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
 SOURCE_DIR="$REMOTE_ROOT/source"
 BUILD_DIR="$REMOTE_ROOT/build"
 PREFIX_DIR="$REMOTE_ROOT/prefix"
@@ -1381,7 +1466,7 @@ Run remotely:
 
 ```bash
 set -euo pipefail
-REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
 SOURCE_DIR="$REMOTE_ROOT/source"
 BUILD_DIR="$REMOTE_ROOT/build"
 PREFIX_DIR="$REMOTE_ROOT/prefix"
@@ -1430,7 +1515,7 @@ Run remotely without initializing a hand or touching CAN:
 
 ```bash
 set -euo pipefail
-REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
 PREFIX_DIR="$REMOTE_ROOT/prefix"
 PYTHON_SITE="$PREFIX_DIR/lib/python3.10/site-packages"
 SDK_LIBRARY="$PREFIX_DIR/lib/libLHandProLib.so"
@@ -1573,21 +1658,179 @@ exactly one installed SDK has the fixed hash, and Python resolves inside the
 new prefix with `check_health`. The probe only constructs the object; it does
 not call `init_hand`, open `can0`, or issue a CAN command.
 
+- [ ] **Step 7: Capture Task 4 completion and exit the fixed shell with rc 0**
+
+Run remotely in the same fixed `remote_operator_session` shell immediately
+after `python_construction`. This independently revalidates the nine earlier
+remote gates and records its own complete tuple before the shell exits:
+
+```bash
+set -euo pipefail
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
+DEPLOY_EVIDENCE="$REMOTE_ROOT/evidence/deployment-db2da9f"
+CAPTURE="$DEPLOY_EVIDENCE/capture_gate.sh"
+REMOTE_LABELS=(
+  remote_archive_provenance configure configure_contract build ctest
+  plain_install install_export artifact_gate python_construction
+)
+test "${#REMOTE_LABELS[@]}" = 9
+"$CAPTURE" task4_completion /bin/bash -c '
+  set -euo pipefail
+  root=$1
+  deploy_evidence="$root/evidence/deployment-db2da9f"
+  prefix="$root/prefix"
+  python_site="$prefix/lib/python3.10/site-packages"
+  sdk="$prefix/lib/libLHandProLib.so"
+  dexhand="$prefix/lib/libdexhand.so"
+  remote_labels=(
+    remote_archive_provenance configure configure_contract build ctest
+    plain_install install_export artifact_gate python_construction
+  )
+  test "${#remote_labels[@]}" = 9
+  for label in "${remote_labels[@]}"; do
+    for suffix in command stdout stderr rc timestamp environment; do
+      test -f "$deploy_evidence/$label.$suffix"
+    done
+    test "$(cat "$deploy_evidence/$label.rc")" = 0
+  done
+  set +e
+  rc_listing=$(find "$deploy_evidence" -maxdepth 1 -type f \
+    -name "*.rc" -print)
+  rc_find_rc=$?
+  command_listing=$(find "$deploy_evidence" -maxdepth 1 -type f \
+    -name "*.command" -print)
+  command_find_rc=$?
+  set -e
+  test "$rc_find_rc" = 0
+  test "$command_find_rc" = 0
+  rc_files=()
+  command_files=()
+  if test -n "$rc_listing"; then
+    mapfile -t rc_files <<< "$rc_listing"
+  fi
+  if test -n "$command_listing"; then
+    mapfile -t command_files <<< "$command_listing"
+  fi
+  test "${#rc_files[@]}" = 9
+  test "${#command_files[@]}" = 10
+  (cd "$deploy_evidence" && \
+    sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256)
+  sha256sum -c "$deploy_evidence/RUNTIME_MANIFEST.sha256"
+  test "$(wc -l < "$deploy_evidence/RUNTIME_MANIFEST.sha256")" = 3
+  set +e
+  module_listing=$(find "$python_site" -maxdepth 1 -type f \
+    -name "dexhand_py*.so" -print)
+  module_find_rc=$?
+  sdk_listing=$(find "$prefix" -type f -name libLHandProLib.so -print)
+  sdk_find_rc=$?
+  dexhand_listing=$(find "$prefix" -type f -name libdexhand.so -print)
+  dexhand_find_rc=$?
+  set -e
+  test "$module_find_rc" = 0
+  test "$sdk_find_rc" = 0
+  test "$dexhand_find_rc" = 0
+  modules=()
+  sdks=()
+  dexhands=()
+  if test -n "$module_listing"; then
+    mapfile -t modules <<< "$module_listing"
+  fi
+  if test -n "$sdk_listing"; then
+    mapfile -t sdks <<< "$sdk_listing"
+  fi
+  if test -n "$dexhand_listing"; then
+    mapfile -t dexhands <<< "$dexhand_listing"
+  fi
+  test "${#modules[@]}" = 1
+  module=${modules[0]}
+  test "${#sdks[@]}" = 1
+  test "${sdks[0]}" = "$sdk"
+  test "${#dexhands[@]}" = 1
+  test "${dexhands[0]}" = "$dexhand"
+  for artifact in "$sdk" "$dexhand" "$module"; do
+    readelf -h "$artifact" | grep -Eq "Machine:[[:space:]]+AArch64"
+  done
+  dexhand_runpath=$(readelf -d "$dexhand" | \
+    sed -n "s/.*(RUNPATH).*\\[\\(.*\\)\\].*/\\1/p")
+  module_runpath=$(readelf -d "$module" | \
+    sed -n "s/.*(RUNPATH).*\\[\\(.*\\)\\].*/\\1/p")
+  test "$dexhand_runpath" = "\$ORIGIN"
+  test "$module_runpath" = "\$ORIGIN/../.."
+  read -r sdk_hash sdk_path < <(sha256sum "$sdk")
+  test "$sdk_path" = "$sdk"
+  test "$sdk_hash" = \
+    476f7687ff3063c7adbafef52b4f9326469a1d41f96eb1a516488f9be4064044
+  test ! -s "$deploy_evidence/python_construction.stderr"
+  expected_python_stdout=$(printf "%s\n%s\n" "$module" \
+    "PASS construction-only check_health; init_hand not called")
+  test "$(cat "$deploy_evidence/python_construction.stdout")" = \
+    "$expected_python_stdout"
+  ! grep -Fq dexhand-construction \
+    "$deploy_evidence/python_construction.command"
+  python_command_line=$(sed -n "s/^command=//p" \
+    "$deploy_evidence/python_construction.command")
+  case "$python_command_line" in
+    *"/usr/bin/python3 -I -c "*" $python_site $prefix ") ;;
+    *) exit 1 ;;
+  esac
+  test "$(grep -Fxc \
+    "100% tests passed, 0 tests failed out of 8" \
+    "$deploy_evidence/ctest.stdout")" = 1
+  grep -Fx \
+    "source_commit=db2da9fb90f407bdd5e3bbd3de691e775d27abd3" \
+    "$root/SOURCE_MANIFEST"
+  grep -Fx \
+    "source_tree=aed385f28d3010fc167914872550f4bbb0a51057" \
+    "$root/SOURCE_MANIFEST"
+  printf "PASS Task4 remote completion gates=9 manifest=3 aarch64=3 dexhand_runpath=%s module_runpath=%s sdk_sha256=%s python_construction=PASS\n" \
+    "$dexhand_runpath" "$module_runpath" "$sdk_hash"
+' _ "$REMOTE_ROOT"
+ALL_REMOTE_LABELS=("${REMOTE_LABELS[@]}" task4_completion)
+test "${#ALL_REMOTE_LABELS[@]}" = 10
+for label in "${ALL_REMOTE_LABELS[@]}"; do
+  for suffix in command stdout stderr rc timestamp environment; do
+    test -f "$DEPLOY_EVIDENCE/$label.$suffix"
+  done
+  test "$(cat "$DEPLOY_EVIDENCE/$label.rc")" = 0
+done
+set +e
+all_rc_listing=$(find "$DEPLOY_EVIDENCE" -maxdepth 1 -type f \
+  -name '*.rc' -print)
+all_rc_find_rc=$?
+set -e
+test "$all_rc_find_rc" = 0
+all_rc_files=()
+if test -n "$all_rc_listing"; then
+  mapfile -t all_rc_files <<< "$all_rc_listing"
+fi
+test "${#all_rc_files[@]}" = 10
+exit 0
+```
+
+Expected: `task4_completion` captures the final PASS line with a complete
+six-field tuple and rc `0`; the exact ten-label inventory is closed; the fixed
+no-profile shell exits with status `0`; and the local
+`remote_operator_session` helper can therefore record rc `0`. `exit 0` is the
+last command in the operator-session execution. A plain `exit` is forbidden.
+No command in this gate initializes the SDK, calls `init_hand`, accesses CAN,
+or moves hardware.
+
 ### Task 5: Stage Evidence and Run Phase A Once
 
 **Files:**
 - Copy the frozen harness, contract, and both local hash files from:
   `/tmp/roboparty-dexhand-motion-1a7c820/`
 - Create remotely:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/`
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612/`
 
-- [ ] **Step 1: Confirm the evidence directory is absent**
+- [ ] **Step 1: Confirm Task 4 closed successfully**
 
-First verify the closed local bootstrap/transfer evidence:
+Verify the closed local bootstrap/transfer evidence and the complete live
+operator-session tuple. This step opens no connection:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
 NORMAL_BOOTSTRAP_GATES=(
   source_archive remote_fresh_root source_transfer remote_gate_bootstrap
 )
@@ -1597,44 +1840,34 @@ for gate in "${NORMAL_BOOTSTRAP_GATES[@]}"; do
   done
   test "$(cat "$BOOTSTRAP_EVIDENCE/$gate.rc")" = 0
 done
+gate=remote_operator_session
+for suffix in command stdout stderr rc timestamp environment capture_mode; do
+  test -f "$BOOTSTRAP_EVIDENCE/$gate.$suffix"
+done
+test ! -s "$BOOTSTRAP_EVIDENCE/$gate.stdout"
+test ! -s "$BOOTSTRAP_EVIDENCE/$gate.stderr"
+grep -Fx live-to-TTY-no-transcript \
+  "$BOOTSTRAP_EVIDENCE/$gate.capture_mode"
+test "$(cat "$BOOTSTRAP_EVIDENCE/$gate.rc")" = 0
 ```
 
-Then run through interactive SSH:
+Expected: exit `0`. `remote_operator_session` is already closed with rc `0`;
+Task 5 must not depend on an open shell. The fixed
+`motion_artifact_transfer` remote command below, under its already-counted
+connection label, owns the authoritative deployment-bundle checks, motion-leaf
+absence assertion, and atomic creation. Do not open an extra connection and do
+not reuse a partial evidence directory.
+
+- [ ] **Step 2: Atomically create the motion evidence and copy the exact script**
+
+Build a closed four-file tar and separate hash manifest, then send that tar on
+stdin to a single SSH process under the independent
+`motion_artifact_transfer` label. The block rechecks the closed operator tuple
+before dispatch:
 
 ```bash
 set -euo pipefail
-test -d \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f
-test ! -e \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
-```
-
-Expected: exit 0. Do not reuse a partial evidence directory.
-
-- [ ] **Step 2: Create the directory and copy the exact script**
-
-Run remotely:
-
-```bash
-set -euo pipefail
-mkdir \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
-cp /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/SOURCE_MANIFEST \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/
-cp \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f/RUNTIME_MANIFEST.sha256 \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f/RUNTIME_MANIFEST_ANCHOR.sha256 \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/
-```
-
-Exit SSH, which closes `remote_operator_session` and records its rc on normal
-completion. Build a closed four-file tar and separate hash manifest, then send
-that tar on stdin to a single SSH process under the independent
-`motion_artifact_transfer` label:
-
-```bash
-set -euo pipefail
-DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r3
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r4
 BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
 MOTION_STAGE=/tmp/roboparty-dexhand-motion-1a7c820
 CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
@@ -1673,7 +1906,62 @@ test "$MOTION_STREAM_NAME" = motion-artifact-transfer-bundle.tar
 REMOTE_SCRIPT=$(cat <<'REMOTE'
 set -euo pipefail
 EXPECTED_STREAM_SHA256=$1
-evidence=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4
+deploy_evidence="$root/evidence/deployment-db2da9f"
+evidence="$root/evidence/motion-validation-bacf6612"
+source_manifest="$root/SOURCE_MANIFEST"
+remote_labels=(
+  remote_archive_provenance configure configure_contract build ctest
+  plain_install install_export artifact_gate python_construction
+  task4_completion
+)
+test "${#remote_labels[@]}" = 10
+test -d "$deploy_evidence"
+test -f "$source_manifest"
+for label in "${remote_labels[@]}"; do
+  for suffix in command stdout stderr rc timestamp environment; do
+    test -f "$deploy_evidence/$label.$suffix"
+  done
+  test "$(cat "$deploy_evidence/$label.rc")" = 0
+done
+set +e
+deploy_rc_listing=$(find "$deploy_evidence" -maxdepth 1 -type f \
+  -name '*.rc' -print)
+deploy_rc_find_rc=$?
+set -e
+test "$deploy_rc_find_rc" = 0
+deploy_rc_files=()
+if test -n "$deploy_rc_listing"; then
+  mapfile -t deploy_rc_files <<< "$deploy_rc_listing"
+fi
+test "${#deploy_rc_files[@]}" = 10
+test ! -s "$deploy_evidence/task4_completion.stderr"
+test "$(grep -Fc 'PASS Task4 remote completion gates=9 manifest=3 aarch64=3' \
+  "$deploy_evidence/task4_completion.stdout")" = 1
+(cd "$deploy_evidence" && \
+  sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256)
+sha256sum -c "$deploy_evidence/RUNTIME_MANIFEST.sha256"
+test "$(wc -l < "$deploy_evidence/RUNTIME_MANIFEST.sha256")" = 3
+grep -Fx \
+  'source_commit=db2da9fb90f407bdd5e3bbd3de691e775d27abd3' \
+  "$source_manifest"
+grep -Fx \
+  'source_tree=aed385f28d3010fc167914872550f4bbb0a51057' \
+  "$source_manifest"
+test ! -e "$evidence"
+mkdir "$evidence"
+/bin/cp "$source_manifest" \
+  "$deploy_evidence/RUNTIME_MANIFEST.sha256" \
+  "$deploy_evidence/RUNTIME_MANIFEST_ANCHOR.sha256" \
+  "$evidence/"
+cmp "$source_manifest" "$evidence/SOURCE_MANIFEST"
+cmp "$deploy_evidence/RUNTIME_MANIFEST.sha256" \
+  "$evidence/RUNTIME_MANIFEST.sha256"
+cmp "$deploy_evidence/RUNTIME_MANIFEST_ANCHOR.sha256" \
+  "$evidence/RUNTIME_MANIFEST_ANCHOR.sha256"
+(cd "$evidence" && sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256)
+sha256sum -c "$evidence/RUNTIME_MANIFEST.sha256"
+/usr/bin/sync -f "$evidence"
 incoming="$evidence/.motion-artifact-transfer-incoming"
 PAYLOAD="$incoming/payload.tar"
 UNPACK="$incoming/unpack"
@@ -1758,11 +2046,17 @@ printf -v REMOTE_COMMAND '/bin/bash -c %q _ %q' \
   orangepi@192.168.13.1 "$REMOTE_COMMAND"
 ```
 
-The remote command first spools stdin inside the absent fixed incoming
-directory, syncs it, and verifies the outer SHA-256 passed in the fixed remote
-command. It then rejects reordered, non-regular, or extra members before tar
-extracts into a separate fresh `unpack` child, rechecks both inner manifests,
-and moves the four verified files into the evidence directory. Do not place
+Before reading stdin, the fixed remote command verifies the exact ten-gate
+deployment inventory and rc values, the successful completion tuple, both
+runtime-manifest layers, and the production source manifest. It then proves
+the motion evidence leaf absent, atomically creates it, copies and verifies the
+source/runtime manifests, and syncs the fresh leaf. Only after those gates pass
+does it create a fresh incoming directory, spool and sync stdin, and verify the
+outer SHA-256 passed in the fixed remote command. It rejects reordered,
+non-regular, or extra members before tar extracts into a separate fresh
+`unpack` child, rechecks both inner manifests, and moves the four verified
+files into the evidence directory. Any failure consumes the transfer label and
+R4 namespace; no motion is authorized and no retry is allowed. Do not place
 credentials in a command log.
 
 - [ ] **Step 3: Dispatch Phase A, then verify local and remote script hashes**
@@ -1774,8 +2068,8 @@ password-only policy:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
-DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r3
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r4
 MOTION_STAGE=/tmp/roboparty-dexhand-motion-1a7c820
 SMALL_DISPATCH="$BOOTSTRAP_EVIDENCE/PHASE_SMALL_DISPATCHED"
 gate=motion_artifact_transfer
@@ -1814,8 +2108,8 @@ printf '%s\n' \
   "production_tree=$PRODUCTION_TREE" \
   "motion_script_sha256=$MOTION_SCRIPT_SHA256" \
   "frozen_test_sha256=$FROZEN_TEST_SHA256" \
-  small_postflight_driver_sha256=20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1 \
-  full_postflight_driver_sha256=efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f \
+  small_postflight_driver_sha256=4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85 \
+  full_postflight_driver_sha256=b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56 \
   connection_label=motion_setup_session \
   boot_evidence_label=remote_fresh_root.stdout \
   "boot_evidence_sha256=$BOOT_EVIDENCE_SHA256" \
@@ -1835,10 +2129,10 @@ grep -Fx "motion_script_sha256=$MOTION_SCRIPT_SHA256" \
 grep -Fx "frozen_test_sha256=$FROZEN_TEST_SHA256" \
   "$SMALL_DISPATCH/binding"
 grep -Fx \
-  small_postflight_driver_sha256=20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1 \
+  small_postflight_driver_sha256=4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85 \
   "$SMALL_DISPATCH/binding"
 grep -Fx \
-  full_postflight_driver_sha256=efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f \
+  full_postflight_driver_sha256=b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56 \
   "$SMALL_DISPATCH/binding"
 grep -Fx connection_label=motion_setup_session "$SMALL_DISPATCH/binding"
 grep -Fx boot_evidence_label=remote_fresh_root.stdout \
@@ -1876,7 +2170,7 @@ TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
 ```
 
 The atomic local `mkdir` is the conservative no-replay boundary. Any failure
-before it consumes the r3 suffix; any failure from that point onward preserves
+before it consumes the r4 suffix; any failure from that point onward preserves
 the marker and forbids Phase A replay even if the remote physical attempt
 marker was never created. It also blocks Phase B until a reviewed read-only
 recovery proves all Phase A postflight and acceptance gates. The live helper
@@ -1885,7 +2179,7 @@ stdout/stderr transcript. Then change to the evidence directory and run remotely
 
 ```bash
 set -euo pipefail
-cd /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+cd /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 sha256sum -c SHA256SUMS
 sha256sum -c MOTION_SCRIPT_SHA256SUM
 script_hash_line=$(sha256sum staged_motion_validation.py)
@@ -1899,12 +2193,12 @@ test "$test_path" = test_staged_motion_validation.py
 test "$test_hash" = \
   df774043b20156d541f2cd7bbf6611d96c8922ffe7b66ab0f4b7591dd4be45ce
 (cd \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f && \
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/deployment-db2da9f && \
   sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256)
 cmp RUNTIME_MANIFEST.sha256 \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f/RUNTIME_MANIFEST.sha256
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/deployment-db2da9f/RUNTIME_MANIFEST.sha256
 cmp RUNTIME_MANIFEST_ANCHOR.sha256 \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f/RUNTIME_MANIFEST_ANCHOR.sha256
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/deployment-db2da9f/RUNTIME_MANIFEST_ANCHOR.sha256
 sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256
 sha256sum -c RUNTIME_MANIFEST.sha256
 ```
@@ -1916,24 +2210,38 @@ the motion capture tools:
 
 ```bash
 set -euo pipefail
-DEPLOY_EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f
+DEPLOY_EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/deployment-db2da9f
 DEPLOY_GATES=(
   remote_archive_provenance configure configure_contract build ctest
   plain_install install_export artifact_gate python_construction
+  task4_completion
 )
+test "${#DEPLOY_GATES[@]}" = 10
 for gate in "${DEPLOY_GATES[@]}"; do
   for suffix in command stdout stderr rc timestamp environment; do
     test -f "$DEPLOY_EVIDENCE/$gate.$suffix"
   done
   test "$(cat "$DEPLOY_EVIDENCE/$gate.rc")" = 0
 done
+set +e
+inventory_rc_listing=$(find "$DEPLOY_EVIDENCE" -maxdepth 1 -type f \
+  -name '*.rc' -print)
+inventory_rc_find_rc=$?
+set -e
+test "$inventory_rc_find_rc" = 0
+inventory_rc_files=()
+if test -n "$inventory_rc_listing"; then
+  mapfile -t inventory_rc_files <<< "$inventory_rc_listing"
+fi
+test "${#inventory_rc_files[@]}" = 10
 ```
 
 Expected: archive/provenance, configuration, build, exact 8/8 CTest, plain
 install, independent install/export relocation, AArch64 artifact, and
-construction-only Python gates are independently reproducible from command,
-stdout, stderr, rc, timestamp, and selected-environment records. No password
-or credential is present in the bundle.
+construction-only Python gates plus the final Task 4 completion audit are
+independently reproducible from command, stdout, stderr, rc, timestamp, and
+selected-environment records. The inventory is exactly ten, including
+`task4_completion`; no password or credential is present in the bundle.
 
 - [ ] **Step 4: Install the exact capture protocol and capture Phase A preflight**
 
@@ -1943,7 +2251,7 @@ shell `noclobber` prevents a second capture from replacing evidence:
 
 ```bash
 set -euo pipefail
-EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 set -o noclobber
 cat > "$EVIDENCE/capture_snapshot.sh" <<'SH'
 #!/bin/bash
@@ -2080,9 +2388,9 @@ capture rcvlist /bin/bash -c \
   'set -euo pipefail; for name in all eff err fil inv sff; do path="/proc/net/can/rcvlist_$name"; printf "=== %s ===\n" "$name"; /usr/bin/sed "/^[[:space:]]*$/d" "$path"; done'
 capture processes /usr/bin/ps -eo pid=,comm=,args=
 capture source_manifest /usr/bin/cat \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/SOURCE_MANIFEST
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/SOURCE_MANIFEST
 capture sdk_hash /usr/bin/sha256sum \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix/lib/libLHandProLib.so
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix/lib/libLHandProLib.so
 capture sdk_hash_gate /bin/bash -c \
   'set -euo pipefail; read -r sdk_hash _ < "$1"; test "$sdk_hash" = 476f7687ff3063c7adbafef52b4f9326469a1d41f96eb1a516488f9be4064044' \
   _ "$EVIDENCE/$PHASE.$WINDOW.sdk_hash.stdout"
@@ -2448,8 +2756,8 @@ cat > "$EVIDENCE/check_runtime_gate.sh" <<'SH'
 #!/bin/bash
 set -euo pipefail
 EVIDENCE=$(cd "$(dirname "$0")" && pwd -P)
-DEPLOY=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/deployment-db2da9f
-PREFIX=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix
+DEPLOY=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/deployment-db2da9f
+PREFIX=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix
 (cd "$DEPLOY" && sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256)
 (cd "$EVIDENCE" && sha256sum -c RUNTIME_MANIFEST_ANCHOR.sha256)
 cmp "$DEPLOY/RUNTIME_MANIFEST.sha256" "$EVIDENCE/RUNTIME_MANIFEST.sha256"
@@ -2610,7 +2918,7 @@ cat > "$EVIDENCE/phase_small_postflight_driver.sh" <<'SH'
 set -euo pipefail
 EVIDENCE=$(cd "$(dirname "$0")" && pwd -P)
 test "$EVIDENCE" = \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 ATTEMPT="$EVIDENCE/phase-small.attempt"
 test -d "$ATTEMPT"
 set +e
@@ -2789,7 +3097,7 @@ cat > "$EVIDENCE/phase_full_postflight_driver.sh" <<'SH'
 set -euo pipefail
 EVIDENCE=$(cd "$(dirname "$0")" && pwd -P)
 test "$EVIDENCE" = \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 ATTEMPT="$EVIDENCE/phase-full.attempt"
 test -d "$ATTEMPT"
 set +e
@@ -2885,10 +3193,10 @@ chmod 0555 "$EVIDENCE/phase_small_postflight_driver.sh" \
   sha256sum phase_small_postflight_driver.sh \
     phase_full_postflight_driver.sh > POSTFLIGHT_DRIVER_SHA256SUMS)
 grep -Fx \
-  '20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1  phase_small_postflight_driver.sh' \
+  '4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85  phase_small_postflight_driver.sh' \
   "$EVIDENCE/POSTFLIGHT_DRIVER_SHA256SUMS"
 grep -Fx \
-  'efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f  phase_full_postflight_driver.sh' \
+  'b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56  phase_full_postflight_driver.sh' \
   "$EVIDENCE/POSTFLIGHT_DRIVER_SHA256SUMS"
 /usr/bin/env -u PYTHONOPTIMIZE /usr/bin/python3 -I \
   "$EVIDENCE/check_can_receivers.py" --self-test
@@ -2931,7 +3239,7 @@ the review evidence:
 
 ```bash
 set -euo pipefail
-EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 cat "$EVIDENCE/phase-small.pre.processes.stdout"
 read -r -p 'Process review [clean/found/unknown]: ' PROCESS_REVIEW
 case "$PROCESS_REVIEW" in
@@ -2958,7 +3266,7 @@ timeout, SSH, or the board fails:
 
 ```bash
 set -euo pipefail
-EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 ATTEMPT="$EVIDENCE/phase-small.attempt"
 cd "$EVIDENCE"
 sha256sum -c SHA256SUMS
@@ -3006,7 +3314,7 @@ MOTION_COMMAND=(
   env -u LD_LIBRARY_PATH
   PYTHONNOUSERSITE=1
   PYTHONDONTWRITEBYTECODE=1
-  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix/lib/python3.10/site-packages
+  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix/lib/python3.10/site-packages
   /usr/bin/timeout --preserve-status --signal=INT --kill-after=5s 30s
   /usr/bin/python3 -u staged_motion_validation.py --phase small
 )
@@ -3018,7 +3326,7 @@ MOTION_COMMAND=(
 env -u LD_LIBRARY_PATH \
   PYTHONNOUSERSITE=1 \
   PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix/lib/python3.10/site-packages \
+  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix/lib/python3.10/site-packages \
   /bin/bash -c \
   'for name in PATH PYTHONPATH LD_LIBRARY_PATH PYTHONNOUSERSITE PYTHONDONTWRITEBYTECODE; do printf "%s=%s\n" "$name" "${!name-<unset>}"; done' \
   > "$ATTEMPT/environment"
@@ -3058,7 +3366,7 @@ Open a fresh connection regardless of the saved motion rc:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
 gate=motion_setup_session
 for suffix in command stdout stderr rc timestamp environment capture_mode; do
   test -f "$BOOTSTRAP_EVIDENCE/$gate.$suffix"
@@ -3072,18 +3380,18 @@ LIVE_CAPTURE="$BOOTSTRAP_EVIDENCE/capture_live_gate.sh"
 TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
 SMALL_POSTFLIGHT_REMOTE=$(cat <<'REMOTE'
 set -euo pipefail
-evidence=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+evidence=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 cd "$evidence"
 grep -Fx \
-  '20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1  phase_small_postflight_driver.sh' \
+  '4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85  phase_small_postflight_driver.sh' \
   POSTFLIGHT_DRIVER_SHA256SUMS
 sha256sum -c EVIDENCE_TOOLS_SHA256SUMS
 sha256sum -c POSTFLIGHT_DRIVER_SHA256SUMS
 printf '%s\n' \
-  '20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1  phase_small_postflight_driver.sh' \
+  '4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85  phase_small_postflight_driver.sh' \
   | sha256sum -c -
 exec /bin/bash \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/phase_small_postflight_driver.sh
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612/phase_small_postflight_driver.sh
 REMOTE
 )
 printf -v SMALL_POSTFLIGHT_COMMAND '/bin/bash -c %q' \
@@ -3175,8 +3483,8 @@ B:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
-DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r3
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r4
 MOTION_STAGE=/tmp/roboparty-dexhand-motion-1a7c820
 FULL_DISPATCH="$BOOTSTRAP_EVIDENCE/PHASE_FULL_DISPATCHED"
 gate=phase_small_postflight_session
@@ -3220,10 +3528,10 @@ grep -Fx "motion_script_sha256=$MOTION_SCRIPT_SHA256" \
 grep -Fx "frozen_test_sha256=$FROZEN_TEST_SHA256" \
   "$SMALL_DISPATCH/binding"
 grep -Fx \
-  small_postflight_driver_sha256=20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1 \
+  small_postflight_driver_sha256=4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85 \
   "$SMALL_DISPATCH/binding"
 grep -Fx \
-  full_postflight_driver_sha256=efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f \
+  full_postflight_driver_sha256=b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56 \
   "$SMALL_DISPATCH/binding"
 grep -Fx connection_label=motion_setup_session "$SMALL_DISPATCH/binding"
 grep -Fx boot_evidence_label=remote_fresh_root.stdout \
@@ -3244,8 +3552,8 @@ printf '%s\n' \
   "production_tree=$PRODUCTION_TREE" \
   "motion_script_sha256=$MOTION_SCRIPT_SHA256" \
   "frozen_test_sha256=$FROZEN_TEST_SHA256" \
-  small_postflight_driver_sha256=20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1 \
-  full_postflight_driver_sha256=efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f \
+  small_postflight_driver_sha256=4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85 \
+  full_postflight_driver_sha256=b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56 \
   connection_label=phase_full_execution_session \
   phase_a_authorization_label=phase_small_postflight_session \
   "phase_a_authorization_rc_sha256=$PHASE_A_GATE_RC_SHA256" \
@@ -3268,10 +3576,10 @@ grep -Fx "motion_script_sha256=$MOTION_SCRIPT_SHA256" \
 grep -Fx "frozen_test_sha256=$FROZEN_TEST_SHA256" \
   "$FULL_DISPATCH/binding"
 grep -Fx \
-  small_postflight_driver_sha256=20b6483aafdcc48a8a4d7201aaae9afa678ac254abcb14de424d221dda68f2e1 \
+  small_postflight_driver_sha256=4e6ed567127fe12f7de749907bb3af0c76e73cc1dee4b34cb7dcc9c52acacb85 \
   "$FULL_DISPATCH/binding"
 grep -Fx \
-  full_postflight_driver_sha256=efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f \
+  full_postflight_driver_sha256=b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56 \
   "$FULL_DISPATCH/binding"
 grep -Fx connection_label=phase_full_execution_session \
   "$FULL_DISPATCH/binding"
@@ -3330,7 +3638,7 @@ authorization checks that made the prior read-only session rc `0`:
 
 ```bash
 set -euo pipefail
-EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 cd "$EVIDENCE"
 sha256sum -c PHASE_SMALL_AUTOMATIC_SUCCESS_ANCHOR.sha256
 sha256sum -c PHASE_SMALL_AUTOMATIC_SUCCESS.sha256
@@ -3361,7 +3669,7 @@ Run the distinct Phase B preflight and record the same explicit
 
 ```bash
 set -euo pipefail
-EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 /bin/bash "$EVIDENCE/check_phase_a_acceptance.sh" \
   /proc/sys/kernel/random/boot_id
 /bin/bash "$EVIDENCE/capture_snapshot.sh" phase-full pre
@@ -3399,7 +3707,7 @@ be preserved:
 
 ```bash
 set -euo pipefail
-EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+EVIDENCE=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 ATTEMPT="$EVIDENCE/phase-full.attempt"
 cd "$EVIDENCE"
 sha256sum -c SHA256SUMS
@@ -3445,7 +3753,7 @@ MOTION_COMMAND=(
   env -u LD_LIBRARY_PATH
   PYTHONNOUSERSITE=1
   PYTHONDONTWRITEBYTECODE=1
-  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix/lib/python3.10/site-packages
+  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix/lib/python3.10/site-packages
   /usr/bin/timeout --preserve-status --signal=INT --kill-after=5s 60s
   /usr/bin/python3 -u staged_motion_validation.py --phase full
 )
@@ -3457,7 +3765,7 @@ MOTION_COMMAND=(
 env -u LD_LIBRARY_PATH \
   PYTHONNOUSERSITE=1 \
   PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/prefix/lib/python3.10/site-packages \
+  PYTHONPATH=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/prefix/lib/python3.10/site-packages \
   /bin/bash -c \
   'for name in PATH PYTHONPATH LD_LIBRARY_PATH PYTHONNOUSERSITE PYTHONDONTWRITEBYTECODE; do printf "%s=%s\n" "$name" "${!name-<unset>}"; done' \
   > "$ATTEMPT/environment"
@@ -3499,7 +3807,7 @@ Reconnect regardless of the saved rc:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
 gate=phase_full_execution_session
 for suffix in command stdout stderr rc timestamp environment capture_mode; do
   test -f "$BOOTSTRAP_EVIDENCE/$gate.$suffix"
@@ -3513,18 +3821,18 @@ LIVE_CAPTURE="$BOOTSTRAP_EVIDENCE/capture_live_gate.sh"
 TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
 FULL_POSTFLIGHT_REMOTE=$(cat <<'REMOTE'
 set -euo pipefail
-evidence=/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612
+evidence=/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612
 cd "$evidence"
 grep -Fx \
-  'efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f  phase_full_postflight_driver.sh' \
+  'b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56  phase_full_postflight_driver.sh' \
   POSTFLIGHT_DRIVER_SHA256SUMS
 sha256sum -c EVIDENCE_TOOLS_SHA256SUMS
 sha256sum -c POSTFLIGHT_DRIVER_SHA256SUMS
 printf '%s\n' \
-  'efd7e731059269a8df4bd3012e24dd838142c08d4edbeb4c1dd1ff73cac36b6f  phase_full_postflight_driver.sh' \
+  'b67d14df0c4fa237a65a56684ab2a7d9567ffc2e4dfbf8eca91119f22a816d56  phase_full_postflight_driver.sh' \
   | sha256sum -c -
 exec /bin/bash \
-  /home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/phase_full_postflight_driver.sh
+  /home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612/phase_full_postflight_driver.sh
 REMOTE
 )
 printf -v FULL_POSTFLIGHT_COMMAND '/bin/bash -c %q' \
@@ -3591,7 +3899,7 @@ physical gate complete.
 
 **Files:**
 - Inspect all evidence under:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r3/evidence/motion-validation-bacf6612/`
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r4/evidence/motion-validation-bacf6612/`
 - Inspect repository state:
   `/home/sjh/leisai_hand/roboparty_dexhand`
 
@@ -3601,7 +3909,7 @@ Run locally after the final live session has closed:
 
 ```bash
 set -euo pipefail
-BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r3/bootstrap-evidence
+BOOTSTRAP_EVIDENCE=/tmp/roboparty-dexhand-deploy-db2da9f-r4/bootstrap-evidence
 (cd "$BOOTSTRAP_EVIDENCE" && sha256sum -c CAPTURE_GATE_SHA256SUM)
 NORMAL_CONNECTION_GATES=(
   remote_fresh_root source_transfer remote_gate_bootstrap
