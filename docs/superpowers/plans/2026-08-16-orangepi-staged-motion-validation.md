@@ -642,6 +642,27 @@ Its path-bound small- and full-motion postflight driver hashes are
 `0a72eb59fa64e31e0d6be52fbf4b4baed597cc73817bb54a13796afd4efc967e` and
 `fe679c812bc6180cee1ccecee31087f65d1acf39383f1b84941c01d52cde8fcc`.
 
+R34 completed Task 4 and motion-artifact transfer, but stopped before Phase A
+dispatch. The forced-TTY `remote_fresh_root` tuple returned `rc=0`, yet its
+stdout contained the full terminal echo (738 lines, including the boot id)
+instead of the required single boot-id line. The evidence could not be bound
+to the dispatch marker. No SDK initialization, CAN command, or motion
+occurred; R34 is consumed and must not be queried or reused.
+
+R35 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r35`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r35`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r35`. The root gate keeps the local
+controlling-TTY/password proof but uses SSH `-T` so the stdin script's stdout
+is machine-readable; a local gate must reject any root tuple whose stdout is
+not exactly one `boot_id=<uuid>` line before dispatch.
+
+The R35 controller SHA-256 is
+`eb85d4924f6c9b7cf42577523a1b4080aaec4294c894b49f7b6f50b07fa695da`.
+Its path-bound small- and full-motion postflight driver hashes are
+`d9087291159e5f8255a6dc3a0c540bbcfa175d94f2f1f2e7d46fed9dcc6bc8bc` and
+`769564d89d1ec2e3c7235c8376267c532a5034eed0090c298e246d28b0aeda28`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
