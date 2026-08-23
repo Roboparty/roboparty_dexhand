@@ -45,3 +45,17 @@ Response record:
 - Redistribution/license authorization:
 - GPL compatibility review:
 - Evidence or agreement reference:
+
+## Auxiliary Local Smoke Evidence
+
+On 2026-08-24, the x86-64 binary matching the SHA above was exercised in a
+100-iteration lifecycle smoke. Each iteration performed only
+`create -> set_send_canfd_callback -> start_monitor -> stop_monitor -> set
+callback(NULL) -> close -> destroy`; it did not call `initial_ex`, configure a
+CAN interface, or issue a motor command. The result was
+`PASS iterations=100 callback_calls=0 no_initial_ex=1`, and a concurrent
+`strace` found no socket, ioctl, send, recv, or connect syscall.
+
+This is auxiliary evidence only. Because no callback was generated, it does
+not prove in-flight callback draining, late-callback safety, or vendor
+quiescence semantics. It does not change the **PENDING** status above.
