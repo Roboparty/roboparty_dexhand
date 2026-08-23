@@ -522,6 +522,24 @@ The corresponding path-bound small/full driver hashes are
 They are local preflight values only; a remote R28 gate must independently
 verify all three before any motion-capable session.
 
+R28 is consumed by a path-substitution incident. Its local
+`source_archive`, `remote_fresh_root`, and `source_transfer` tuples were
+complete with rc `0`, but the operator command replaced only `-r26` and left
+the remote `_r26` token unchanged. The sole operator SSH therefore targeted
+the already-consumed R26 root and stopped at its existing
+`remote_archive_provenance` label. No R28 build, SDK initialization, CAN
+command, attempt, or motion occurred. R28 is permanently consumed; do not
+reconnect to its root or use its local tuple as R29 evidence.
+
+R29 is the only fresh continuation. It uses local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r29`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r29`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r29`. The controller must be generated
+with a complete `r29` token substitution covering both `-r29` and `_r29`
+namespaces; the resulting controller and path-bound driver hashes are new
+inputs and must be checked before SSH. R29 restarts at the exact source
+archive unit and must not inspect, delete, or reuse R28 or prior roots.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
