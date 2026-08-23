@@ -362,6 +362,25 @@ before process review during the phase-small pre-snapshot. No attempt, SDK,
 CAN, or motion action ran. R20 is consumed; R21 is limited to read-only
 inventory of the motion leaf and snapshot failure.
 
+R21 confirmed the board can0 is UP/LOWER_UP, CAN-FD, ERROR-ACTIVE at 1M/5M,
+with zero protocol and RX/TX errors. Its `gs_usb` details omit the optional
+`berr-counter` line, which made the frozen pre-snapshot parser fail before
+process review. R22 records the field's availability explicitly and gates all
+available error counters at zero; it does not invent a nonzero-capability
+reading.
+
+R22 uses a fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r22`, a
+fresh remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r22`, and
+motion stage `/tmp/roboparty-dexhand-motion-1a7c820-r22`. The controller
+SHA-256 is
+`b3f0d5d35c88671c0b4a028e11d53943dfdde5b997555f534d155edf45c11dc0`.
+Its generated postflight drivers are pinned to
+`c724fdcb682d8551b831d7bd7579eeb0c95d1e3d938ef700facdcfa38bcfbdff` and
+`ec8b187e621d6e017a96f4c37a32c4ea2f551f2eb1230a4bf1a95bb86ff56275`.
+The optional counter is represented by an explicit availability boolean;
+only counters actually reported by the kernel are asserted, and all reported
+error counters must remain zero. R22 is fresh and cannot reuse R21 evidence.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is

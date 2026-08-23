@@ -406,6 +406,27 @@ was created or sent. R20 is consumed. R21 may perform only a read-only
 inventory of the R20 motion leaf and its snapshot files to identify the
 failure; it may not replay setup or authorize motion.
 
+R21 read-only inventory found the R20 motion leaf with all pre-snapshot files
+except `can_counters` successful. The board's `can0` is UP/LOWER_UP,
+CAN-FD, ERROR-ACTIVE, 1M/5M, and all protocol/RX/TX error counters are zero,
+but this `gs_usb` `ip -details` output has no `berr-counter` line. The frozen
+parser treated that optional line as mandatory and exited before process
+review. R21 is consumed. R22 will record `berr_counter_available=false` when
+the line is absent, preserve actual values when present, and continue to gate
+all available error counters at zero.
+
+R22 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r22`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r22`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r22`. Its controller is the fresh
+`/tmp/r22_phase_a_controller.sh` with SHA-256
+`b3f0d5d35c88671c0b4a028e11d53943dfdde5b997555f534d155edf45c11dc0`.
+The generated postflight driver hashes are
+`c724fdcb682d8551b831d7bd7579eeb0c95d1e3d938ef700facdcfa38bcfbdff` and
+`ec8b187e621d6e017a96f4c37a32c4ea2f551f2eb1230a4bf1a95bb86ff56275`.
+R22 is a fresh deployment boundary; it may proceed only after the local
+controller syntax/hash/self-test gates pass. R21 remains consumed and cannot
+be replayed or used to infer a motion result.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
