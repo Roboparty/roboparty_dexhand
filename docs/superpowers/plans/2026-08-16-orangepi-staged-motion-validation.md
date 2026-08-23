@@ -381,6 +381,14 @@ fields `aarch64=3`, both runpaths, and the SDK hash; the transfer gate's exact
 grep therefore failed closed. R18 is consumed. R19 must use a fresh root and
 emit the complete completion line before transfer.
 
+R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
+`57aa2feefa32f512971692e774c74ef3f639a82320b34421b072986494c476fa`.
+Its generated driver hashes are
+`76300adfa562993523ac2573e01f362f1c594f3f5df60f09187243691c64d0ae` and
+`e4d1956d6e3d66cb5d0d8640296134a478a4c26cee68d147f2a534293f458201`.
+
 ```bash
 set -euo pipefail
 DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r13

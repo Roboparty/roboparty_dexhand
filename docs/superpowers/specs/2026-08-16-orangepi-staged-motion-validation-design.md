@@ -343,6 +343,14 @@ transfer gate rejected R17's completion output because it lacked the exact
 `aarch64=3`, runpath, and SDK-hash fields required by the contract. R18 is
 consumed; R19 must emit the complete completion line in a fresh root.
 
+R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
+`57aa2feefa32f512971692e774c74ef3f639a82320b34421b072986494c476fa`; the
+generated driver hashes are
+`76300adfa562993523ac2573e01f362f1c594f3f5df60f09187243691c64d0ae` and
+`e4d1956d6e3d66cb5d0d8640296134a478a4c26cee68d147f2a534293f458201`.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;
