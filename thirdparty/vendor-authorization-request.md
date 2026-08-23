@@ -61,6 +61,12 @@ not publish or redistribute the vendor binaries.
 - The public sample guide lists the SDK package layout but does not itself
   grant redistribution rights:
   <https://www.leadshine.com/upfiles/downloads/5c21396d3eb9c2eee78f7b768e400324_1766731664504.pdf>
+- The vendor's public Terms of Use page currently exposes only a heading and
+  no agreement text, so it cannot supply the User Agreement referenced by the
+  SDK manual:
+  <https://www.leadshine.com/newsEvent/details/terms-of-use.html>
+- The vendor support page directs technical questions to `tech@leadshine.com`:
+  <https://www.leadshine.com/support.html>
 
 Regards,
 
