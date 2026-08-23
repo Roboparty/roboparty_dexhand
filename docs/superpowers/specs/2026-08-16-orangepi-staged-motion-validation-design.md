@@ -425,6 +425,11 @@ stage `/tmp/roboparty-dexhand-motion-1a7c820-r26`; controller SHA-256 is
 driver hashes `d77da3fd67797fcfc8d81d02ce8ae89efca1ce3e87bb5b7a697d78d1ab125099`
 and `4ead1ee72aba53e595ab381a0958d19f4a3d5478b077595008d5eb7e56dd4793`.
 
+R26 passed Task 4, transfer, driver hash, and parser self-tests, but its
+setup session returned `rc=1` before process review during pre-snapshot. No
+attempt or physical action ran. R26 is consumed; R27 is read-only inventory
+only and may not replay setup.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is

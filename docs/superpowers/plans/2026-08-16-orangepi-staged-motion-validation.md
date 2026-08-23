@@ -485,6 +485,13 @@ the path-bound driver hashes are
 `d77da3fd67797fcfc8d81d02ce8ae89efca1ce3e87bb5b7a697d78d1ab125099` and
 `4ead1ee72aba53e595ab381a0958d19f4a3d5478b077595008d5eb7e56dd4793`.
 
+R26 completed fresh deployment, Task 4, and motion artifact transfer. Its
+setup session passed the driver hash and both parser self-tests, then returned
+`rc=1` before process review during the first pre-snapshot. No attempt,
+SDK initialization, CAN command, or motion action ran. R26 is consumed. R27
+may perform only a read-only inventory of the R26 motion leaf and snapshot
+files to identify the remaining pre-snapshot failure.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
