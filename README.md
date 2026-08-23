@@ -10,8 +10,10 @@ the same physical CAN interface. No motors source or private target is linked.
 - Linux AArch64/ARM64 (Orange Pi and RDK deployment)
 - One active LHandPro SDK instance per process
 
-The AArch64/ARM64 target remains release-gated as described below; this change
-does not claim an ARM64, vcan, or physical-hardware validation result.
+The AArch64/ARM64 target and physical hardware path have now been exercised
+for the production source commit `db2da9fb90f407bdd5e3bbd3de691e775d27abd3`.
+The remaining release gates are the vendor callback-quiescence confirmation and
+written SDK redistribution/license authorization described below.
 
 ## CAN Setup
 
@@ -100,9 +102,19 @@ bounded shutdown.
 
 ## ARM64 Release Gate
 
-The repository carries an AArch64 SDK artifact, but an Orange Pi/RDK release
-also requires a native build, CTest, installed C++ consumer, and installed
-Python import on that board. x86 ELF inspection is not a substitute.
+The repository carries an AArch64 SDK artifact. The Orange Pi validation for
+the production commit above completed a native Debug/Werror build, exactly
+8/8 CTests, install/export relocation, AArch64 artifact and RPATH checks, and
+installed Python construction checks. x86 ELF inspection is not a substitute;
+the board evidence is retained at
+`/home/orangepi/roboparty_dexhand_can0_full_20260824/evidence`.
+
+The same board then completed the bounded physical can0 test with CAN-FD node
+ID 1 and the public 6DOF model: three 0-to-5000 and 5000-to-0 cycles, a final
+open command, four cleanup steps, and a unique `phase_complete` event. The
+validated vendor DOF pair was `(11, 6)`. The command returned zero; postflight
+left can0 `ERROR-ACTIVE` at 1 Mbit/s nominal and 5 Mbit/s data rate with zero
+bus, protocol, RX, TX, and dropped-frame errors and no active receiver.
 
 ## Runtime Safety Constraints
 
