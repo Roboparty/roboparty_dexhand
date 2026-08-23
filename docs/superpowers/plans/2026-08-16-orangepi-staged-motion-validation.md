@@ -492,6 +492,36 @@ SDK initialization, CAN command, or motion action ran. R26 is consumed. R27
 may perform only a read-only inventory of the R26 motion leaf and snapshot
 files to identify the remaining pre-snapshot failure.
 
+R27's read-only inventory identified the exact parser boundary. The saved
+`can_counters` child failed with `missing CAN field: can state`, although the
+board reported the valid CAN-FD form `can <FD> state ERROR-ACTIVE`. The saved
+receiver lists had no active rows: in addition to `any` and `can0`, the board
+listed `can_top`, `can_bottom`, `can_hipnuc`, and `can1` through `can3`, each
+with `no entry`; the old exact-row gate rejected those harmless empty rows.
+The same inventory showed zero protocol/RX/TX errors and drops, no relevant
+process, no attempt directory, and no SDK/CAN/motion action. R27 is consumed
+and may not be replayed.
+
+R28 is the only fresh parser-bound continuation. It must use local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r28`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r28`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r28`, all proven absent before use.
+Before SSH, the controller must be locally extracted, syntax-checked, and
+its path-substituted controller/driver hashes recomputed and bound. The
+receiver checker accepts only rows matching `(<interface>: no entry)`, while
+requiring both `any` and `can0`; the CAN checker accepts the observed
+`can <FD> state ERROR-ACTIVE` spelling without relaxing any zero-error or
+configuration/delta assertion. No R27 namespace may be queried for retry
+authority, and no CAN configuration may be changed.
+
+The prepared R28 controller hash is
+`d3ff0794652b5ded2b44473413c6c8773a0a0d483de80be752830b3c9a3ad7f8`.
+The corresponding path-bound small/full driver hashes are
+`bf1489aad3912b1467070d9a50c4f2fa54584e26bdbd87aac2749431d05aaf55` and
+`ca38224cf033da1beefa858e56a25b2ab45f300fc3f91ff2ce964b831dc5688c`.
+They are local preflight values only; a remote R28 gate must independently
+verify all three before any motion-capable session.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
