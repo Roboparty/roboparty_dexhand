@@ -337,6 +337,12 @@ before creating the motion evidence leaf. No SDK, CAN, or motion action ran.
 R17 is consumed; R18 is limited to a read-only inventory of the R17 deployment
 root and cannot retry transfer or authorize motion.
 
+R18 read-only inventory confirmed the R17 deployment root has all 10 Task 4
+rc files at `0`, while the motion evidence leaf and attempt are absent. The
+transfer gate rejected R17's completion output because it lacked the exact
+`aarch64=3`, runpath, and SDK-hash fields required by the contract. R18 is
+consumed; R19 must emit the complete completion line in a fresh root.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;

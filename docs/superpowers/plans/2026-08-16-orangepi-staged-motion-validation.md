@@ -373,6 +373,14 @@ CAN command, or motion command ran. R17 is consumed. R18 may perform only a
 read-only inventory of the R17 deployment root to identify which precondition
 failed; it may not retry the transfer or authorize motion.
 
+R18 read-only inventory confirmed that the R17 deployment evidence exists, all
+10 Task 4 rc files are `0`, and the motion evidence leaf and
+`phase-small.attempt` are absent. The transfer precondition failed because
+R17's manually generated `task4_completion` line omitted the required exact
+fields `aarch64=3`, both runpaths, and the SDK hash; the transfer gate's exact
+grep therefore failed closed. R18 is consumed. R19 must use a fresh root and
+emit the complete completion line before transfer.
+
 ```bash
 set -euo pipefail
 DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r13
