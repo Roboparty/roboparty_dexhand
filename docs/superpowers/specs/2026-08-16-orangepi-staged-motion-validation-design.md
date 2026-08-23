@@ -300,6 +300,21 @@ generated postflight driver hashes are
 `357c25b5d8b708e9a8c78e40be028e78aa1a370b824ffda0aee810233526f1b8` and
 `9ac995803ccf49c33dc8b320b0c16333ac64953b8eabb8385b83171cd279e4be`.
 
+R15 was consumed at `source_transfer` after the remote stream, exact seven
+members, manifest, and extraction passed. The final `rmdir` returned rc `1`
+because the recovery script had created two payload marker files and then
+required the incoming directory to be empty. No bootstrap, operator session,
+SDK, CAN, or motion command ran. R15 is permanently consumed; R16 removes the
+unnecessary marker files and keeps the empty-directory postcondition.
+
+R16 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r16`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r16`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r16`. Its controller SHA-256 is
+`653f9c3efb2efdb82c05c468adebfe0c10eef9da5f58f556272ddbb8d4bdf32f`; the
+generated driver hashes are
+`aac66424b35cdba9efc763ddbf29803481d103871106304613faeb08e623bb76` and
+`78bdaae3ed226320b67d9353ac45944ffcf63460d282f99ab385b0deb51f5e6b`.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;
