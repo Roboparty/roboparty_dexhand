@@ -725,6 +725,27 @@ Its path-bound small- and full-motion postflight driver hashes are
 `042239872839c0e39321727a8a1146f56536657844b34a133b196ecb7953c564` and
 `1ed532f078aa0a08e568383a3331ecbb05fee4528d73a22f582e80a153f4d78a`.
 
+R38 was consumed at its `source_transfer` SSH unit. The local tar was sent to
+an SSH command using `/bin/bash -s`, so the remote shell interpreted tar bytes
+as shell source and returned nonzero syntax/command errors. The transfer
+label is permanently consumed; no source archive was accepted and no build,
+SDK initialization, CAN command, or motion occurred. R38 must not be
+reconnected or reused.
+
+R39 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r39`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r39`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r39`. Its source-transfer SSH command
+must pass the fixed script through a quoted `bash -c` argument while reserving
+stdin exclusively for the closed tar payload; a local argv/stdin regression
+must pass before the first R39 SSH.
+
+The R39 controller SHA-256 is
+`242efff8b0d89854317638505808a690de17807fe5cde44534e07c59a322f5a1`.
+Its path-bound small- and full-motion postflight driver hashes are
+`747487f3768f95bd0bbc5775160d6f5440f197b3e6c1eec8093647482775836d` and
+`38e1aef10de0c7174c1e6e9f3364efd7ce2caa7d698c6032313a119adf3cb225`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
