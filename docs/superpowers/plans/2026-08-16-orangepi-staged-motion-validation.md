@@ -390,6 +390,14 @@ could not resolve that manifest entry. Source/runtime checks passed; no
 R19 is consumed. R20 must generate the controller checksum from inside the
 motion stage so the manifest contains only `phase_a_controller.sh`.
 
+R20 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r20`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r20`, motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r20`, and controller SHA-256
+`0f959f0ec14a6f8b1e6e0f8adf2522a09dab2e2ea86805c28dbfde53e852646f`.
+Its generated driver hashes are
+`983abe9b2a197ea1b9a17cbb84e04840605e7ae6f366fc0dfa7b10aee7e988b9` and
+`5a9638e4857f7f87e386deec80e9562041d4a04cc03a7b2913670235970ba08f`.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
