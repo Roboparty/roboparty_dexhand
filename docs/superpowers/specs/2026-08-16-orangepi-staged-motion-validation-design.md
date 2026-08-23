@@ -381,6 +381,20 @@ The optional counter is represented by an explicit availability boolean;
 only counters actually reported by the kernel are asserted, and all reported
 error counters must remain zero. R22 is fresh and cannot reuse R21 evidence.
 
+R22 passed fresh deployment and all Task 4 gates, but its sole motion artifact
+transfer failed closed because `PHASE_A_CONTROLLER_SHA256SUM` named the
+controller with an absolute local `/tmp/roboparty-dexhand-motion-1a7c820-r22/`
+path. The remote checksum gate therefore returned `rc=1` before installing
+the controller or creating a phase attempt. No SDK, CAN, or motion action ran;
+R22 is consumed. R23 must create the checksum while its working directory is
+the fresh motion stage, producing the relative member name
+`phase_a_controller.sh`, and must use a new deployment root and evidence tree.
+
+R23 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r23`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r23`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r23`; its controller and driver
+hashes remain those pinned by R22.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is

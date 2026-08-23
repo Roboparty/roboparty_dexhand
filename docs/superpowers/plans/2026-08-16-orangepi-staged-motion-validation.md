@@ -427,6 +427,24 @@ R22 is a fresh deployment boundary; it may proceed only after the local
 controller syntax/hash/self-test gates pass. R21 remains consumed and cannot
 be replayed or used to infer a motion result.
 
+R22 completed its fresh root, source transfer, helper bootstrap, operator
+session, all nine Task 4 gates, and the exact Task 4 completion check. Its
+unique motion artifact transfer then failed closed with `rc=1`: the locally
+generated `PHASE_A_CONTROLLER_SHA256SUM` contained an absolute local path, so
+the remote `sha256sum -c` could not open `/tmp/roboparty-dexhand-motion-1a7c820-r22/phase_a_controller.sh`.
+The failure occurred before the controller could be installed or an attempt
+directory created; no SDK initialization, CAN command, or motion action ran.
+R22 is consumed. R23 must generate that checksum from inside its fresh motion
+stage so the manifest path is exactly `phase_a_controller.sh`; it may not
+reuse R22's local or remote namespaces.
+
+R23 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r23`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r23`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r23`. It keeps the R22 controller SHA
+`b3f0d5d35c88671c0b4a028e11d53943dfdde5b997555f534d155edf45c11dc0` and
+driver hashes, but requires a fresh relative-path checksum manifest before
+transfer.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
