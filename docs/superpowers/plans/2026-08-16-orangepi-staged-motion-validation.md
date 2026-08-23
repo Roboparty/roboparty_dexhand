@@ -549,6 +549,29 @@ The closed source and motion stream hashes are
 `86308be6c593a1b2ea0b0aa527d32355d1701141e96355749e75e70f9053298c` and
 `edccc81a937a8ae20035fa3a46b40ee8831a64527b01028f4e6bee82cc83a40e`.
 
+R29 completed Task 4 and motion-artifact transfer. Its unique setup session
+returned `rc=1` after the authorized `clean` process review but before
+`phase-small.attempt` was created. The preflight process-review check passed
+the literal `process-review` label as the first Python argument, so it tried
+to read a nonexistent file named `process-review` and raised
+`FileNotFoundError`. The same label/path argument shift remained in the three
+postflight process/motion-result checks. No SDK initialization, CAN command,
+attempt, or motion occurred. R29 is permanently consumed.
+
+R30 is the only fresh continuation. It uses local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r30`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r30`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r30`. The controller must remove all
+four label/path shifts, recompute its controller/driver hashes, and restart
+from the exact source-archive unit. R29 and earlier namespaces must not be
+queried, deleted, or reused.
+
+The R30 controller SHA-256 is
+`625e8e8c823639b92fb4e5186d8fbe08bea831f2a732b362247edbecfa6f7059`.
+Its small- and full-motion postflight driver SHA-256 values are
+`d6a41415c3fb5c20b08b5c0e57258b161b6b8c2bfdb8bcd88b9fae638ca55d1d` and
+`570225098461eaa871ecb3550a57be1b769cebc8af4312fa9b0df5750a559899`.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
