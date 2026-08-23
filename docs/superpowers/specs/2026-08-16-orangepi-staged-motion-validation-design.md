@@ -511,6 +511,31 @@ Its small- and full-motion postflight driver SHA-256 values are
 `d6a41415c3fb5c20b08b5c0e57258b161b6b8c2bfdb8bcd88b9fae638ca55d1d` and
 `570225098461eaa871ecb3550a57be1b769cebc8af4312fa9b0df5750a559899`.
 
+R30 was consumed at its first SSH gate. The local source archive completed
+with `rc=0`, and the first SSH password prompt was answered once. The board
+reported AArch64, but the remote command was passed to `ssh` as separate
+`/bin/bash -c` arguments without remote-level quoting. The remote shell
+therefore treated `set` as the command text, left the root argument empty,
+printed its environment, and returned an invalid command result (`rc=127`,
+stdout 1453 bytes, stderr 36 bytes: `Connection to 192.168.13.1 closed.`).
+No valid root, source transfer, build, SDK, CAN, or motion gate was proven.
+R30 is permanently consumed; no reconnect or namespace reuse is allowed.
+
+R31 is the only continuation. It must use a fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r31`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r31`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r31`. Its first local regression must
+prove that the exact remote script survives one additional shell parse with
+the root argument intact before any SSH is opened. R31 keeps the R30
+controller and generated-driver logic; its path-bound hashes are recomputed as
+`87756aa1c991cc30275534495d5f7461ff83f0ba414bd7549d7423c0f1a3fc6c` for the
+controller, `ed31d9eed721644078bbaa129a02206a4b9306c13bfd2ca63a345bfef7ece410`
+for the small postflight driver, and
+`749bdf51dc97b9bab0f6c8eea34997d0a5362863baa28e6ab815492f08e5739f` for the
+full postflight driver. Every R31 SSH unit must pass its script through stdin
+with `/bin/bash -s -- "$REMOTE_ROOT"`; no remote script may be supplied as a
+separately parsed `bash -c` argument.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
