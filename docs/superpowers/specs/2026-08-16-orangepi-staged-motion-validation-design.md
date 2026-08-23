@@ -315,6 +315,22 @@ generated driver hashes are
 `aac66424b35cdba9efc763ddbf29803481d103871106304613faeb08e623bb76` and
 `78bdaae3ed226320b67d9353ac45944ffcf63460d282f99ab385b0deb51f5e6b`.
 
+R16 passed the fresh root, transfer, helper bootstrap, provenance, configure,
+build, CTest 8/8, plain install, and install/export gates. Its operator shell
+failed at `artifact_gate` because a manually typed outer single-quoted
+`bash -c` contained an inner `trap '...'`, causing premature quote closure and
+an unbound positional argument. No SDK, CAN, or motion action ran. R16 is
+consumed; R17 uses a quoted here-document for the Task 4 script in a fresh
+operator session.
+
+R17 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r17`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r17`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r17`. Its controller SHA-256 is
+`ea54ee0ce69e3a9f4ec284a2ce7b95570966278f0119356f84c1ffb8b3ff1df4`; the
+generated driver hashes are
+`fec5030cd5991f7da0e5cd6e23878359aa79993d4e77c4c627e48f2aeb14767b` and
+`fef0dfa150e3a31f26e4ed4804e740ef757a7fca37c602924d0579b04821063a`.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;

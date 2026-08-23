@@ -347,6 +347,24 @@ Its generated driver hashes are
 `aac66424b35cdba9efc763ddbf29803481d103871106304613faeb08e623bb76` and
 `78bdaae3ed226320b67d9353ac45944ffcf63460d282f99ab385b0deb51f5e6b`.
 
+R16 completed `remote_fresh_root`, source transfer, helper bootstrap, source
+provenance, configure, build, CTest 8/8, plain install, and install/export.
+Its operator shell then exited at the first `artifact_gate`: the manually
+typed outer single-quoted `bash -c` contained an inner `trap '...'`, so the
+shell parsed the command at the wrong quote boundary and reported an
+unbound positional argument before the artifact gate. The operator tuple was
+partial; no SDK initialization, CAN command, or motion command ran. R16 is
+consumed. R17 must send Task 4 through a quoted here-document in the fixed
+operator shell and must not reuse the R16 root or labels.
+
+R17 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r17`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r17`, motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r17`, and controller SHA-256
+`ea54ee0ce69e3a9f4ec284a2ce7b95570966278f0119356f84c1ffb8b3ff1df4`.
+Its generated driver hashes are
+`fec5030cd5991f7da0e5cd6e23878359aa79993d4e77c4c627e48f2aeb14767b` and
+`fef0dfa150e3a31f26e4ed4804e740ef757a7fca37c602924d0579b04821063a`.
+
 ```bash
 set -euo pipefail
 DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r13
