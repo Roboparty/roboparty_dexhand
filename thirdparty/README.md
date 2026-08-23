@@ -59,3 +59,16 @@ CAN interface, or issue a motor command. The result was
 This is auxiliary evidence only. Because no callback was generated, it does
 not prove in-flight callback draining, late-callback safety, or vendor
 quiescence semantics. It does not change the **PENDING** status above.
+
+The same 100-iteration source was then built natively as an AArch64 executable
+on the Orange Pi and linked to the installed binary matching
+`476f7687ff3063c7adbafef52b4f9326469a1d41f96eb1a516488f9be4064044`.
+It also returned
+`PASS iterations=100 callback_calls=0 no_initial_ex=1`. The can0 TX counters
+were unchanged at 862 bytes and 55 packets before and after the run; can0
+remained `ERROR-ACTIVE` at 1 Mbit/s nominal and 5 Mbit/s data rate with zero
+bus, RX, TX, and dropped-frame errors. `strace` was not installed on the board,
+so no syscall-trace claim is made for this run.
+
+As with the x86-64 smoke, the AArch64 result generated no callback and does not
+prove callback quiescence or grant redistribution rights.
