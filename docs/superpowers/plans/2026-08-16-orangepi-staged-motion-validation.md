@@ -460,6 +460,13 @@ R24 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r24`, remote root
 is `0fbed7642a7f72c11cf7365265f8d59bf147d47d089e7c33cc4baea797aac5ce`;
 the R22 generated-driver hashes remain unchanged.
 
+R24 completed fresh deployment, Task 4, and motion artifact transfer. Its
+unique setup session then returned `rc=1` before the process-review prompt;
+the live capture intentionally retained zero-byte stdout/stderr. No motion
+command or SDK/CAN action is inferred from that tuple. R24 is consumed. R25
+may perform only a read-only inventory of the R24 motion evidence to identify
+which pre-snapshot child failed; it may not replay setup or authorize motion.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256

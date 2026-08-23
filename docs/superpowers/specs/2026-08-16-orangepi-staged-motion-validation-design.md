@@ -405,6 +405,12 @@ remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r24`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r24`; controller SHA-256 is
 `0fbed7642a7f72c11cf7365265f8d59bf147d47d089e7c33cc4baea797aac5ce`.
 
+R24 passed Task 4 and motion artifact transfer, but its sole setup session
+returned `rc=1` before process review, with no captured output because the
+session is live-to-TTY. No SDK initialization, CAN command, or motion action
+is inferred. R24 is consumed; R25 is read-only inventory of the R24 motion
+leaf and must not replay setup or authorize motion.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
