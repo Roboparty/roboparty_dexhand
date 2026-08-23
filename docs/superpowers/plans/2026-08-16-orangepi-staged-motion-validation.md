@@ -445,6 +445,21 @@ R23 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r23`, remote root
 driver hashes, but requires a fresh relative-path checksum manifest before
 transfer.
 
+R23 completed its fresh root, source transfer, helper bootstrap, Task 4, and
+motion artifact transfer. Before launching its setup session, a local audit
+found that the transferred controller still contained a pre-motion
+`phase_a_controller_complete=1` followed by `exit 0`; running it would create
+the attempt marker and skip `MOTION_COMMAND`. R23 is consumed without launch:
+no SDK initialization, CAN command, or motion action ran. R24 removes that
+unreachable early exit and the misleading pre-motion completion line, then
+rebinds a new controller checksum before transfer.
+
+R24 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r24`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r24`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r24`. Its corrected controller SHA-256
+is `0fbed7642a7f72c11cf7365265f8d59bf147d47d089e7c33cc4baea797aac5ce`;
+the R22 generated-driver hashes remain unchanged.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256

@@ -395,6 +395,16 @@ remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r23`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r23`; its controller and driver
 hashes remain those pinned by R22.
 
+R23 completed Task 4 and motion artifact transfer, but a local pre-launch
+audit found that its controller had an early `exit 0` immediately before the
+motion command. It was not launched; no SDK, CAN, or motion action ran. R24
+uses a corrected controller with that early exit and its misleading
+pre-motion completion line removed, and a new relative checksum binding.
+R24 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r24`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r24`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r24`; controller SHA-256 is
+`0fbed7642a7f72c11cf7365265f8d59bf147d47d089e7c33cc4baea797aac5ce`.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
