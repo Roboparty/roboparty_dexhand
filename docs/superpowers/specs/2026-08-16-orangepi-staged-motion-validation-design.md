@@ -747,6 +747,28 @@ path-bound postflight driver hashes are
 `6c42b5d84e5d7e642b7ecd4370fe67eb164e38a6517bc615ac53f74b1cbb7282` and
 `b76449949357eb8b8e98598cec2cb5cbe5ac9298bf26f584a10beb20e92bf830`.
 
+R42 was consumed before the operator build gate completed. The launcher
+executed the generated `.command` artifact directly instead of invoking the
+R42 live capture helper, so no local operator tuple was written. The remote
+script then failed its first provenance check because bootstrap had moved the
+helper files into `evidence/deployment-db2da9f` while the check still used
+root-relative helper names. The SSH returned nonzero before configure/build;
+no SDK initialization, CAN command, or motion occurred. R42 must not be
+reconnected or reused.
+
+R43 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r43`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r43`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r43`. The operator command must be
+passed as arguments to `capture_live_gate.sh` (never executed from its
+`.command` record), and its provenance check validates only the archive and
+manifest that remain at the root; helper hashes are checked in the deployment
+evidence directory. Its controller hash is
+`98ec1e6785ae1f1ab4ceb0e476c624e1fc85ea7f23b04edbd630420c5b3d708a`; its
+postflight driver hashes are
+`e7492651198b88b5b17e704b4932ec726e82bc005ee004a2522edabeab55ac75` and
+`d88adf0d25d9cd45b2ec67262f18fe6f31982da0c2a9d4687c433524a6ba04da`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
