@@ -85,3 +85,14 @@ so no syscall-trace claim is made for this run.
 
 As with the x86-64 smoke, the AArch64 result generated no callback and does not
 prove callback quiescence or grant redistribution rights.
+
+## Supplementary Current-Binary Inspection
+
+The current x86-64 blob at the SHA above exports a private
+`LHandProLibPrivate::stop_monitor_thread()` implementation whose observed
+machine code clears the monitor flag and calls `std::thread::join()`. The
+current AArch64 blob exports the same private function and contains the
+`std::thread::join` symbol. This is useful evidence about these exact blobs,
+but it is not a vendor API contract and does not prove callback-pointer update
+ordering, in-flight callback draining, or behavior after `destroy()`. It must
+not be used to replace the required written vendor response.
