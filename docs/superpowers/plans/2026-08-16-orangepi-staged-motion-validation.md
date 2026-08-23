@@ -251,11 +251,203 @@ R9 must synchronize the live shell only with an anchored `bash-*` prompt (or a
 unique explicit marker), and must treat any ambiguous output or missing prompt
 as a consumed failure. It must never use a broad `[#$] ` match.
 
-This revision starts only at local stage
+## R9 Phase A Preflight Incident and Mandatory R10 Recovery
+
+The ninth fixed local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r9` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r9` completed Task 4 and the
+motion-artifact transfer. The controller created the durable
+`PHASE_SMALL_DISPATCHED` marker and opened `motion_setup_session`. The remote
+Phase A preflight returned shell rc `1` before the process-review prompt was
+reached. The controller therefore sent neither `process_review=clean` nor the
+Phase A motion block.
+
+The local live tuple is permanently partial: `.command`, `.timestamp`,
+`.environment`, `.capture_mode`, and zero-byte stdout/stderr exist, but `.rc`
+is absent. The remote preflight may have written partial read-only snapshot
+evidence, but the live session has no transcript proving which snapshot command
+failed. No SDK initialization, `init_hand`, CAN command, or motion command was
+sent by the controller. The R9 local marker, stage, remote root, motion
+evidence, and any partial preflight evidence are consumed and must not be
+replayed, completed by hand, queried for retry authority, or deleted.
+
+R10 is a read-only recovery only. It may inspect the already-created R9
+evidence root and record the exact failure cause. It must not create another
+`phase-small.attempt`, call `init_hand`, issue CAN commands, or authorize Phase
+B. Any later physical validation would require a separate operator decision
+and safety review; it is not a retry of R9.
+
+R10 `r10_readonly_recovery` returned rc `0` and reported no
+`phase-small.attempt`. `r10_readonly_inventory` confirmed that the R9 root and
+motion evidence leaf exist, but no `phase-small.pre.*` artifact was written.
+`r10_readonly_snapshot_script` confirmed mode `0555`, successful `bash -n`,
+and `ip` resolving to `/usr/sbin/ip`. The live tuple has no transcript and the
+remote preflight stopped before its first captured snapshot, so the exact
+failing command remains unknown. This proves no motion attempt; it does not
+repair or authorize R9.
+
+### R10 Read-only Recovery: Diagnose the R9 Preflight Failure
+
+The Task 4 and Task 5 blocks below are retained as the historical R9
+execution record and must not be replayed. Run only this new read-only label
+against the existing R9 evidence root. It must not create or remove a motion
+attempt and must not run `ip`, `candump`, the SDK, Python, or a motion helper:
+
+```bash
+set -euo pipefail
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r9
+BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
+CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
+TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
+REMOTE_ROOT=/home/orangepi/roboparty_dexhand_motion_db2da9f_r9
+REMOTE_SCRIPT=$(cat <<'REMOTE'
+set -u
+root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r9
+evidence="$root/evidence/motion-validation-bacf6612"
+printf 'recovery_root=%s\n' "$root"
+if test -e "$evidence/phase-small.attempt"; then
+  printf 'phase_small_attempt=present\n'
+else
+  printf 'phase_small_attempt=absent\n'
+fi
+find "$evidence" -maxdepth 1 -type f -name 'phase-small.pre.*' \
+  -printf 'artifact=%f\n' | LC_ALL=C sort
+for rc_file in "$evidence"/phase-small.pre.*.rc; do
+  test -f "$rc_file" || continue
+  printf 'rc=%s value=' "${rc_file##*/}"
+  cat "$rc_file"
+  complete_file=${rc_file%.rc}.complete
+  if test -f "$complete_file"; then
+    printf 'complete=%s yes\n' "${complete_file##*/}"
+  else
+    printf 'complete=%s no\n' "${complete_file##*/}"
+  fi
+done
+for stderr_file in "$evidence"/phase-small.pre.*.stderr; do
+  test -s "$stderr_file" || continue
+  printf 'stderr=%s\n' "${stderr_file##*/}"
+  sed -n '1,80p' "$stderr_file"
+done
+REMOTE
+)
+printf -v REMOTE_COMMAND '/bin/bash -c %q' "$REMOTE_SCRIPT"
+"$CAPTURE" r10_readonly_recovery \
+  /usr/bin/timeout \
+  --foreground --preserve-status --signal=TERM --kill-after=5s 120s \
+  "$TTY_GATE" \
+  /usr/bin/env -u SSH_AUTH_SOCK SSH_ASKPASS_REQUIRE=never \
+  /usr/bin/ssh \
+  -F /dev/null -T \
+  -o IdentityAgent=none \
+  -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=10 \
+  -o ConnectionAttempts=1 \
+  -o ServerAliveInterval=5 \
+  -o ServerAliveCountMax=2 \
+  -o ControlMaster=no \
+  -o ControlPath=none \
+  -o ControlPersist=no \
+  -o ProxyCommand=none \
+  -o ProxyJump=none \
+  -o PermitLocalCommand=no \
+  -o ClearAllForwardings=yes \
+  -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/home/sjh/.ssh/known_hosts \
+  orangepi@192.168.13.1 "$REMOTE_COMMAND"
+```
+
+If that report contains no preflight artifacts, run the separate
+`r10_readonly_inventory` label once to distinguish an absent evidence leaf
+from an empty preflight. It only lists the existing R9 root/evidence paths and
+never changes them:
+
+```bash
+set -euo pipefail
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r9
+BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
+CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
+TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
+REMOTE_SCRIPT=$(cat <<'REMOTE'
+set -u
+root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r9
+evidence="$root/evidence/motion-validation-bacf6612"
+if test -d "$root"; then printf 'root=present\n'; else printf 'root=absent\n'; fi
+if test -d "$evidence"; then printf 'evidence=present\n'; else printf 'evidence=absent\n'; fi
+if test -d "$root"; then
+  find "$root" -maxdepth 3 -mindepth 1 -printf 'entry=%P type=%y\n' |
+    LC_ALL=C sort
+fi
+REMOTE
+)
+printf -v REMOTE_COMMAND '/bin/bash -c %q' "$REMOTE_SCRIPT"
+"$CAPTURE" r10_readonly_inventory \
+  /usr/bin/timeout \
+  --foreground --preserve-status --signal=TERM --kill-after=5s 120s \
+  "$TTY_GATE" \
+  /usr/bin/env -u SSH_AUTH_SOCK SSH_ASKPASS_REQUIRE=never \
+  /usr/bin/ssh -F /dev/null -T \
+  -o IdentityAgent=none -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=10 -o ConnectionAttempts=1 \
+  -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+  -o ControlMaster=no -o ControlPath=none -o ControlPersist=no \
+  -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no \
+  -o ClearAllForwardings=yes -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/home/sjh/.ssh/known_hosts \
+  orangepi@192.168.13.1 "$REMOTE_COMMAND"
+```
+
+If the inventory shows the evidence leaf but no preflight files, the
+`r10_readonly_snapshot_script` label may be used once to inspect only the
+installed snapshot script's path, mode, and shell syntax. It does not execute
+the script or any of its child commands:
+
+```bash
+set -euo pipefail
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r9
+BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
+CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
+TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
+REMOTE_SCRIPT=$(cat <<'REMOTE'
+set -u
+evidence=/home/orangepi/roboparty_dexhand_motion_db2da9f_r9/evidence/motion-validation-bacf6612
+if test -f "$evidence/capture_snapshot.sh"; then
+  printf 'snapshot_script=present mode=%s\n' "$(stat -c '%a' "$evidence/capture_snapshot.sh")"
+  /usr/bin/bash -n "$evidence/capture_snapshot.sh"
+  printf 'snapshot_script_syntax=ok\n'
+  command -v ip || true
+else
+  printf 'snapshot_script=absent\n'
+fi
+REMOTE
+)
+printf -v REMOTE_COMMAND '/bin/bash -c %q' "$REMOTE_SCRIPT"
+"$CAPTURE" r10_readonly_snapshot_script \
+  /usr/bin/timeout \
+  --foreground --preserve-status --signal=TERM --kill-after=5s 120s \
+  "$TTY_GATE" \
+  /usr/bin/env -u SSH_AUTH_SOCK SSH_ASKPASS_REQUIRE=never \
+  /usr/bin/ssh -F /dev/null -T \
+  -o IdentityAgent=none -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=10 -o ConnectionAttempts=1 \
+  -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+  -o ControlMaster=no -o ControlPath=none -o ControlPersist=no \
+  -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no \
+  -o ClearAllForwardings=yes -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/home/sjh/.ssh/known_hosts \
+  orangepi@192.168.13.1 "$REMOTE_COMMAND"
+```
+
+This revision starts only with read-only recovery stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r9` and remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r9`; every deployment,
 source, build, prefix, install, evidence, and motion path below derives from
-those r9 paths. The R9 operator session uses the fixed live-TTY remote command
+those historical r9 paths. The R10 recovery uses a new read-only connection
+label and never replays the R9 operator session. The R9 operator session used
+the fixed live-TTY remote command
 `/bin/bash --noprofile --norc`, records a tenth remote gate named
 `task4_completion`, and ends only with explicit `exit 0`. A parameterless
 `exit` is forbidden.

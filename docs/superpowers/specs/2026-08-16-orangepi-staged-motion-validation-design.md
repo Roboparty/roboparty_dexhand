@@ -200,7 +200,52 @@ R9 must synchronize the live shell only with an anchored `bash-*` prompt (or a
 unique explicit marker), and must treat any ambiguous output or missing prompt
 as a consumed failure. It must never use a broad `[#$] ` match.
 
-The only executable deployment suffix in this revision is r9: local stage
+## R9 Phase A Preflight Incident and R10 Boundary
+
+The ninth fixed local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r9` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r9` completed the non-motion
+deployment gates and motion-artifact transfer. The controller then created the
+durable `PHASE_SMALL_DISPATCHED` marker and opened the unique
+`motion_setup_session`. The remote Phase A preflight returned a nonzero shell
+status before the required process-review prompt was reached. The controller
+stopped the session without sending `process_review=clean` and without sending
+the Phase A motion block.
+
+The local live tuple is permanently partial: `.command`, `.timestamp`,
+`.environment`, `.capture_mode`, and zero-byte stdout/stderr exist, but `.rc`
+is absent. The remote preflight may have written partial read-only snapshot
+evidence, but the local session has no transcript that can establish which
+snapshot command failed. No `init_hand`, SDK initialization, CAN command, or
+motion command was sent by the controller. R9's local marker, stage, remote
+root, motion evidence, and any partial preflight evidence are consumed and
+must not be replayed, filled in, queried for retry authority, or deleted.
+
+The only permitted continuation is a reviewed, uniquely labelled R10
+read-only recovery against the existing R9 evidence root. R10 may inspect
+already-written preflight evidence and record the failure cause, but it must
+not create another Phase A attempt, call `init_hand`, issue CAN commands, or
+authorize Phase B. Any further physical validation requires a separate future
+operator decision and a new safety review; it is not a retry of R9.
+
+The R10 recovery label is `r10_readonly_recovery`. Its remote command only
+checks the existing R9 evidence directory, lists the already-created
+`phase-small.pre.*` artifacts, reports their saved rc/complete status and
+nonempty stderr, and reports whether `phase-small.attempt` exists. It does not
+run `ip`, `candump`, the SDK, Python, or any motion helper. A complete rc `0`
+for this read-only report records diagnosis only; it cannot make R9 reusable.
+
+R10 `r10_readonly_recovery` returned rc `0` and reported no
+`phase-small.attempt`. `r10_readonly_inventory` then confirmed that the R9
+root and motion evidence leaf exist, but no `phase-small.pre.*` artifact was
+written. `r10_readonly_snapshot_script` confirmed that the installed snapshot
+script is mode `0555`, passes `bash -n`, and resolves `ip` to
+`/usr/sbin/ip`. Because the live controller tuple has no transcript and the
+remote preflight stopped before its first captured snapshot, the exact failing
+command remains unknown. These read-only results prove no motion attempt; they
+do not repair or authorize R9.
+
+The only executable recovery suffix in this revision is r10: local stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r9` and remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r9`. The R9 operator session
 uses the fixed live-TTY remote command `/bin/bash --noprofile --norc`, captures
