@@ -365,6 +365,14 @@ Its generated driver hashes are
 `fec5030cd5991f7da0e5cd6e23878359aa79993d4e77c4c627e48f2aeb14767b` and
 `fef0dfa150e3a31f26e4ed4804e740ef757a7fca37c602924d0579b04821063a`.
 
+R17 completed the fresh root, source transfer, helper bootstrap, Task 4
+operator session, and all nine remote build/export/construction gates. The
+unique `motion_artifact_transfer` then returned rc `1` with zero-byte
+stdout/stderr before creating the motion evidence leaf. No SDK initialization,
+CAN command, or motion command ran. R17 is consumed. R18 may perform only a
+read-only inventory of the R17 deployment root to identify which precondition
+failed; it may not retry the transfer or authorize motion.
+
 ```bash
 set -euo pipefail
 DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r13

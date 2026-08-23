@@ -331,6 +331,12 @@ generated driver hashes are
 `fec5030cd5991f7da0e5cd6e23878359aa79993d4e77c4c627e48f2aeb14767b` and
 `fef0dfa150e3a31f26e4ed4804e740ef757a7fca37c602924d0579b04821063a`.
 
+R17 passed the fresh root, transfer, helper bootstrap, and Task 4 operator
+gates. Its unique `motion_artifact_transfer` returned rc `1` with no output
+before creating the motion evidence leaf. No SDK, CAN, or motion action ran.
+R17 is consumed; R18 is limited to a read-only inventory of the R17 deployment
+root and cannot retry transfer or authorize motion.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;
