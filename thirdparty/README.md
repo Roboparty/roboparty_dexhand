@@ -96,3 +96,15 @@ current AArch64 blob exports the same private function and contains the
 but it is not a vendor API contract and does not prove callback-pointer update
 ordering, in-flight callback draining, or behavior after `destroy()`. It must
 not be used to replace the required written vendor response.
+
+An additional x86-64 probe ran inside a separate unprivileged network
+namespace with a virtual `can0` (`vcan`); the physical `can0` configuration
+hash was identical before and after the probe. `initial_ex(C_LCN_CANFD, 1)`
+returned `0`, the callback count reached `7`, and after callback removal,
+close, destroy, and a 100 ms wait the count was still `7`:
+`initial_rc=0 model_rc=0 callback_calls=5`,
+`before_destroy=7 after_destroy=7`, `RESULT callback_observed`. The probe used
+only a virtual bus and did not call homing or enable APIs. This demonstrates
+that callbacks can occur and that no late callback was observed in this run;
+it still does not force an in-flight callback across `stop_monitor()` or prove
+the vendor's general shutdown contract.
