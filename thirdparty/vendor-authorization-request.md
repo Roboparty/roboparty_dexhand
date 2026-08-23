@@ -43,6 +43,19 @@ Please identify the responding organization, SDK version, response date, and
 any agreement or license reference. Until this response is received, we will
 not publish or redistribute the vendor binaries.
 
+## Public References (Not Authorization)
+
+- The vendor product page describes the SDK as an "open-source SDK and DEMO"
+  but does not identify a specific license:
+  <https://www.leadshine.com/robots/dextrous-hands/dh116s-series.html>
+- The public SDK manual documents `close()` as terminating connections, but
+  does not state the callback in-flight or late-callback guarantees requested
+  above:
+  <https://en.leadshine.com/upfiles/downloads/2b08becef68de752631be92de0dd26ab_1766731626237.pdf>
+- The public sample guide lists the SDK package layout but does not itself
+  grant redistribution rights:
+  <https://www.leadshine.com/upfiles/downloads/5c21396d3eb9c2eee78f7b768e400324_1766731664504.pdf>
+
 Regards,
 
 `<name>`
