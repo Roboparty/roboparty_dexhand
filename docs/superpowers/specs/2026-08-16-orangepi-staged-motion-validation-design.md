@@ -357,6 +357,11 @@ generated driver hashes are
 `983abe9b2a197ea1b9a17cbb84e04840605e7ae6f366fc0dfa7b10aee7e988b9` and
 `5a9638e4857f7f87e386deec80e9562041d4a04cc03a7b2913670235970ba08f`.
 
+R20 passed Task 4 and motion artifact transfer, but its setup session exited
+before process review during the phase-small pre-snapshot. No attempt, SDK,
+CAN, or motion action ran. R20 is consumed; R21 is limited to read-only
+inventory of the motion leaf and snapshot failure.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
