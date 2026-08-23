@@ -619,6 +619,29 @@ Its path-bound small- and full-motion postflight driver hashes are
 `3eee2ab89f79d012418899ec500a8cfdfcd5a4d11e63e5e0911c75cd03b9b464` and
 `c477a8d261140a24daeba3847a6be2218f22a8bb89fb913237798010c4ccfa99`.
 
+R32 completed Task 4 and reached the unique motion-artifact transfer, but the
+transfer failed closed while checking the controller checksum manifest. The
+manifest contained the absolute local path
+`/tmp/roboparty-dexhand-motion-1a7c820-r32/phase_a_controller.sh`, so the
+remote `sha256sum -c` could not open it. The transfer tuple is `rc=1`; the
+remote leaf and incoming payload are consumed. No phase attempt, SDK
+initialization, CAN command, or motion occurred. R32 cannot be reconnected or
+reused.
+
+R33 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r33`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r33`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r33`. Every checksum manifest must be
+generated from inside its bundle directory so all entries are relative
+basenames; a local extraction test must verify that the same manifest passes
+after unpacking into a different directory before SSH.
+
+The R33 controller SHA-256 is
+`a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
+Its path-bound small- and full-motion postflight driver hashes are
+`b333364dafc0d10c6542b8dd0c1e9dc57f4453d7d633bb349018ec01f9f3c0dc` and
+`8a5bbcef2577b7c791760fff61fd22777852ef760d4e0bbfe799f9adccd9d734`.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
