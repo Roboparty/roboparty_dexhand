@@ -38,6 +38,9 @@ Please confirm, for this SDK version:
    provide the exact restrictions that apply.
 5. You provide the applicable license or written terms and confirm whether
    those terms are compatible with the intended GPL-3.0 distribution model.
+6. The permission also covers the combined work formed when the GPL-3.0
+   `libdexhand.so` dynamically links to `libLHandProLib.so`, including the
+   installed C++ and Python consumers.
 
 Please identify the responding organization, SDK version, response date, and
 any agreement or license reference. Until this response is received, we will
