@@ -46,6 +46,19 @@ Response record:
 - GPL compatibility review:
 - Evidence or agreement reference:
 
+The release-only structural guard can be run from the repository root:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 thirdparty/check_vendor_gate.py \
+  --readme thirdparty/README.md \
+  --x86 thirdparty/lib/x86_64/libLHandProLib.so \
+  --aarch64 thirdparty/lib/aarch64/libLHandProLib.so
+```
+
+It must return nonzero while this record is pending. A zero result only means
+the recorded response is complete and the artifact hashes match; it does not
+replace human/legal review of the vendor response.
+
 ## Auxiliary Local Smoke Evidence
 
 On 2026-08-24, the x86-64 binary matching the SHA above was exercised in a
