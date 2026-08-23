@@ -624,6 +624,26 @@ Its path-bound small- and full-motion postflight driver hashes are
 `a12bdbd7ed6667b8aabb0603c847e079b4f3857a418d7002cacd422bf5cdf87f` and
 `a0e2fc76b4969c68227c9c9bcf611201e5e7588b26e8f6878b23a504fde05b75`.
 
+R36 was consumed during local stage preparation. The copied motion evidence
+tree preserved read-only file modes, so writing the generated controller into
+`/tmp/roboparty-dexhand-motion-1a7c820-r36` failed with `Permission denied`.
+The local R36 deploy stage was also created, but no SSH connection, remote
+command, SDK initialization, CAN command, or motion occurred. R36 is
+permanently consumed and its partial paths must not be reused or deleted.
+
+R37 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r37`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r37`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r37`. The copied tree must be made
+writable before controller installation, then the same embedded/extracted
+driver hash gate must pass before any remote or motion-capable session.
+
+The R37 controller SHA-256 is
+`af4d7d3509097b3cdc80c733be476b7e43e379b6bee592bf1ceeaa0e1f9ebf96`.
+Its path-bound small- and full-motion postflight driver hashes are
+`27c51954c68ccbd80fe61af22348f13f7934ac09236d236c99080132e34fb85e` and
+`1e02ea0ac28850bfaed92b777e0829a67c26714b86b6667e6209ad2557e34ae7`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
