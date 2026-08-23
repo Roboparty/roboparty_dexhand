@@ -705,6 +705,27 @@ Its path-bound small- and full-motion postflight driver hashes are
 `a863929bcd2abe8021ff9b3eaf7f74d8831c96db25e726a5ba97c8abe6ad0502` and
 `71e9cff6041aa44e7189f534d0e59533f407b2ef89c74c645446492c8a98faaa`.
 
+R40 reached the unique `motion_artifact_transfer` successfully and created
+the local `PHASE_SMALL_DISPATCHED` binding. Its first motion setup SSH then
+returned `rc=1` before running the controller: the remote shell reported
+`/bin/bash: phase_a_controller.sh: No such file or directory` because the
+launcher addressed the controller at the remote root, while the transfer
+stores it under `evidence/motion-validation-bacf6612`. The setup tuple had
+zero-byte stdout and stderr. No snapshot, SDK initialization, CAN command,
+or motion occurred. The R40 dispatch, local stage, remote root, and motion
+evidence namespace are consumed and must not be reconnected or reused.
+
+R41 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r41`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r41`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r41`. The controller must be invoked
+from `evidence/motion-validation-bacf6612/phase_a_controller.sh`, and a
+local path regression must pass before any R41 SSH. Its controller hash is
+`6eebd6dae454475351cd33973427d86c38fe8c94b02a24ef36c6c7b13b48fbc3`; its
+path-bound postflight driver hashes are
+`1dcda5ce68d9fd51f02218d22349b42b3a02f7a8c9e880608264d1ea069331fa` and
+`17c54cbb02f6af48dacdec07dd5a1bbff6b302f92278842a60e14c8330863dd4`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
