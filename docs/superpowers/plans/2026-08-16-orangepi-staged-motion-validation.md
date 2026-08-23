@@ -381,6 +381,15 @@ fields `aarch64=3`, both runpaths, and the SDK hash; the transfer gate's exact
 grep therefore failed closed. R18 is consumed. R19 must use a fresh root and
 emit the complete completion line before transfer.
 
+R19 completed all fresh Task 4 gates and emitted the exact completion line,
+but `motion_artifact_transfer` failed closed while validating the six-member
+motion bundle. The local `PHASE_A_CONTROLLER_SHA256SUM` was generated with an
+absolute `/tmp/.../phase_a_controller.sh` path, so the remote extracted bundle
+could not resolve that manifest entry. Source/runtime checks passed; no
+`phase-small.attempt`, SDK initialization, CAN command, or motion command ran.
+R19 is consumed. R20 must generate the controller checksum from inside the
+motion stage so the manifest contains only `phase_a_controller.sh`.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256

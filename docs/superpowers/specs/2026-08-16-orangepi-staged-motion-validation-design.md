@@ -343,6 +343,12 @@ transfer gate rejected R17's completion output because it lacked the exact
 `aarch64=3`, runpath, and SDK-hash fields required by the contract. R18 is
 consumed; R19 must emit the complete completion line in a fresh root.
 
+R19 passed fresh Task 4 and exact completion gates, but motion transfer failed
+because `PHASE_A_CONTROLLER_SHA256SUM` contained an absolute local path. The
+remote extracted bundle therefore failed its relative-member checksum gate.
+No attempt, SDK, CAN, or motion action ran. R19 is consumed; R20 must create
+that checksum while its working directory is the motion stage.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
