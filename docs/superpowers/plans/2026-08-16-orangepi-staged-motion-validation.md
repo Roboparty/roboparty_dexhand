@@ -301,6 +301,71 @@ remote root, CAN command, SDK call, or motion action occurred. The R11 local
 stage and partial tuple are preserved and cannot be reused. The next fresh
 boundary is R12; every SSH-containing execution unit must start from a PTY.
 
+R13 completed the fresh deployment and transferred the corrected controller,
+but its one `motion_setup_session` ended before the process-review prompt.
+The local live tuple is partial with zero-byte stdout/stderr and no `.rc`; the
+dispatch marker exists. No review response, `phase-small.attempt`, SDK init,
+CAN command, or motion command was sent. R13 is consumed. R14 may perform
+only a read-only inventory of the R13 evidence leaf to identify the controller
+failure; it may not replay the session or authorize motion.
+
+R14 read-only inventory completed with no new remote action. The R13 evidence
+leaf contains both generated postflight drivers and their checksum file, but
+does not contain `EVIDENCE_TOOLS_SHA256SUMS`. Exact local extraction of the R13
+controller proves the cause: it expected the older fixed driver hashes
+(`a213ce...` and `e79ea...`), while the generated drivers hash as
+`a0aeea2c0107a1cccdcb876cbe2f75a04cc25423824d01ca78774c389459ee47` and
+`63ec9a5b7e4df1ea0329fa71ce62a00bf330ff2894d56526fa764b37fc0f0cb8`.
+The controller therefore exited at the fixed-driver gate before writing
+`EVIDENCE_TOOLS_SHA256SUMS` or reaching process review. R14 is consumed. The
+next fresh physical boundary is R15, using a path-substituted controller whose
+generated-driver hashes are recomputed before any SSH or CAN action.
+
+```bash
+set -euo pipefail
+DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r13
+BOOTSTRAP_EVIDENCE="$DEPLOY_STAGE/bootstrap-evidence"
+CAPTURE="$BOOTSTRAP_EVIDENCE/capture_gate.sh"
+TTY_GATE="$BOOTSTRAP_EVIDENCE/require_tty_exec.sh"
+REMOTE_SCRIPT=$(cat <<'REMOTE'
+set -u
+root=/home/orangepi/roboparty_dexhand_motion_db2da9f_r13
+evidence="$root/evidence/motion-validation-bacf6612"
+printf 'root=%s\n' "$root"
+if test -e "$evidence/phase-small.attempt"; then
+  printf 'phase_small_attempt=present\n'
+else
+  printf 'phase_small_attempt=absent\n'
+fi
+find "$evidence" -maxdepth 1 -type f -printf 'entry=%f type=%y\n' |
+  LC_ALL=C sort
+for name in capture_snapshot.sh record_process_review.sh \
+    EVIDENCE_TOOLS_SHA256SUMS phase_a_controller.sh; do
+  if test -e "$evidence/$name"; then
+    printf 'check=%s present\n' "$name"
+  else
+    printf 'check=%s absent\n' "$name"
+  fi
+done
+REMOTE
+)
+printf -v REMOTE_COMMAND '/bin/bash -c %q' "$REMOTE_SCRIPT"
+"$CAPTURE" r14_readonly_inventory \
+  /usr/bin/timeout --foreground --preserve-status --signal=TERM \
+  --kill-after=5s 120s "$TTY_GATE" \
+  /usr/bin/env -u SSH_AUTH_SOCK SSH_ASKPASS_REQUIRE=never \
+  /usr/bin/ssh -F /dev/null -T \
+  -o IdentityAgent=none -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 \
+  -o ConnectTimeout=10 -o ConnectionAttempts=1 \
+  -o ServerAliveInterval=5 -o ServerAliveCountMax=2 \
+  -o ControlMaster=no -o ControlPath=none -o ControlPersist=no \
+  -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no \
+  -o ClearAllForwardings=yes -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/home/sjh/.ssh/known_hosts \
+  orangepi@192.168.13.1 "$REMOTE_COMMAND"
+```
+
 R12 completed its fresh Task 4 build/export gates, but the unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The controller hash manifest contained an absolute local `/tmp` path, so the

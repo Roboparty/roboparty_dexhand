@@ -272,6 +272,25 @@ remote root, CAN command, SDK call, or motion action occurred. The R11 local
 stage and partial tuple are preserved and cannot be reused. The next fresh
 boundary is R12, and all SSH-containing units must be launched from a PTY.
 
+R13 completed the fresh deployment and transferred the corrected controller,
+but its one `motion_setup_session` ended before the process-review prompt.
+The local live tuple is partial with zero-byte stdout/stderr and no `.rc`; the
+dispatch marker exists. No review response, `phase-small.attempt`, SDK init,
+CAN command, or motion command was sent. R13 is consumed. R14 may perform
+only a read-only inventory of the R13 evidence leaf to identify the controller
+failure; it may not replay the session or authorize motion.
+
+R14 read-only inventory completed with no new remote action. The R13 evidence
+leaf contains both generated postflight drivers and their checksum file, but
+does not contain `EVIDENCE_TOOLS_SHA256SUMS`. Exact local controller extraction
+shows the fixed-driver gate expected stale hashes (`a213ce...` and `e79ea...`)
+while the generated R13 drivers hash as
+`a0aeea2c0107a1cccdcb876cbe2f75a04cc25423824d01ca78774c389459ee47` and
+`63ec9a5b7e4df1ea0329fa71ce62a00bf330ff2894d56526fa764b37fc0f0cb8`.
+The controller consequently exited before `EVIDENCE_TOOLS_SHA256SUMS` and
+before process review. R14 is consumed; the next fresh physical boundary is
+R15 with path-substituted drivers and recomputed hashes.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;
