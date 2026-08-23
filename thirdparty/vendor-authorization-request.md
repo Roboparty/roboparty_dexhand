@@ -67,6 +67,10 @@ not publish or redistribute the vendor binaries.
   <https://www.leadshine.com/newsEvent/details/terms-of-use.html>
 - The vendor support page directs technical questions to `tech@leadshine.com`:
   <https://www.leadshine.com/support.html>
+- A user-provided internal wiki page was also checked without authentication;
+  it redirected to the Feishu login page, so its contents are not treated as
+  evidence here. An exported document or authenticated vendor response is
+  required before relying on any terms from that page.
 
 Regards,
 
