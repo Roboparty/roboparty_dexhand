@@ -291,6 +291,15 @@ The controller consequently exited before `EVIDENCE_TOOLS_SHA256SUMS` and
 before process review. R14 is consumed; the next fresh physical boundary is
 R15 with path-substituted drivers and recomputed hashes.
 
+R15 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r15`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r15`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r15`. The corrected controller
+SHA-256 is
+`64d5575b061b67df9e0cab3083caf9e3baf14faf3e918e28e06d209eeda69963`; its
+generated postflight driver hashes are
+`357c25b5d8b708e9a8c78e40be028e78aa1a370b824ffda0aee810233526f1b8` and
+`9ac995803ccf49c33dc8b320b0c16333ac64953b8eabb8385b83171cd279e4be`.
+
 R12 then completed the fresh Task 4 build/export gates, but its unique
 `motion_artifact_transfer` failed closed before any motion-capable session.
 The transferred controller manifest contained an absolute local `/tmp` path;

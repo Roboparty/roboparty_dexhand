@@ -321,6 +321,14 @@ The controller therefore exited at the fixed-driver gate before writing
 next fresh physical boundary is R15, using a path-substituted controller whose
 generated-driver hashes are recomputed before any SSH or CAN action.
 
+R15 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r15`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r15`, motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r15`, and corrected controller SHA-256
+`64d5575b061b67df9e0cab3083caf9e3baf14faf3e918e28e06d209eeda69963`.
+The generated postflight driver hashes are
+`357c25b5d8b708e9a8c78e40be028e78aa1a370b824ffda0aee810233526f1b8` and
+`9ac995803ccf49c33dc8b320b0c16333ac64953b8eabb8385b83171cd279e4be`.
+
 ```bash
 set -euo pipefail
 DEPLOY_STAGE=/tmp/roboparty-dexhand-deploy-db2da9f-r13
