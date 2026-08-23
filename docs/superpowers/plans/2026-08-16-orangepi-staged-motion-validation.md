@@ -787,6 +787,27 @@ path-bound postflight driver hashes are
 `1dcda5ce68d9fd51f02218d22349b42b3a02f7a8c9e880608264d1ea069331fa` and
 `17c54cbb02f6af48dacdec07dd5a1bbff6b302f92278842a60e14c8330863dd4`.
 
+R41 was stopped fail-closed after its fresh source transfer and bootstrap.
+The launcher invoked `motion_artifact_transfer` before running the required
+R41 non-motion operator build/export session. The remote deployment evidence
+directory therefore had no ten completed gate tuples; the transfer tuple
+returned `rc=1` with zero-byte stdout and stderr. No motion artifact was
+accepted, no SDK initialization or CAN command occurred, and no motion
+session was opened. R41 local/remote namespaces and the transfer label are
+consumed and must not be reused.
+
+R42 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r42`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r42`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r42`. Its order is fixed:
+`remote_fresh_root`, `source_transfer`, `remote_gate_bootstrap`,
+`remote_operator_session`, then `motion_artifact_transfer`; a local order
+regression must pass before any R42 SSH. The controller hash is
+`7dcef4ebd7230b1cc4f759b9163934249436995e2ee772cb3bf4f8d80b2601bb`; its
+path-bound postflight driver hashes are
+`6c42b5d84e5d7e642b7ecd4370fe67eb164e38a6517bc615ac53f74b1cbb7282` and
+`b76449949357eb8b8e98598cec2cb5cbe5ac9298bf26f584a10beb20e92bf830`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
