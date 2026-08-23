@@ -536,6 +536,28 @@ full postflight driver. Every R31 SSH unit must pass its script through stdin
 with `/bin/bash -s -- "$REMOTE_ROOT"`; no remote script may be supplied as a
 separately parsed `bash -c` argument.
 
+R31 was consumed at its first SSH gate. The stdin transport and root argument
+were correct, but the file used for the remote command was only the local
+quoting probe: it printed the root and omitted the AArch64, absence, mkdir, and
+boot-id checks. Because the forced TTY remained interactive after that probe,
+the session was terminated by the single local interrupt with `rc=255`;
+stdout was 449 bytes and stderr was empty. No valid fresh root or deployment
+gate was proven, and R31 is permanently consumed.
+
+R32 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r32`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r32`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r32`. R32 must keep a separate local
+parse-probe file and a separate real remote gate script. The real script must
+perform all root checks, create the evidence directory, print the boot id, and
+finish with an explicit `exit 0` before any SSH is opened.
+
+The R32 controller SHA-256 is
+`8e8346c1ce8341cdb368839e68f86f0ed51447eb39ce6cbfd5aa2348aa73c7f0`.
+Its path-bound small- and full-motion postflight driver hashes are
+`3eee2ab89f79d012418899ec500a8cfdfcd5a4d11e63e5e0911c75cd03b9b464` and
+`c477a8d261140a24daeba3847a6be2218f22a8bb89fb913237798010c4ccfa99`.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
