@@ -540,6 +540,15 @@ namespaces; the resulting controller and path-bound driver hashes are new
 inputs and must be checked before SSH. R29 restarts at the exact source
 archive unit and must not inspect, delete, or reuse R28 or prior roots.
 
+The prepared R29 controller hash is
+`e3fd41d27131c438cbd2c98aaf2ec1485e47b653a95f60b69734db69a0d135dc`.
+The path-bound small/full driver hashes are
+`ace97630e50e4a00f9f5b050a817986a673fd3440c7c0a3c49555397b3b604a1` and
+`aba45c434fe3140439d07eba08bba690ebec332999d4e36f3e465064195db793`.
+The closed source and motion stream hashes are
+`86308be6c593a1b2ea0b0aa527d32355d1701141e96355749e75e70f9053298c` and
+`edccc81a937a8ae20035fa3a46b40ee8831a64527b01028f4e6bee82cc83a40e`.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256
