@@ -13,6 +13,12 @@ it does not relicense these vendor artifacts. No standalone vendor license was
 present in the supplied distribution. Public redistribution is blocked until
 the vendor's redistribution terms are confirmed and recorded here.
 
+The public SDK manual footer says `Copyright Notice: © Leadtron All rights
+reserved` and `Using this software indicates that you agree to the User
+Agreement`; the User Agreement text is not included in the supplied SDK tree.
+This is another reason to treat the vendor license as unresolved until the
+vendor supplies the applicable written terms.
+
 ## Required Vendor Response
 
 The following is a confirmation checklist, not an authorization and not a

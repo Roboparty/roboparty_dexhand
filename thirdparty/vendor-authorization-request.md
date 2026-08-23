@@ -53,7 +53,10 @@ not publish or redistribute the vendor binaries.
   <https://www.leadshine.com/robots/dextrous-hands/dh116s-series.html>
 - The public SDK manual documents `close()` as terminating connections, but
   does not state the callback in-flight or late-callback guarantees requested
-  above:
+  above. Its footer says `Copyright Notice: © Leadtron All rights reserved`
+  and `Using this software indicates that you agree to the User Agreement`,
+  but the User Agreement text is not included in the public manual or supplied
+  SDK tree:
   <https://en.leadshine.com/upfiles/downloads/2b08becef68de752631be92de0dd26ab_1766731626237.pdf>
 - The public sample guide lists the SDK package layout but does not itself
   grant redistribution rights:
