@@ -277,6 +277,30 @@ evidence root and record the exact failure cause. It must not create another
 B. Any later physical validation would require a separate operator decision
 and safety review; it is not a retry of R9.
 
+## R11 Fresh Physical-Validation Amendment
+
+R9 is permanently consumed after its Phase A dispatch marker and preflight
+controller failure. Any future physical attempt must use the fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r11` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r11`, rebuild and reverify all
+non-motion gates, and never use R9 evidence as motion authority.
+
+The R11 motion transfer has a fifth member, `phase_a_controller.sh`, with
+SHA-256
+`95a03618458573a9de0aa80a1f879f7fef8ff2904d7d409b2aec68601b93d070`.
+The controller file is executed remotely only after its hash is checked; it
+creates the capture tools, performs the Phase A preflight, reads process review
+from `/dev/tty`, and runs the existing frozen harness once. It is deliberately
+not pasted into an interactive shell. The old R9 Task 4/5 command blocks below
+are historical templates only; no unmodified R9 block may be executed.
+
+R11 was consumed before any remote connection. Its `remote_fresh_root` unit
+was launched without a controlling TTY, so the checksum-bound TTY gate
+returned rc `1` while checking `/dev/tty`. No SSH process, password prompt,
+remote root, CAN command, SDK call, or motion action occurred. The R11 local
+stage and partial tuple are preserved and cannot be reused. The next fresh
+boundary is R12; every SSH-containing execution unit must start from a PTY.
+
 R10 `r10_readonly_recovery` returned rc `0` and reported no
 `phase-small.attempt`. `r10_readonly_inventory` confirmed that the R9 root and
 motion evidence leaf exist, but no `phase-small.pre.*` artifact was written.

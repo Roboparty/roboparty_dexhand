@@ -245,6 +245,33 @@ remote preflight stopped before its first captured snapshot, the exact failing
 command remains unknown. These read-only results prove no motion attempt; they
 do not repair or authorize R9.
 
+## R11 Fresh Physical-Validation Boundary
+
+R9 is permanently consumed after its Phase A dispatch marker and preflight
+controller failure. A future physical attempt, if separately authorized, must
+use fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r11` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r11`. It must rebuild and
+reverify all non-motion gates; no R9 build, prefix, evidence, or marker may be
+treated as motion authority.
+
+The R11 controller is a transferred file, not a heredoc pasted into an
+interactive PTY. Its reviewed local SHA-256 is
+`95a03618458573a9de0aa80a1f879f7fef8ff2904d7d409b2aec68601b93d070`.
+The remote motion session executes only the hash-verified file with a short
+command, and the process-review response is read from `/dev/tty`. This fixes
+the R9 controller transport failure mode without changing the production
+driver or motion harness. R11 still has one motion attempt, explicit process
+review, the existing stop/disable/no-home/deinit cleanup, and a fresh
+postflight; any R11 failure consumes R11 and blocks another replay.
+
+R11 was consumed before any remote connection. Its `remote_fresh_root` unit
+was launched without a controlling TTY, so the checksum-bound TTY gate
+returned rc `1` while checking `/dev/tty`. No SSH process, password prompt,
+remote root, CAN command, SDK call, or motion action occurred. The R11 local
+stage and partial tuple are preserved and cannot be reused. The next fresh
+boundary is R12, and all SSH-containing units must be launched from a PTY.
+
 The only executable recovery suffix in this revision is r10: local stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r9` and remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r9`. The R9 operator session
