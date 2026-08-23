@@ -301,6 +301,21 @@ remote root, CAN command, SDK call, or motion action occurred. The R11 local
 stage and partial tuple are preserved and cannot be reused. The next fresh
 boundary is R12; every SSH-containing execution unit must start from a PTY.
 
+R12 completed its fresh Task 4 build/export gates, but the unique
+`motion_artifact_transfer` failed closed before any motion-capable session.
+The controller hash manifest contained an absolute local `/tmp` path, so the
+remote `sha256sum -c` could not resolve it and returned nonzero. No
+`phase-small.attempt`, SDK initialization, CAN command, or motion action was
+created or sent. R12's local stage, remote root, and partial evidence leaf are
+consumed and cannot be retried. R13 must use a relative controller member name
+and prove that manifest locally before transfer.
+
+R13 uses the fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r13` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r13`. Its path-bound
+controller SHA-256 is
+`693ae85c118c108b5f1416897f74eabee207402f4bba77e84022d457d44b263c`.
+
 R10 `r10_readonly_recovery` returned rc `0` and reported no
 `phase-small.attempt`. `r10_readonly_inventory` confirmed that the R9 root and
 motion evidence leaf exist, but no `phase-small.pre.*` artifact was written.
