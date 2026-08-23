@@ -28,7 +28,7 @@ release validation therefore uses a separate, evidence-bound test script with
 explicit stop and disable cleanup. The repository script and production code
 are not modified by this validation.
 
-## R5 Deployment Incident and R6 Boundary
+## R5-R6 Deployment Incidents and R7 Boundary
 
 The first fixed local deployment stage (R1)
 `/tmp/roboparty-dexhand-deploy-db2da9f` is a historical failed attempt and is
@@ -133,16 +133,43 @@ root was created and received the seven files from the closed transfer, but it
 must not be queried, deleted, or reused. Both R5 namespaces are consumed and
 must never be reused or deleted.
 
-The only executable deployment suffix in this revision is r6: local stage
+## R6 Phase A Preflight Incident and R7 Boundary
+
+The sixth fixed local stage
 `/tmp/roboparty-dexhand-deploy-db2da9f-r6` and remote root
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r6`. The R6 operator session
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r6` completed Task 4 and the
+motion-artifact transfer. The remote deployment reported all ten gates at rc
+`0`, the AArch64 runtime and Python construction gates passed, and the four
+transferred evidence files matched their hashes. No SDK initialization or
+motion had occurred at that point.
+
+The controller then created `PHASE_SMALL_DISPATCHED` and opened the unique
+`motion_setup_session`. That complete live-TTY tuple returned rc `1` with zero
+bytes of captured stdout and stderr. The visible remote tools had passed, but
+`capture_snapshot.sh phase-small pre` failed closed because the board snapshot
+had no `can0`: `ip link` showed `can_top`, `can_hipnuc`, and `can_bottom`, while
+`ip link show can0`, CAN counters, and the receiver gate failed. No
+`phase-small.attempt` marker was created, no SDK initialization or
+`init_hand` ran, and no motion command was issued. The R6 local and remote
+namespaces are permanently consumed; their evidence must not be replayed,
+filled in, queried for retry authority, or deleted.
+
+A later read-only board check showed a USB CAN-FD `can0` in `UP`,
+`ERROR-ACTIVE` state at 1 Mbit/s nominal and 5 Mbit/s data rate, but that later
+observation is not the failed session's captured preflight and cannot repair
+R6. The only executable suffix after this incident is R7, with fresh paths and
+fresh evidence captured from the current power/network state.
+
+The only executable deployment suffix in this revision is r7: local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r7` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r7`. The R7 operator session
 uses the fixed live-TTY remote command `/bin/bash --noprofile --norc`, captures
 a final `task4_completion` gate after all nine earlier remote gates, and must
 end with explicit `exit 0`. A parameterless `exit` is forbidden.
 
 Before the local durable dispatch marker is created for Phase A—the first
 motion-capable session—any connection failure, timeout, or agent anomaly
-consumes the capture label and the entire r6 suffix. The `.command` file is
+consumes the capture label and the entire r7 suffix. The `.command` file is
 created first under shell `noclobber`; the existence of any `<stem>.*` file
 permanently consumes that label. INT, TERM, HUP, controller failure, or a
 capture-process crash may leave a partial tuple, including a missing `.rc`.
@@ -231,7 +258,7 @@ shell. The small driver contains no Phase B preflight or motion, and the full
 driver contains only Phase B postflight collection and aggregation.
 
 Both phases use only the installed AArch64 artifacts under
-`/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/prefix`. They select the
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/prefix`. They select the
 public 6DOF model, `can0`, and node ID 1. Neither phase changes the configured
 maximum current. Source, build, plain-install prefix, relocatable install gate,
 and evidence paths are new, disjoint children of the new remote root. The
@@ -300,17 +327,17 @@ are not retained.
 
 The authoritative remote paths are:
 
-- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6`;
-- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/source`;
-- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/build`;
-- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/prefix`;
+- root: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7`;
+- source: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/source`;
+- build: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/build`;
+- motion prefix: `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/prefix`;
 - install/export gate:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/install-gate` while the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/install-gate` while the
   gate is running, renamed by the gate to the final
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/install-gate-relocated`;
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/install-gate-relocated`;
   and
 - evidence:
-  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r6/evidence`, containing the
+  `/home/orangepi/roboparty_dexhand_motion_db2da9f_r7/evidence`, containing the
   non-motion gate bundle `deployment-db2da9f` and the disjoint motion bundle
   `motion-validation-bacf6612`.
 
