@@ -685,6 +685,26 @@ Its path-bound small- and full-motion postflight driver hashes are
 `747487f3768f95bd0bbc5775160d6f5440f197b3e6c1eec8093647482775836d` and
 `38e1aef10de0c7174c1e6e9f3364efd7ce2caa7d698c6032313a119adf3cb225`.
 
+R39 was consumed at the local `remote_gate_bootstrap` wrapper. The normal
+capture helper was invoked with an extra `--` marker (valid only for stdin
+payload calls), so it attempted to execute `--` and returned `127` before
+opening SSH. R39's root and source-transfer tuples were already successful;
+no build, SDK initialization, CAN command, or motion occurred. R39 must not be
+reconnected or reused.
+
+R40 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r40`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r40`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r40`. Normal capture calls must pass
+the command immediately after the label; only stdin-payload calls may use the
+`--` separator. This distinction must pass locally before any R40 SSH.
+
+The R40 controller SHA-256 is
+`dfcae8e05d701fdcf14716540a2a695dc0da8493ff55478725ff28eacd7ffbe9`.
+Its path-bound small- and full-motion postflight driver hashes are
+`a863929bcd2abe8021ff9b3eaf7f74d8831c96db25e726a5ba97c8abe6ad0502` and
+`71e9cff6041aa44e7189f534d0e59533f407b2ef89c74c645446492c8a98faaa`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
