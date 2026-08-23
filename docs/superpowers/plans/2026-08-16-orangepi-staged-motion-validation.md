@@ -467,6 +467,24 @@ command or SDK/CAN action is inferred from that tuple. R24 is consumed. R25
 may perform only a read-only inventory of the R24 motion evidence to identify
 which pre-snapshot child failed; it may not replay setup or authorize motion.
 
+R25 read-only inventory found no `phase-small.pre.*` files and no attempt
+directory. `can0` itself was FD/ERROR-ACTIVE at 1M/5M with zero protocol,
+RX, and TX errors and empty receiver lists. A local reproduction of the
+controller preflight isolated the failure before the tool manifest write:
+after the controller path changed to R24, its generated postflight driver
+contents changed, but the controller still compared the R22 driver hashes.
+Both self-tests and all remote artifact hashes were otherwise valid. R25 is
+consumed as read-only evidence. R26 must recompute driver hashes after its
+fresh path substitution and bind those exact values before transfer.
+
+R26 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r26`, remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r26`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r26`. Its corrected controller SHA-256
+is `d96b60a4a1d5664b39e534cd54def3f7f3502b18b4984d0b6f62733dcd9c4d8a`;
+the path-bound driver hashes are
+`d77da3fd67797fcfc8d81d02ce8ae89efca1ce3e87bb5b7a697d78d1ab125099` and
+`4ead1ee72aba53e595ab381a0958d19f4a3d5478b077595008d5eb7e56dd4793`.
+
 R19 uses local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, remote root
 `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, motion stage
 `/tmp/roboparty-dexhand-motion-1a7c820-r19`, and controller SHA-256

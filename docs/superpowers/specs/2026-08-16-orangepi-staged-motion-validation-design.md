@@ -411,6 +411,20 @@ session is live-to-TTY. No SDK initialization, CAN command, or motion action
 is inferred. R24 is consumed; R25 is read-only inventory of the R24 motion
 leaf and must not replay setup or authorize motion.
 
+R25 found the R24 motion leaf had no pre-snapshot files or attempt directory;
+the board's can0 and receiver state were healthy. The failure was reproduced
+locally before the tool-manifest write: path substitution changed the
+postflight driver bytes while the controller retained stale R22 hashes. The
+two self-tests and remote artifact hashes passed. R26 recomputes and binds
+the path-specific driver hashes before its fresh transfer.
+
+R26 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r26`, fresh
+remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r26`, and motion
+stage `/tmp/roboparty-dexhand-motion-1a7c820-r26`; controller SHA-256 is
+`d96b60a4a1d5664b39e534cd54def3f7f3502b18b4984d0b6f62733dcd9c4d8a`, with
+driver hashes `d77da3fd67797fcfc8d81d02ce8ae89efca1ce3e87bb5b7a697d78d1ab125099`
+and `4ead1ee72aba53e595ab381a0958d19f4a3d5478b077595008d5eb7e56dd4793`.
+
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
 stage `/tmp/roboparty-dexhand-motion-1a7c820-r19`. Its controller SHA-256 is
