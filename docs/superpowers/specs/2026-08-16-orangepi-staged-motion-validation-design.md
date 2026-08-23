@@ -575,11 +575,33 @@ generated from inside its bundle directory so all entries are relative
 basenames; a local extraction test must verify that the same manifest passes
 after unpacking into a different directory before SSH.
 
+The R34 controller SHA-256 is
+`4050b9656f6f48e139e3f8335ecc8873aa8d6bf54bcc0e61cdce382340baabeb`.
+Its path-bound small- and full-motion postflight driver hashes are
+`0a72eb59fa64e31e0d6be52fbf4b4baed597cc73817bb54a13796afd4efc967e` and
+`fe679c812bc6180cee1ccecee31087f65d1acf39383f1b84941c01d52cde8fcc`.
+
 The R33 controller SHA-256 is
 `a622cb0362051ac412a6b58f6e85a457cd3fdd298adaddd9d169623277baa45c`.
 Its path-bound small- and full-motion postflight driver hashes are
 `b333364dafc0d10c6542b8dd0c1e9dc57f4453d7d633bb349018ec01f9f3c0dc` and
 `8a5bbcef2577b7c791760fff61fd22777852ef760d4e0bbfe799f9adccd9d734`.
+
+R33 was consumed at source transfer. The first SSH gate succeeded, but the
+local launcher extracted a remote script by stale document line numbers after
+the R33 amendment. It sent prose and a Markdown execution marker instead of
+the transfer script; the remote shell returned `rc=2` with no stdout. No
+source payload was accepted, and no build, SDK, CAN, or motion action occurred.
+R33 cannot be reconnected or reused.
+
+R34 is the only continuation. It uses fresh local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r34`, fresh remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r34`, and motion stage
+`/tmp/roboparty-dexhand-motion-1a7c820-r34`. R34 must keep each remote script
+as an independently syntax-checked generated artifact; no execution unit may
+extract a script by absolute document line number. A local dry-run must verify
+the source-transfer script's root, payload, hash, and exact-member arguments
+before SSH.
 
 R19 uses fresh local stage `/tmp/roboparty-dexhand-deploy-db2da9f-r19`, fresh
 remote root `/home/orangepi/roboparty_dexhand_motion_db2da9f_r19`, and motion
