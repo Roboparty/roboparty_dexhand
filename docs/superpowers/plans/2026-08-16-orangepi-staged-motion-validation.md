@@ -40,6 +40,19 @@ R47 must use a root-level `lsof` receiver scan for every pre/post snapshot and
 must fail if any `CAN_RAW` socket is present; process-name review alone is not
 sufficient.
 
+## R47 Local Operator-Wrapper Incident and R48 Boundary
+
+R47 completed source archive, fresh remote root, source transfer, and helper
+bootstrap. Before operator authentication, the local wrapper was found to
+still reference `/tmp/r46_operator_command.quoted`. No password was entered;
+the pending SSH was interrupted before authentication, so no R47 operator
+command ran. The local `remote_operator_session` evidence is permanently
+partial: its command, timestamp, environment, capture mode, and zero-byte
+stdout/stderr exist, while its rc is absent. No build, CAN access, SDK
+initialization, or motion occurred. R47 is consumed. R48 must assert that the
+operator wrapper and quoted-command path both carry the R48 suffix before the
+SSH process is started.
+
 ---
 
 ## Execution Amendment: Approved Offline Contract
