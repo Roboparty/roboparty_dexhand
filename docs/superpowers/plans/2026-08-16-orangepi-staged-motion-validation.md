@@ -103,6 +103,25 @@ continuation is fresh R51 while the operator is present to observe the repeated
 small motion and reply `小行程正常` within the live confirmation window. R51 must
 not infer human acceptance from R50.
 
+## R51 Accepted Small-Motion Validation
+
+R51 completed the fixed AArch64 build and exactly 8/8 CTest, install/export,
+runtime, construction-only Python, frozen-artifact, root receiver, process, and
+boot-continuity gates. Its single Phase A attempt moved all six active joints
+from approximately 0 to 1,000 counts and back to 0. All samples reported alarm
+zero. The harness reported successful stop, disable, no-home reset, and
+deinitialization cleanup. Postflight retained `can0` in `ERROR-ACTIVE` at
+1 Mbit/s arbitration and 5 Mbit/s data bitrate, with zero CAN error and drop
+deltas.
+
+The operator visually accepted this same attempt with the exact phrase
+`小行程正常`; `PHASE_SMALL_OPERATOR_ACCEPTANCE` verified and the local setup and
+postflight captures both recorded rc `0`. The operator then elected to treat
+the bounded physical integration validation as sufficient. Phase B full-profile
+motion was intentionally not dispatched and remains untested; no local Phase B
+dispatch or session artifact exists. The authoritative local evidence root is
+`/tmp/roboparty-dexhand-deploy-db2da9f-r51`.
+
 ---
 
 ## Execution Amendment: Approved Offline Contract
