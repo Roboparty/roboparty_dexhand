@@ -29,7 +29,8 @@ The self-test contract is:
 ```cpp
 CHECK(!exercise_simulated_stop(/*join_before_return=*/false));
 CHECK(exercise_simulated_stop(/*join_before_return=*/true));
-std::cout << "SELF_TEST PASS bad=rejected good=accepted\n";
+std::cout << "SELF_TEST PASS bad=rejected good=accepted immediate=captured "
+             "traffic_stability=accepted\n";
 ```
 
 - [ ] **Step 2: Compile and run the self-test to obtain RED**
@@ -188,6 +189,7 @@ duration_seconds=60
 iterations=>0
 entered=exited
 inflight=0
+inflight_at_stop_return=0
 queries=>0
 query_failures=0
 late_after_stop=0

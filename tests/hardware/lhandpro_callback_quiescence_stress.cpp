@@ -35,6 +35,7 @@ constexpr auto kBlockedStopObservation = 50ms;
 constexpr auto kStopGrace = 20ms;
 constexpr auto kCloseGrace = 10ms;
 constexpr auto kDestroyGrace = 50ms;
+constexpr std::size_t kQueriesPerIteration = 8;
 
 enum class Phase : unsigned char {
   Initializing,
@@ -56,7 +57,7 @@ struct CallbackCounters {
   std::atomic<std::uint64_t> stale_generation{0};
   std::atomic<std::uint64_t> transmit_failures{0};
   std::atomic<std::uint64_t> decode_failures{0};
-  std::atomic<std::uint64_t> stop_returned_while_blocked{0};
+  std::atomic<std::uint64_t> inflight_at_stop_return{0};
 };
 
 void update_max(std::atomic<std::uint64_t>& maximum,
@@ -133,7 +134,6 @@ struct RuntimeContext {
   std::atomic<bool> receive_running{false};
   std::atomic<bool> decode_enabled{false};
   CallbackCounters counters;
-  CallbackBlocker blocker;
 };
 
 std::atomic<RuntimeContext*> active_context{nullptr};
@@ -175,8 +175,6 @@ bool callback_body(std::size_t callback_generation, unsigned int id,
     case Phase::Stopping:
       break;
   }
-
-  context->blocker.enter_if_armed();
 
   if (context->socket_fd < 0 || data == nullptr || size > CANFD_MAX_DLEN ||
       (extended == 0 && id > CAN_SFF_MASK) ||
@@ -270,6 +268,21 @@ bool exercise_immediate_monitor_capture() {
   return entered && finished;
 }
 
+bool exercise_traffic_then_stable_stop() {
+  CallbackCounters counters;
+  for (std::size_t query = 0; query < kQueriesPerIteration; ++query) {
+    counters.entered.fetch_add(1, std::memory_order_acq_rel);
+    counters.inflight.fetch_add(1, std::memory_order_acq_rel);
+    CallbackExit exit{counters};
+  }
+  const auto before_stop = counters.entered.load(std::memory_order_acquire);
+  std::this_thread::sleep_for(kStopGrace);
+  return before_stop == kQueriesPerIteration &&
+         counters.entered.load(std::memory_order_acquire) == before_stop &&
+         counters.exited.load(std::memory_order_acquire) == before_stop &&
+         counters.inflight.load(std::memory_order_acquire) == 0;
+}
+
 int run_self_test() {
   if (exercise_simulated_stop(false)) {
     std::cerr << "SELF_TEST FAIL bad=accepted\n";
@@ -283,8 +296,13 @@ int run_self_test() {
     std::cerr << "SELF_TEST FAIL immediate_monitor_callback=missed\n";
     return 1;
   }
+  if (!exercise_traffic_then_stable_stop()) {
+    std::cerr << "SELF_TEST FAIL traffic_stability=rejected\n";
+    return 1;
+  }
   std::cout
-      << "SELF_TEST PASS bad=rejected good=accepted immediate=captured\n";
+      << "SELF_TEST PASS bad=rejected good=accepted immediate=captured "
+         "traffic_stability=accepted\n";
   return 0;
 }
 
@@ -428,6 +446,8 @@ struct RunTotals {
   std::uint64_t initialized{0};
   std::uint64_t closed{0};
   std::uint64_t destroyed{0};
+  std::uint64_t queries{0};
+  std::uint64_t query_failures{0};
   std::uint64_t failures{0};
 };
 
@@ -448,7 +468,6 @@ bool run_iteration(RuntimeContext& context, const Options& options,
   active_context.store(&context, std::memory_order_release);
 
   auto cleanup = [&] {
-    context.blocker.release();
     if (monitor_started) {
       context.phase.store(Phase::Stopping, std::memory_order_release);
       lhandprolib_stop_monitor(handle);
@@ -493,81 +512,40 @@ bool run_iteration(RuntimeContext& context, const Options& options,
   ++totals.initialized;
 
   context.phase.store(Phase::Running, std::memory_order_release);
-  context.blocker.arm();
-  std::atomic<bool> start_returned{false};
-  std::thread starter([&] {
-    lhandprolib_start_monitor(handle);
-    start_returned.store(true, std::memory_order_release);
-  });
-  bool callback_entered = context.blocker.wait_entered(
-      std::chrono::duration_cast<std::chrono::milliseconds>(kCallbackWait));
-  if (!callback_entered) {
-    context.blocker.release();
-    starter.join();
-    monitor_started = true;
-    ++totals.failures;
-    cleanup();
-    return false;
-  }
+  lhandprolib_start_monitor(handle);
+  monitor_started = true;
 
-  const auto start_deadline = std::chrono::steady_clock::now() + 100ms;
-  while (!start_returned.load(std::memory_order_acquire) &&
-         std::chrono::steady_clock::now() < start_deadline) {
-    std::this_thread::sleep_for(1ms);
-  }
-  if (!start_returned.load(std::memory_order_acquire)) {
-    // A synchronous start callback cannot be used to test stop. Release it,
-    // finish start_monitor(), then select the next monitor callback.
-    context.blocker.release();
-    if (!context.blocker.wait_finished(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                kCallbackWait))) {
-      starter.join();
-      monitor_started = true;
-      ++totals.failures;
-      cleanup();
-      return false;
+  bool iteration_ok = true;
+  for (std::size_t query = 0; query < kQueriesPerIteration; ++query) {
+    const auto entered_before =
+        context.counters.entered.load(std::memory_order_acquire);
+    int reported_node_id = -1;
+    const int query_result =
+        lhandprolib_get_can_node_id(handle, &reported_node_id);
+    ++totals.queries;
+    const bool query_ok =
+        query_result == C_LER_NONE && reported_node_id == options.node_id &&
+        context.counters.entered.load(std::memory_order_acquire) >
+            entered_before &&
+        context.counters.inflight.load(std::memory_order_acquire) == 0;
+    if (!query_ok) {
+      ++totals.query_failures;
+      iteration_ok = false;
+      break;
     }
-    starter.join();
-    monitor_started = true;
-    context.blocker.arm();
-    callback_entered = context.blocker.wait_entered(
-        std::chrono::duration_cast<std::chrono::milliseconds>(kCallbackWait));
-    if (!callback_entered) {
-      context.blocker.release();
-      ++totals.failures;
-      cleanup();
-      return false;
-    }
-  } else {
-    starter.join();
-    monitor_started = true;
   }
 
   context.phase.store(Phase::Stopping, std::memory_order_release);
-  std::atomic<bool> stop_returned{false};
-  std::thread stopper([&] {
-    lhandprolib_stop_monitor(handle);
-    stop_returned.store(true, std::memory_order_release);
-  });
-  std::this_thread::sleep_for(kBlockedStopObservation);
-  const bool returned_while_blocked =
-      stop_returned.load(std::memory_order_acquire);
-  if (returned_while_blocked) {
-    context.counters.stop_returned_while_blocked.fetch_add(
-        1, std::memory_order_relaxed);
-  }
-  context.blocker.release();
-  const bool callback_finished = context.blocker.wait_finished(
-      std::chrono::duration_cast<std::chrono::milliseconds>(kCallbackWait));
-  stopper.join();
+  lhandprolib_stop_monitor(handle);
   monitor_started = false;
   context.phase.store(Phase::Stopped, std::memory_order_release);
 
-  bool iteration_ok = !returned_while_blocked && callback_finished &&
-                      context.counters.inflight.load(std::memory_order_acquire) ==
-                          0 &&
-                      stable_entries(context.counters, kStopGrace);
+  if (context.counters.inflight.load(std::memory_order_acquire) != 0) {
+    context.counters.inflight_at_stop_return.fetch_add(
+        1, std::memory_order_relaxed);
+    iteration_ok = false;
+  }
+  iteration_ok = stable_entries(context.counters, kStopGrace) && iteration_ok;
 
   context.decode_enabled.store(false, std::memory_order_release);
   context.receive_running.store(false, std::memory_order_release);
@@ -619,7 +597,7 @@ int run_physical(const Options& options) {
   const auto exited = context.counters.exited.load(std::memory_order_acquire);
   const auto inflight =
       context.counters.inflight.load(std::memory_order_acquire);
-  const auto stop_early = context.counters.stop_returned_while_blocked.load(
+  const auto inflight_at_stop = context.counters.inflight_at_stop_return.load(
       std::memory_order_acquire);
   const auto late_stop =
       context.counters.late_after_stop.load(std::memory_order_acquire);
@@ -638,7 +616,8 @@ int run_physical(const Options& options) {
                       totals.created == totals.initialized &&
                       totals.created == totals.closed &&
                       totals.created == totals.destroyed && entered == exited &&
-                      inflight == 0 && stop_early == 0 && late_stop == 0 &&
+                      totals.queries > 0 && totals.query_failures == 0 &&
+                      inflight == 0 && inflight_at_stop == 0 && late_stop == 0 &&
                       late_close == 0 && late_destroy == 0 && stale == 0 &&
                       transmit_failures == 0 && decode_failures == 0 &&
                       !stop_requested.load(std::memory_order_acquire);
@@ -650,13 +629,15 @@ int run_physical(const Options& options) {
             << "initialized=" << totals.initialized << '\n'
             << "closed=" << totals.closed << '\n'
             << "destroyed=" << totals.destroyed << '\n'
+            << "queries=" << totals.queries << '\n'
+            << "query_failures=" << totals.query_failures << '\n'
             << "entered=" << entered << '\n'
             << "exited=" << exited << '\n'
             << "inflight=" << inflight << '\n'
             << "max_inflight="
             << context.counters.max_inflight.load(std::memory_order_acquire)
             << '\n'
-            << "stop_returned_while_blocked=" << stop_early << '\n'
+            << "inflight_at_stop_return=" << inflight_at_stop << '\n'
             << "late_after_stop=" << late_stop << '\n'
             << "late_after_close=" << late_close << '\n'
             << "late_after_destroy=" << late_destroy << '\n'
