@@ -53,6 +53,24 @@ initialization, or motion occurred. R47 is consumed. R48 must assert that the
 operator wrapper and quoted-command path both carry the R48 suffix before the
 SSH process is started.
 
+## R48 Motion-Transfer Authentication Incident and R49 Boundary
+
+R48 completed the fresh source transfer, fixed AArch64 warning-clean build,
+exactly 8/8 CTest, install/export, runtime-artifact, construction-only Python,
+and Task 4 completion gates. Its first motion-stage operation was the captured
+`motion_artifact_transfer`. No credential was entered into that SSH session.
+The 120-second outer timeout ended the capture with `rc=143`; captured stdout
+and stderr were both zero bytes. The transfer therefore did not establish an
+authenticated remote command, did not create a usable motion-evidence leaf,
+and did not create a Phase A dispatch or attempt marker. No CAN access, SDK
+initialization, or motion occurred.
+
+The R48 local stage, remote root, and transfer label are permanently consumed.
+The only executable continuation is R49: use fresh local and remote paths,
+repeat all non-motion deployment gates, transfer the frozen motion artifacts,
+run Phase A once, and stop at the human visual confirmation checkpoint before
+any Phase B command.
+
 ---
 
 ## Execution Amendment: Approved Offline Contract
