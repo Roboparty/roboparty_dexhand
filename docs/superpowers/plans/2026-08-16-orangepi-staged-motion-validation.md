@@ -74,6 +74,26 @@ commit `db2da9fb90f407bdd5e3bbd3de691e775d27abd3` (tree
 for `92d742c` is background evidence only and its installed prefix must not be
 used by either motion phase.
 
+## R43 Phase A Postflight Incident and R44 Boundary
+
+The fresh R43 deployment stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r43` and remote root
+`/home/orangepi/roboparty_dexhand_motion_db2da9f_r43` completed the non-motion
+deployment gates, motion-artifact transfer, and the Phase A setup session.
+The setup session performed the bounded small motion and its explicit cleanup.
+The visible postflight report showed the strict small-motion sequence, zero CAN
+error/drop deltas, and the four cleanup calls, then stopped at the required
+operator confirmation prompt. The postflight capture was deliberately
+live-to-TTY without a transcript; its local tuple later ended with `rc=255`
+and zero captured stdout/stderr while waiting for the confirmation input.
+That tuple does not prove a successful postflight or operator acceptance, and
+the exact SSH termination cause is unknown. No Phase B command was sent.
+
+R43's local stage, remote root, Phase A marker, and postflight label are
+permanently consumed and must not be reused, queried for retry authority, or
+deleted. The only continuation is a fresh R44 stage and remote root, with a
+new Phase A small-motion attempt and a new human confirmation checkpoint.
+
 ---
 
 ## R5-R6 Deployment Incidents and Mandatory R9 Restart
