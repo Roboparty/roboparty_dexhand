@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build once and run a 60-second, non-motion Orange Pi stress test that detects in-flight or late LHandPro CAN-FD transmit callbacks across `stop_monitor()`, `close()`, and `destroy()`.
+**Goal:** Build once and run a 60-second, non-motion Orange Pi stress test that detects late LHandPro CAN-FD transmit callbacks after read-only traffic and across `stop_monitor()`, `close()`, and `destroy()`.
 
 **Architecture:** A single standalone C++17 source owns one raw CAN-FD socket and calls the vendor C API directly. Its detector is first exercised against deterministic bad and good simulated monitor shutdowns, then the same counters and barriers wrap the pinned AArch64 SDK on `can0`, node 1, model 6DOF S. The project is neither configured nor rebuilt.
 
@@ -65,11 +65,13 @@ struct CallbackExit {
 };
 ```
 
-The stop detector starts `stop_monitor()` on another thread, verifies it has
-not returned while the selected callback is blocked, releases the callback,
-joins the stop thread, asserts `inflight == 0`, snapshots `entered`, and rejects
-any increase during the post-stop grace period. Apply the same stable-count
-check after close and destroy.
+The physical detector issues repeated read-only
+`lhandprolib_get_can_node_id()` SDO requests while the monitor is active,
+verifies every returned node ID is 1, asserts `inflight == 0`, calls
+`stop_monitor()`, snapshots `entered`, and rejects any increase during the
+post-stop grace period. Apply the same stable-count check after close and
+destroy. The simulated self-test remains responsible for proving that the
+counter logic rejects an in-flight callback.
 
 - [ ] **Step 4: Add the physical SDK path without motion APIs**
 
@@ -90,6 +92,7 @@ lhandprolib_set_hand_type(handle, C_LAC_DOF_6_S);
 lhandprolib_set_send_canfd_callback(handle, transmit_callback);
 lhandprolib_initial_ex(handle, C_LCN_CANFD, 1);
 lhandprolib_start_monitor(handle);
+lhandprolib_get_can_node_id(handle, &reported_node_id);
 lhandprolib_stop_monitor(handle);
 lhandprolib_close(handle);
 lhandprolib_destroy(handle);
@@ -185,7 +188,8 @@ duration_seconds=60
 iterations=>0
 entered=exited
 inflight=0
-stop_returned_while_blocked=0
+queries=>0
+query_failures=0
 late_after_stop=0
 late_after_close=0
 late_after_destroy=0
@@ -207,4 +211,3 @@ contract, and CAN postflight is clean. A PASS supports only this exact SDK hash,
 board, interface, and test duration. It does not convert observed behavior into
 a vendor guarantee. Preserve a failure exactly as observed and do not silently
 rerun it.
-
