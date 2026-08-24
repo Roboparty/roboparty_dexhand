@@ -12,8 +12,10 @@ the same physical CAN interface. No motors source or private target is linked.
 
 The AArch64/ARM64 target and physical hardware path have now been exercised
 for the production source commit `db2da9fb90f407bdd5e3bbd3de691e775d27abd3`.
-The remaining release gates are the vendor callback-quiescence confirmation and
-written SDK redistribution/license authorization described below.
+The project owner has authorized redistribution of the two pinned SDK
+artifacts. The project accepts the exact-hash empirical callback-quiescence
+evidence described below; it does not present that evidence as a broader vendor
+API guarantee.
 
 ## CAN Setup
 
@@ -136,10 +138,16 @@ substitute for explicit shutdown.
 Vendor callback cleanup depends on the bundled SDK's `stop_monitor quiescence`
 contract: `lhandprolib_stop_monitor()` must return only after callbacks have
 quiesced. Any SDK upgrade requires renewed physical-hardware and vendor
-validation of that shutdown guarantee before release.
+validation of that shutdown guarantee before release. The pinned binary has
+project evidence from 498 complete 60-second lifecycles with zero late
+callbacks in the callback counters, followed by an independent 10-second
+diagnostic with 84 lifecycles, 21,434 successful decodes, and zero late
+callbacks. The first run also recorded 101 decode failures; the follow-up did
+not reproduce them, so that residual remains documented.
 
 ## Vendor License Boundary
 
-RoboParty-authored source is GPL-3.0. The supplied vendor binary has no
-standalone license in its distribution; public redistribution is blocked until
-vendor authorization is recorded in `thirdparty/README.md`.
+RoboParty-authored source is GPL-3.0. The project owner's redistribution
+authorization for the exact vendor artifacts is recorded in
+`thirdparty/README.md`; it does not relicense those artifacts or imply a
+vendor API guarantee.
