@@ -141,6 +141,23 @@ every R48 absolute path in the controller and both generated postflight drivers,
 recompute both driver hashes and the controller hash, and verify that no R48 or
 R49 path remains before any SSH action.
 
+## R50 Phase A Human-Checkpoint Timeout and R51 Boundary
+
+R50 completed all non-motion deployment gates, the corrected motion-artifact
+transfer, Phase A preflight, bounded small motion, cleanup, and automatic
+postflight. The strict evidence showed all six joints moving from approximately
+0 to 1,000 counts and returning to 0, all alarms zero, all four cleanup steps
+complete, `can0` still `ERROR-ACTIVE` at 1 Mbit/s / 5 Mbit/s, and zero CAN
+error/drop deltas. The postflight then stopped at the mandatory visual
+confirmation prompt. No confirmation phrase arrived before the 600-second SSH
+window ended; the local live-capture tuple recorded `rc=255` with zero captured
+stdout/stderr. No Phase B command was sent.
+
+R50 is permanently consumed despite the automatic Phase A PASS. R51 may start
+only when the operator is available to observe the repeated small motion and
+reply `小行程正常` within the live confirmation window; it must use fresh local
+and remote namespaces and may not infer human acceptance from R50.
+
 ## R5-R6 Deployment Incidents and R9 Boundary
 
 The first fixed local deployment stage (R1)
