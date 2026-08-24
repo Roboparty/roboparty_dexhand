@@ -30,7 +30,7 @@ The self-test contract is:
 CHECK(!exercise_simulated_stop(/*join_before_return=*/false));
 CHECK(exercise_simulated_stop(/*join_before_return=*/true));
 std::cout << "SELF_TEST PASS bad=rejected good=accepted immediate=captured "
-             "traffic_stability=accepted\n";
+             "traffic_stability=accepted decode_diagnostics=accepted\n";
 ```
 
 - [ ] **Step 2: Compile and run the self-test to obtain RED**

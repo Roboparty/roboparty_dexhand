@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -36,6 +37,11 @@ constexpr auto kStopGrace = 20ms;
 constexpr auto kCloseGrace = 10ms;
 constexpr auto kDestroyGrace = 50ms;
 constexpr std::size_t kQueriesPerIteration = 8;
+constexpr std::size_t kDecodeCodeCount = 13;
+constexpr std::size_t kDecodeIdCount = 5;
+constexpr std::size_t kPhaseCount = 6;
+constexpr std::array<unsigned int, 4> kTrackedDecodeIds{
+    0x181, 0x481, 0x501, 0x581};
 
 enum class Phase : unsigned char {
   Initializing,
@@ -56,8 +62,24 @@ struct CallbackCounters {
   std::atomic<std::uint64_t> late_after_destroy{0};
   std::atomic<std::uint64_t> stale_generation{0};
   std::atomic<std::uint64_t> transmit_failures{0};
+  std::atomic<std::uint64_t> decode_calls{0};
   std::atomic<std::uint64_t> decode_failures{0};
+  std::array<std::atomic<std::uint64_t>, kDecodeCodeCount>
+      decode_error_codes{};
+  std::array<std::atomic<std::uint64_t>, kDecodeIdCount>
+      decode_failure_ids{};
+  std::array<std::atomic<std::uint64_t>, kPhaseCount>
+      decode_failure_phases{};
   std::atomic<std::uint64_t> inflight_at_stop_return{0};
+};
+
+struct DecodeFirstFailure {
+  bool recorded{false};
+  int code{0};
+  unsigned int id{0};
+  std::size_t size{0};
+  Phase phase{Phase::Initializing};
+  std::array<unsigned char, 8> data{};
 };
 
 void update_max(std::atomic<std::uint64_t>& maximum,
@@ -134,10 +156,56 @@ struct RuntimeContext {
   std::atomic<bool> receive_running{false};
   std::atomic<bool> decode_enabled{false};
   CallbackCounters counters;
+  std::mutex decode_diagnostics_mutex;
+  DecodeFirstFailure first_decode_failure;
 };
 
 std::atomic<RuntimeContext*> active_context{nullptr};
 std::atomic<bool> stop_requested{false};
+
+std::size_t decode_id_index(unsigned int id) noexcept {
+  for (std::size_t index = 0; index < kTrackedDecodeIds.size(); ++index) {
+    if (kTrackedDecodeIds[index] == id) return index;
+  }
+  return kTrackedDecodeIds.size();
+}
+
+void record_decode_result(RuntimeContext& context, Phase phase,
+                          unsigned int id, const unsigned char* data,
+                          std::size_t size, int result) noexcept {
+  context.counters.decode_calls.fetch_add(1, std::memory_order_relaxed);
+  if (result == C_LER_NONE) return;
+
+  context.counters.decode_failures.fetch_add(1, std::memory_order_relaxed);
+  const auto code_index =
+      result >= 0 && static_cast<std::size_t>(result) < kDecodeCodeCount - 1
+          ? static_cast<std::size_t>(result)
+          : kDecodeCodeCount - 1;
+  context.counters.decode_error_codes[code_index].fetch_add(
+      1, std::memory_order_relaxed);
+  context.counters.decode_failure_ids[decode_id_index(id)].fetch_add(
+      1, std::memory_order_relaxed);
+  const auto phase_index = static_cast<std::size_t>(phase);
+  if (phase_index < kPhaseCount) {
+    context.counters.decode_failure_phases[phase_index].fetch_add(
+        1, std::memory_order_relaxed);
+  }
+
+  std::lock_guard<std::mutex> lock(context.decode_diagnostics_mutex);
+  if (context.first_decode_failure.recorded) return;
+  context.first_decode_failure.recorded = true;
+  context.first_decode_failure.code = result;
+  context.first_decode_failure.id = id;
+  context.first_decode_failure.size = size;
+  context.first_decode_failure.phase = phase;
+  const auto captured =
+      size < context.first_decode_failure.data.size()
+          ? size
+          : context.first_decode_failure.data.size();
+  if (data != nullptr) {
+    std::copy_n(data, captured, context.first_decode_failure.data.begin());
+  }
+}
 
 bool callback_body(std::size_t callback_generation, unsigned int id,
                    const unsigned char* data, unsigned int size,
@@ -283,6 +351,29 @@ bool exercise_traffic_then_stable_stop() {
          counters.inflight.load(std::memory_order_acquire) == 0;
 }
 
+bool exercise_decode_diagnostics() {
+  RuntimeContext context;
+  const std::array<unsigned char, 8> payload{
+      0x43, 0x1d, 0x20, 0x11, 0x01, 0x00, 0x00, 0x00};
+  record_decode_result(context, Phase::Running, 0x581, payload.data(),
+                       payload.size(), C_LER_COMM_DATA_FORMAT);
+  return context.counters.decode_calls.load(std::memory_order_acquire) == 1 &&
+         context.counters.decode_failures.load(std::memory_order_acquire) ==
+             1 &&
+         context.counters.decode_error_codes[8].load(
+             std::memory_order_acquire) == 1 &&
+         context.counters.decode_failure_ids[3].load(
+             std::memory_order_acquire) == 1 &&
+         context.counters.decode_failure_phases[1].load(
+             std::memory_order_acquire) == 1 &&
+         context.first_decode_failure.recorded &&
+         context.first_decode_failure.code == C_LER_COMM_DATA_FORMAT &&
+         context.first_decode_failure.id == 0x581 &&
+         context.first_decode_failure.size == payload.size() &&
+         context.first_decode_failure.phase == Phase::Running &&
+         context.first_decode_failure.data == payload;
+}
+
 int run_self_test() {
   if (exercise_simulated_stop(false)) {
     std::cerr << "SELF_TEST FAIL bad=accepted\n";
@@ -300,9 +391,13 @@ int run_self_test() {
     std::cerr << "SELF_TEST FAIL traffic_stability=rejected\n";
     return 1;
   }
+  if (!exercise_decode_diagnostics()) {
+    std::cerr << "SELF_TEST FAIL decode_diagnostics=rejected\n";
+    return 1;
+  }
   std::cout
       << "SELF_TEST PASS bad=rejected good=accepted immediate=captured "
-         "traffic_stability=accepted\n";
+         "traffic_stability=accepted decode_diagnostics=accepted\n";
   return 0;
 }
 
@@ -425,12 +520,43 @@ void receive_loop(RuntimeContext& context) noexcept {
     const auto id = frame.can_id &
                     ((frame.can_id & CAN_EFF_FLAG) != 0 ? CAN_EFF_MASK
                                                         : CAN_SFF_MASK);
-    if (lhandprolib_set_canfd_data_decode(handle, id, frame.data, frame.len) !=
-        C_LER_NONE) {
-      context.counters.decode_failures.fetch_add(1,
-                                                  std::memory_order_relaxed);
-    }
+    const auto phase = context.phase.load(std::memory_order_acquire);
+    const int result =
+        lhandprolib_set_canfd_data_decode(handle, id, frame.data, frame.len);
+    record_decode_result(context, phase, id, frame.data, frame.len, result);
   }
+}
+
+const char* phase_name(Phase phase) noexcept {
+  switch (phase) {
+    case Phase::Initializing:
+      return "initializing";
+    case Phase::Running:
+      return "running";
+    case Phase::Stopping:
+      return "stopping";
+    case Phase::Stopped:
+      return "stopped";
+    case Phase::Closed:
+      return "closed";
+    case Phase::Destroyed:
+      return "destroyed";
+  }
+  return "unknown";
+}
+
+std::string first_decode_data(const DecodeFirstFailure& failure) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  const auto captured = failure.size < failure.data.size()
+                            ? failure.size
+                            : failure.data.size();
+  std::string result;
+  result.reserve(captured * 2);
+  for (std::size_t index = 0; index < captured; ++index) {
+    result.push_back(kHex[failure.data[index] >> 4]);
+    result.push_back(kHex[failure.data[index] & 0x0f]);
+  }
+  return result;
 }
 
 bool stable_entries(CallbackCounters& counters,
@@ -611,6 +737,8 @@ int run_physical(const Options& options) {
       context.counters.transmit_failures.load(std::memory_order_acquire);
   const auto decode_failures =
       context.counters.decode_failures.load(std::memory_order_acquire);
+  const auto decode_calls =
+      context.counters.decode_calls.load(std::memory_order_acquire);
 
   const bool passed = totals.iterations > 0 && totals.failures == 0 &&
                       totals.created == totals.initialized &&
@@ -643,8 +771,55 @@ int run_physical(const Options& options) {
             << "late_after_destroy=" << late_destroy << '\n'
             << "stale_generation=" << stale << '\n'
             << "transmit_failures=" << transmit_failures << '\n'
+            << "decode_calls=" << decode_calls << '\n'
+            << "decode_successes=" << decode_calls - decode_failures << '\n'
             << "decode_failures=" << decode_failures << '\n'
             << "failures=" << totals.failures << '\n';
+  for (std::size_t code = 1; code < kDecodeCodeCount - 1; ++code) {
+    std::cout << "decode_error_code_" << code << '='
+              << context.counters.decode_error_codes[code].load(
+                     std::memory_order_acquire)
+              << '\n';
+  }
+  std::cout << "decode_error_code_other="
+            << context.counters.decode_error_codes.back().load(
+                   std::memory_order_acquire)
+            << '\n';
+  for (std::size_t index = 0; index < kTrackedDecodeIds.size(); ++index) {
+    static constexpr std::array<const char*, 4> kIdLabels{
+        "0x181", "0x481", "0x501", "0x581"};
+    std::cout << "decode_failure_id_" << kIdLabels[index] << '='
+              << context.counters.decode_failure_ids[index].load(
+                     std::memory_order_acquire)
+              << '\n';
+  }
+  std::cout << "decode_failure_id_other="
+            << context.counters.decode_failure_ids.back().load(
+                   std::memory_order_acquire)
+            << '\n';
+  static constexpr std::array<const char*, kPhaseCount> kPhaseLabels{
+      "initializing", "running", "stopping", "stopped", "closed",
+      "destroyed"};
+  for (std::size_t index = 0; index < kPhaseLabels.size(); ++index) {
+    std::cout << "decode_failure_phase_" << kPhaseLabels[index] << '='
+              << context.counters.decode_failure_phases[index].load(
+                     std::memory_order_acquire)
+              << '\n';
+  }
+  if (context.first_decode_failure.recorded) {
+    std::cout << "first_decode_failure_code="
+              << context.first_decode_failure.code << '\n'
+              << "first_decode_failure_id=" << context.first_decode_failure.id
+              << '\n'
+              << "first_decode_failure_size="
+              << context.first_decode_failure.size << '\n'
+              << "first_decode_failure_phase="
+              << phase_name(context.first_decode_failure.phase) << '\n'
+              << "first_decode_failure_data="
+              << first_decode_data(context.first_decode_failure) << '\n';
+  } else {
+    std::cout << "first_decode_failure=none\n";
+  }
   return passed ? 0 : 1;
 }
 
