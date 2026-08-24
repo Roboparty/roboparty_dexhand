@@ -74,6 +74,27 @@ validate the source archive from the stage root and the helper checksum from
 `bootstrap-evidence/` as separate preflight checks before consuming its source
 tuple.
 
+## R46 Receiver-Evidence Incident and R47 Boundary
+
+R46 completed the fixed-source deployment, AArch64 Werror build, exactly 8/8
+CTest, install/export, runtime-artifact, construction-only Python, and motion
+artifact transfer gates. Its Phase A setup session generated and hashed the
+evidence tools, then failed in the read-only preflight snapshot before the
+process-review prompt. The board kernel exposes a valid `can0` but has no
+`/proc/net/can` directory, and its `ss` build has no CAN socket family. The
+legacy receiver capture therefore recorded `rc=2` for the missing
+`rcvlist_all`, and its parser recorded `rc=1`. Every other preflight capture,
+including CAN configuration/counters, returned zero. No `phase-small.attempt`
+directory was created, and no SDK initialization or motion occurred.
+
+Read-only recovery established a fail-closed replacement: system-wide
+root-level `lsof -nP` reports CAN sockets as `protocol: CAN_RAW`. A temporary
+root-owned, receive-only CAN socket was detected with its exact PID and was
+then closed; the subsequent root scan was empty. R46 is permanently consumed.
+R47 must use a root-level `lsof` receiver scan for every pre/post snapshot and
+must fail if any `CAN_RAW` socket is present; process-name review alone is not
+sufficient.
+
 ## R5-R6 Deployment Incidents and R9 Boundary
 
 The first fixed local deployment stage (R1)
