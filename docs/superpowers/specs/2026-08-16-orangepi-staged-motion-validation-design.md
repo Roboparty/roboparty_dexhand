@@ -126,6 +126,21 @@ deployment gates, and present any password only through the active PTY after a
 real OpenSSH prompt. It must then repeat Phase A and stop at the human visual
 confirmation checkpoint before any Phase B command.
 
+## R49 Controller-Path Incident and R50 Boundary
+
+R49 completed all non-motion deployment gates and the frozen motion-artifact
+transfer, then created its permanent Phase A dispatch marker. The authenticated
+`motion_setup_session` failed immediately at controller line 4 because the
+transferred controller still named the consumed R48 `capture_snapshot.sh`
+absolute path. The controller exited before running a snapshot, process review,
+or motion harness. No `phase-small.attempt` was created and no CAN access, SDK
+initialization, or motion occurred.
+
+R49 is permanently consumed. R50 must rebuild the motion bundle after replacing
+every R48 absolute path in the controller and both generated postflight drivers,
+recompute both driver hashes and the controller hash, and verify that no R48 or
+R49 path remains before any SSH action.
+
 ## R5-R6 Deployment Incidents and R9 Boundary
 
 The first fixed local deployment stage (R1)
