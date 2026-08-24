@@ -94,6 +94,20 @@ permanently consumed and must not be reused, queried for retry authority, or
 deleted. The only continuation is a fresh R44 stage and remote root, with a
 new Phase A small-motion attempt and a new human confirmation checkpoint.
 
+## R44 Local Source Gate Incident and R45 Boundary
+
+The fresh R44 local stage
+`/tmp/roboparty-dexhand-deploy-db2da9f-r44` was created and its source archive
+tuple was consumed. The gate incorrectly required the repository's current
+`HEAD` to equal the production commit, although the production object is
+intentionally a fixed historical commit and the current branch contains
+documentation-only incident records. The archive, source manifest, and
+production object itself were otherwise valid; the local tuple recorded
+`rc=1`. No SSH connection, remote root, CAN access, SDK initialization, or
+motion occurred. R44 is permanently consumed. The only continuation is a
+fresh R45 namespace whose source gate checks the fixed object and tree rather
+than requiring it to be `HEAD`.
+
 ---
 
 ## R5-R6 Deployment Incidents and Mandatory R9 Restart
