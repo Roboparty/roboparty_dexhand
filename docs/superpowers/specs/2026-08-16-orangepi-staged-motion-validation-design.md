@@ -62,6 +62,18 @@ motion occurred. R44 is permanently consumed. The only continuation is a
 fresh R45 namespace whose source gate checks the fixed object and tree rather
 than requiring it to be `HEAD`.
 
+## R45 Local Checksum Working-Directory Incident and R46 Boundary
+
+The fresh R45 local source tuple validated the pinned Git object and tree, but
+then ran the combined source-transfer checksum list from the stage root. That
+list also names the three capture helpers and their checksum file, which live
+under `bootstrap-evidence/`; the relative paths therefore failed and the tuple
+recorded `rc=1`. No SSH connection, remote root, CAN access, SDK
+initialization, or motion occurred. R45 is permanently consumed. R46 must
+validate the source archive from the stage root and the helper checksum from
+`bootstrap-evidence/` as separate preflight checks before consuming its source
+tuple.
+
 ## R5-R6 Deployment Incidents and R9 Boundary
 
 The first fixed local deployment stage (R1)
