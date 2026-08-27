@@ -32,6 +32,32 @@ function(read_unique_cache_value cache_file entry_name output_name)
   set(${output_name} "${cache_value}" PARENT_SCOPE)
 endfunction()
 
+function(assert_elf_search_path binary expected_path label)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "LC_ALL=C"
+      "${READELF_EXECUTABLE_REAL}" -d "${binary}"
+    RESULT_VARIABLE readelf_rc
+    OUTPUT_VARIABLE dynamic_section
+    ERROR_VARIABLE readelf_err)
+  if(NOT readelf_rc EQUAL 0)
+    message(FATAL_ERROR "${label} ELF inspection failed: ${readelf_err}")
+  endif()
+
+  string(REGEX MATCHALL "[^\n]*(RPATH|RUNPATH)[^\n]*"
+    search_path_lines "${dynamic_section}")
+  list(LENGTH search_path_lines search_path_count)
+  if(NOT search_path_count EQUAL 1)
+    message(FATAL_ERROR
+      "${label} must contain exactly one RPATH/RUNPATH entry")
+  endif()
+  list(GET search_path_lines 0 search_path_line)
+  string(FIND "${search_path_line}" "[${expected_path}]" expected_path_index)
+  if(expected_path_index EQUAL -1)
+    message(FATAL_ERROR
+      "${label} has an unexpected RPATH/RUNPATH: ${search_path_line}")
+  endif()
+endfunction()
+
 function(assert_disjoint path_a path_b label)
   if("${path_a}" STREQUAL "${path_b}")
     message(FATAL_ERROR
@@ -85,6 +111,22 @@ if(NOT BUILD_DIR_REAL STREQUAL CACHE_BUILD_REAL)
     "BUILD_DIR does not match the configured CMake build: "
     "${BUILD_DIR_LEXICAL} != ${CACHE_BUILD_LEXICAL}")
 endif()
+
+read_unique_cache_value("${CACHE_FILE}" CMAKE_READELF readelf_value)
+get_filename_component(READELF_EXECUTABLE_ABS "${readelf_value}" ABSOLUTE)
+if(NOT EXISTS "${READELF_EXECUTABLE_ABS}" OR
+  IS_DIRECTORY "${READELF_EXECUTABLE_ABS}")
+  message(FATAL_ERROR
+    "CMAKE_READELF is not an existing file: ${READELF_EXECUTABLE_ABS}")
+endif()
+get_filename_component(READELF_EXECUTABLE_REAL
+  "${READELF_EXECUTABLE_ABS}" REALPATH)
+
+find_program(LDD_EXECUTABLE NAMES ldd)
+if(NOT LDD_EXECUTABLE OR IS_DIRECTORY "${LDD_EXECUTABLE}")
+  message(FATAL_ERROR "ldd is required for the install/export gate")
+endif()
+get_filename_component(LDD_EXECUTABLE_REAL "${LDD_EXECUTABLE}" REALPATH)
 
 get_filename_component(PYTHON_EXECUTABLE_ABS "${PYTHON_EXECUTABLE}" ABSOLUTE)
 if(NOT EXISTS "${PYTHON_EXECUTABLE_ABS}" OR
@@ -267,6 +309,8 @@ endif()
 file(RENAME "${PREFIX_REAL}" "${RELOCATED}")
 
 set(RELOCATED_LIB_ROOT "${RELOCATED}/${INSTALL_LIBDIR}")
+set(RELOCATED_DEXHAND_LIBRARY "${RELOCATED_LIB_ROOT}/libdexhand.so")
+set(RELOCATED_SDK_LIBRARY "${RELOCATED_LIB_ROOT}/libLHandProLib.so")
 set(RELOCATED_PACKAGE_DIR
     "${RELOCATED_LIB_ROOT}/cmake/roboparty_dexhand")
 set(RELOCATED_TARGET_FILE
@@ -282,6 +326,53 @@ endif()
 
 set(RELOCATED_CONFIG_TOOL
   "${RELOCATED}/${INSTALL_BINDIR}/roboparty-dexhand-config")
+assert_elf_search_path(
+  "${RELOCATED_CONFIG_TOOL}" "$ORIGIN/../${INSTALL_LIBDIR}"
+  "relocated config tool")
+assert_elf_search_path(
+  "${RELOCATED_DEXHAND_LIBRARY}" "$ORIGIN" "relocated dexhand library")
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env --unset=LD_LIBRARY_PATH "LC_ALL=C"
+    "${LDD_EXECUTABLE_REAL}" "${RELOCATED_CONFIG_TOOL}"
+  WORKING_DIRECTORY "/tmp"
+  RESULT_VARIABLE config_ldd_rc
+  OUTPUT_VARIABLE config_ldd_out
+  ERROR_VARIABLE config_ldd_err)
+set(config_ldd_all "${config_ldd_out}${config_ldd_err}")
+if(NOT config_ldd_rc EQUAL 0 OR config_ldd_all MATCHES "not found")
+  message(FATAL_ERROR
+    "relocated config tool dependency lookup failed: "
+    "${config_ldd_all}")
+endif()
+
+foreach(dependency IN ITEMS libdexhand.so libLHandProLib.so)
+  string(REGEX MATCH
+    "${dependency}[^\n]*=>[ \t]+([^ \t\n]+)"
+    dependency_line "${config_ldd_out}")
+  set(resolved_dependency "${CMAKE_MATCH_1}")
+  if(dependency_line STREQUAL "" OR
+    NOT EXISTS "${resolved_dependency}" OR
+    IS_DIRECTORY "${resolved_dependency}")
+    message(FATAL_ERROR
+      "relocated config tool did not resolve ${dependency}: ${config_ldd_out}")
+  endif()
+  get_filename_component(resolved_dependency_real
+    "${resolved_dependency}" REALPATH)
+  if(dependency STREQUAL "libdexhand.so")
+    set(expected_dependency "${RELOCATED_DEXHAND_LIBRARY}")
+  else()
+    set(expected_dependency "${RELOCATED_SDK_LIBRARY}")
+  endif()
+  get_filename_component(expected_dependency_real
+    "${expected_dependency}" REALPATH)
+  if(NOT resolved_dependency_real STREQUAL expected_dependency_real)
+    message(FATAL_ERROR
+      "${dependency} resolved outside the relocated prefix: "
+      "${resolved_dependency_real}")
+  endif()
+endforeach()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env --unset=LD_LIBRARY_PATH
     "${RELOCATED_CONFIG_TOOL}" --help
