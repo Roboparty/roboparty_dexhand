@@ -15,6 +15,11 @@ static_assert(!std::is_move_assignable_v<CapiLHandProSdk>);
 
 int main() {
   CapiLHandProSdk sdk;
+  unsigned int sdo_value = 0xDEADBEEFU;
+  CHECK_EQ(sdk.get_sdo_drive_param(0x201D, 0x14, sdo_value), -1);
+  CHECK_EQ(sdo_value, 0xDEADBEEFU);
+  CHECK_EQ(sdk.set_sdo_drive_param(0x201D, 0x14, 200U), -1);
+  CHECK_EQ(sdk.save_sdo_drive_param(), -1);
   CHECK(sdk.create());
   int hand_type = -1;
   int total = -1;

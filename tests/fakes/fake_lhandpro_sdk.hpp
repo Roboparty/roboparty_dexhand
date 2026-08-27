@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <deque>
 #include <functional>
+#include <initializer_list>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,19 @@ namespace roboparty::dexhand::detail {
 
 class FakeLHandProSdk final : public LHandProSdk {
  public:
+  struct SdoAccess {
+    unsigned int index;
+    unsigned char subindex;
+    unsigned int value;
+  };
+
+  FakeLHandProSdk() {
+    for (const unsigned int index : {0x201DU, 0x205DU, 0x209DU, 0x20DDU,
+                                     0x211DU, 0x215DU}) {
+      sdo_values_.emplace(index, 200U);
+    }
+  }
+
   std::string fail_operation;
   int failure_code{7};
   int hand_type{0};
@@ -81,6 +95,16 @@ class FakeLHandProSdk final : public LHandProSdk {
     scripted_results_.clear();
   }
 
+  void set_sdo_value(unsigned int index, unsigned int value) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sdo_values_[index] = value;
+  }
+
+  std::vector<SdoAccess> sdo_write_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sdo_writes_;
+  }
+
   bool create() noexcept override {
     record_("create");
     if (fail_operation == "create") return false;
@@ -137,6 +161,44 @@ class FakeLHandProSdk final : public LHandProSdk {
   }
 
   void close() noexcept override { record_("close"); }
+
+  int get_sdo_drive_param(unsigned int index, unsigned char subindex,
+                          unsigned int& value) noexcept override {
+    const int code = result_("get_sdo_drive_param");
+    if (code != 0) return code;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (subindex != 0x14U) return failure_code;
+      const auto found = sdo_values_.find(index);
+      if (found == sdo_values_.end()) return failure_code;
+      value = found->second;
+      sdo_reads_.push_back({index, subindex, value});
+      return 0;
+    } catch (...) {
+      return failure_code;
+    }
+  }
+
+  int set_sdo_drive_param(unsigned int index, unsigned char subindex,
+                          unsigned int value) noexcept override {
+    const int code = result_("set_sdo_drive_param");
+    if (code != 0) return code;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (subindex != 0x14U) return failure_code;
+      const auto found = sdo_values_.find(index);
+      if (found == sdo_values_.end()) return failure_code;
+      sdo_writes_.push_back({index, subindex, value});
+      found->second = value;
+      return 0;
+    } catch (...) {
+      return failure_code;
+    }
+  }
+
+  int save_sdo_drive_param() noexcept override {
+    return result_("save_sdo_drive_param");
+  }
 
   int decode_canfd(unsigned int, const unsigned char*, int size) override {
     last_decode_size = size;
@@ -287,6 +349,9 @@ class FakeLHandProSdk final : public LHandProSdk {
   std::vector<int> stop_motors_arguments_;
   std::vector<std::pair<int, bool>> set_enable_arguments_;
   std::vector<int> set_move_no_home_arguments_;
+  std::unordered_map<unsigned int, unsigned int> sdo_values_;
+  std::vector<SdoAccess> sdo_reads_;
+  std::vector<SdoAccess> sdo_writes_;
   std::unordered_map<std::string, std::deque<int>> scripted_results_;
 };
 

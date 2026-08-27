@@ -20,6 +20,11 @@ class LHandProSdk {
   virtual void start_monitor() noexcept = 0;
   virtual void stop_monitor() noexcept = 0;
   virtual void close() noexcept = 0;
+  virtual int get_sdo_drive_param(unsigned int index, unsigned char subindex,
+                                  unsigned int& value) noexcept = 0;
+  virtual int set_sdo_drive_param(unsigned int index, unsigned char subindex,
+                                  unsigned int value) noexcept = 0;
+  virtual int save_sdo_drive_param() noexcept = 0;
   virtual int decode_canfd(unsigned int id, const unsigned char* data,
                            int size) = 0;
   virtual int get_dof(int& total, int& active) noexcept = 0;
@@ -57,6 +62,11 @@ class CapiLHandProSdk final : public LHandProSdk {
   void start_monitor() noexcept override;
   void stop_monitor() noexcept override;
   void close() noexcept override;
+  int get_sdo_drive_param(unsigned int index, unsigned char subindex,
+                          unsigned int& value) noexcept override;
+  int set_sdo_drive_param(unsigned int index, unsigned char subindex,
+                          unsigned int value) noexcept override;
+  int save_sdo_drive_param() noexcept override;
   int decode_canfd(unsigned int id, const unsigned char* data,
                    int size) noexcept override;
   int get_dof(int& total, int& active) noexcept override;

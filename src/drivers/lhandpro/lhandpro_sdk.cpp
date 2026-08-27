@@ -64,6 +64,27 @@ void CapiLHandProSdk::close() noexcept {
   if (handle_) lhandprolib_close(as_handle(handle_));
 }
 
+int CapiLHandProSdk::get_sdo_drive_param(unsigned int index,
+                                         unsigned char subindex,
+                                         unsigned int& value) noexcept {
+  return handle_ ? lhandprolib_get_sdo_drive_param(as_handle(handle_), index,
+                                                    subindex, &value)
+                 : kInvalidHandle;
+}
+
+int CapiLHandProSdk::set_sdo_drive_param(unsigned int index,
+                                         unsigned char subindex,
+                                         unsigned int value) noexcept {
+  return handle_ ? lhandprolib_set_sdo_drive_param(as_handle(handle_), index,
+                                                    subindex, value)
+                 : kInvalidHandle;
+}
+
+int CapiLHandProSdk::save_sdo_drive_param() noexcept {
+  return handle_ ? lhandprolib_save_sdo_drive_param(as_handle(handle_))
+                 : kInvalidHandle;
+}
+
 int CapiLHandProSdk::decode_canfd(unsigned int id,
                                   const unsigned char* data,
                                   int size) noexcept {
