@@ -22,6 +22,14 @@
 
 using namespace roboparty::dexhand::detail;
 
+namespace roboparty::dexhand::detail {
+
+int finish_lhandpro_config_cli(
+    int result, const std::string& primary_diagnostic, std::ostream& error,
+    const std::function<void()>& cleanup);
+
+}  // namespace roboparty::dexhand::detail
+
 namespace {
 
 struct DriverRecord {
@@ -439,6 +447,33 @@ void check_factory_runtime_failures() {
   check_contains(absent_result.error, "factory unavailable");
 }
 
+void check_cleanup_exception_diagnostics() {
+  bool cleanup_called = false;
+  std::ostringstream success_error;
+  const int success_cleanup_result = finish_lhandpro_config_cli(
+      0, "", success_error, [&] {
+        cleanup_called = true;
+        throw std::runtime_error("cleanup exploded after success");
+      });
+  CHECK(cleanup_called);
+  CHECK_EQ(success_cleanup_result, 1);
+  CHECK_EQ(success_error.str(),
+           std::string("cleanup failed: cleanup exploded after success\n"));
+
+  cleanup_called = false;
+  std::ostringstream primary_error;
+  const int primary_cleanup_result = finish_lhandpro_config_cli(
+      1, "operation failed: primary exploded", primary_error, [&] {
+        cleanup_called = true;
+        throw std::runtime_error("cleanup exploded after primary");
+      });
+  CHECK(cleanup_called);
+  CHECK_EQ(primary_cleanup_result, 1);
+  CHECK_EQ(primary_error.str(),
+           std::string("operation failed: primary exploded\n"
+                       "cleanup failed: cleanup exploded after primary\n"));
+}
+
 }  // namespace
 
 int main() {
@@ -450,5 +485,6 @@ int main() {
   check_save_failure_has_no_retry();
   check_init_and_operation_failures_cleanup();
   check_factory_runtime_failures();
+  check_cleanup_exception_diagnostics();
   return 0;
 }

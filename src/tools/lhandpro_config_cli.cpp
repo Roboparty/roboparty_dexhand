@@ -191,6 +191,23 @@ std::string exception_message(const char* prefix,
 
 }  // namespace
 
+int finish_lhandpro_config_cli(
+    int result, const std::string& primary_diagnostic, std::ostream& error,
+    const std::function<void()>& cleanup) {
+  std::string cleanup_diagnostic;
+  try {
+    cleanup();
+  } catch (const std::exception& exception) {
+    cleanup_diagnostic = exception_message("cleanup failed", &exception);
+  } catch (...) {
+    cleanup_diagnostic = exception_message("cleanup failed", nullptr);
+  }
+  if (!cleanup_diagnostic.empty()) result = 1;
+  if (!primary_diagnostic.empty()) error << primary_diagnostic << '\n';
+  if (!cleanup_diagnostic.empty()) error << cleanup_diagnostic << '\n';
+  return result;
+}
+
 int run_lhandpro_config_cli(int argc, const char* const argv[],
                             std::ostream& output, std::ostream& error,
                             const ConfigDriverFactory& factory) {
@@ -251,18 +268,8 @@ int run_lhandpro_config_cli(int argc, const char* const argv[],
     primary_diagnostic = exception_message("operation failed", nullptr);
   }
 
-  std::string cleanup_diagnostic;
-  try {
-    driver->deinit_hand();
-  } catch (const std::exception& exception) {
-    cleanup_diagnostic = exception_message("cleanup failed", &exception);
-  } catch (...) {
-    cleanup_diagnostic = exception_message("cleanup failed", nullptr);
-  }
-  if (!cleanup_diagnostic.empty()) result = 1;
-  if (!primary_diagnostic.empty()) error << primary_diagnostic << '\n';
-  if (!cleanup_diagnostic.empty()) error << cleanup_diagnostic << '\n';
-  return result;
+  return finish_lhandpro_config_cli(
+      result, primary_diagnostic, error, [&] { driver->deinit_hand(); });
 }
 
 std::unique_ptr<LHandProDriver> make_lhandpro_config_driver(
