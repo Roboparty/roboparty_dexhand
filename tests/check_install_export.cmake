@@ -143,6 +143,26 @@ foreach(part IN LISTS install_libdir_parts)
   endif()
 endforeach()
 
+read_unique_cache_value("${CACHE_FILE}" CMAKE_INSTALL_BINDIR INSTALL_BINDIR)
+if(INSTALL_BINDIR STREQUAL "" OR IS_ABSOLUTE "${INSTALL_BINDIR}")
+  message(FATAL_ERROR
+    "CMAKE_INSTALL_BINDIR must be a non-empty relative path: ${INSTALL_BINDIR}")
+endif()
+string(FIND "${INSTALL_BINDIR}" ";" install_bindir_semicolon)
+string(FIND "${INSTALL_BINDIR}" "\\" install_bindir_backslash)
+if(NOT install_bindir_semicolon EQUAL -1 OR
+  NOT install_bindir_backslash EQUAL -1)
+  message(FATAL_ERROR
+    "CMAKE_INSTALL_BINDIR contains an unsafe separator: ${INSTALL_BINDIR}")
+endif()
+string(REPLACE "/" ";" install_bindir_parts "${INSTALL_BINDIR}")
+foreach(part IN LISTS install_bindir_parts)
+  if(part STREQUAL "" OR part STREQUAL "." OR part STREQUAL "..")
+    message(FATAL_ERROR
+      "CMAKE_INSTALL_BINDIR contains an unsafe component: ${INSTALL_BINDIR}")
+  endif()
+endforeach()
+
 if(NOT EXISTS "${BUILD_DIR_REAL}/cmake_install.cmake")
   message(FATAL_ERROR "build directory is not installable: ${BUILD_DIR_REAL}")
 endif()
@@ -158,8 +178,8 @@ if(EXISTS "${SCRATCH_ROOT}" OR IS_SYMLINK "${SCRATCH_ROOT}")
 endif()
 set(CONSUMER_BUILD "${SCRATCH_ROOT}/consumer")
 set(VERSION_SOURCE "${SCRATCH_ROOT}/version-source")
-set(VERSION_REJECT_BUILD "${SCRATCH_ROOT}/version-0.1")
-set(VERSION_ACCEPT_BUILD "${SCRATCH_ROOT}/version-0.2")
+set(VERSION_REJECT_BUILD "${SCRATCH_ROOT}/version-0.2")
+set(VERSION_ACCEPT_BUILD "${SCRATCH_ROOT}/version-0.3")
 
 execute_process(COMMAND "${CMAKE_COMMAND}" --install "${BUILD_DIR_REAL}"
                 --prefix "${PREFIX_REAL}" RESULT_VARIABLE install_rc)
@@ -168,8 +188,12 @@ if(NOT install_rc EQUAL 0)
 endif()
 
 set(INSTALL_LIB_ROOT "${PREFIX_REAL}/${INSTALL_LIBDIR}")
+set(CONFIG_TOOL "${PREFIX_REAL}/${INSTALL_BINDIR}/roboparty-dexhand-config")
 set(PACKAGE_DIR "${INSTALL_LIB_ROOT}/cmake/roboparty_dexhand")
 set(TARGET_FILE "${PACKAGE_DIR}/roboparty_dexhandTargets.cmake")
+if(NOT EXISTS "${CONFIG_TOOL}" OR IS_DIRECTORY "${CONFIG_TOOL}")
+  message(FATAL_ERROR "installed feedback configuration tool is missing")
+endif()
 if(NOT IS_DIRECTORY "${PACKAGE_DIR}")
   message(FATAL_ERROR "installed CMake package directory is missing: ${PACKAGE_DIR}")
 endif()
@@ -256,6 +280,21 @@ if(NOT EXISTS "${RELOCATED_TARGET_FILE}")
     "relocated target file is missing: ${RELOCATED_TARGET_FILE}")
 endif()
 
+set(RELOCATED_CONFIG_TOOL
+  "${RELOCATED}/${INSTALL_BINDIR}/roboparty-dexhand-config")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env --unset=LD_LIBRARY_PATH
+    "${RELOCATED_CONFIG_TOOL}" --help
+  WORKING_DIRECTORY "/tmp"
+  RESULT_VARIABLE config_help_rc
+  OUTPUT_VARIABLE config_help_out
+  ERROR_VARIABLE config_help_err)
+if(NOT config_help_rc EQUAL 0 OR
+  NOT config_help_out MATCHES "feedback-period")
+  message(FATAL_ERROR
+    "relocated config tool failed: ${config_help_out}${config_help_err}")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
     --unset=CMAKE_PREFIX_PATH
@@ -328,11 +367,11 @@ execute_process(
     -B "${VERSION_REJECT_BUILD}"
     "-DCMAKE_PREFIX_PATH=${RELOCATED}"
     "-Droboparty_dexhand_DIR=${RELOCATED_PACKAGE_DIR}"
-    "-DREQUESTED_VERSION=0.1"
+    "-DREQUESTED_VERSION=0.2"
   RESULT_VARIABLE version_reject_rc OUTPUT_VARIABLE version_reject_out
   ERROR_VARIABLE version_reject_err)
 if(version_reject_rc EQUAL 0)
-  message(FATAL_ERROR "requested 0.1 unexpectedly succeeded")
+  message(FATAL_ERROR "requested 0.2 unexpectedly succeeded")
 endif()
 
 execute_process(
@@ -341,12 +380,12 @@ execute_process(
     -B "${VERSION_ACCEPT_BUILD}"
     "-DCMAKE_PREFIX_PATH=${RELOCATED}"
     "-Droboparty_dexhand_DIR=${RELOCATED_PACKAGE_DIR}"
-    "-DREQUESTED_VERSION=0.2"
+    "-DREQUESTED_VERSION=0.3"
   RESULT_VARIABLE version_accept_rc OUTPUT_VARIABLE version_accept_out
   ERROR_VARIABLE version_accept_err)
 if(NOT version_accept_rc EQUAL 0)
   message(FATAL_ERROR
-    "requested 0.2 failed:\n${version_accept_out}\n${version_accept_err}")
+    "requested 0.3 failed:\n${version_accept_out}\n${version_accept_err}")
 endif()
 
 execute_process(

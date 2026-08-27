@@ -25,6 +25,36 @@ arguments and never changes the network interface.
 
 The project requires CMake 3.15 or newer.
 
+## Feedback-Period Provisioning
+
+Stop every other hand-control process before reading or changing the feedback
+period. Show the six stored axis values without enabling, homing, or moving the
+hand:
+
+```bash
+roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
+```
+
+Set each axis to 20 ms, verify the readback, and persist the verified value:
+
+```bash
+roboparty-dexhand-config feedback-period apply --interface can0 --node-id 1 --milliseconds 20 --save
+```
+
+```text
+20 ms = 50 emissions/second for frame type 0x50
+20 ms = 50 emissions/second for frame type 0x5A
+observed aggregate = approximately 100 CAN-FD frames/second
+```
+
+These are distinct frame types, not duplicate frames. The protocol documents
+`0x5A` as axis status/status2, while the supplied protocol export does not
+define `0x50`.
+
+Normal `HandDriver::init_hand()` never writes the feedback period. After an
+`apply --save`, power-cycle the hand and run `feedback-period show` again before
+returning it to service.
+
 ## Build
 
 ```bash
