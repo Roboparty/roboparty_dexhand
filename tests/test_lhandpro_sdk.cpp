@@ -2,11 +2,13 @@
 // Copyright (C) 2026 Roboparty
 
 #include "drivers/lhandpro/lhandpro_sdk.hpp"
+#include "fakes/fake_lhandpro_sdk.hpp"
 #include "test_support.hpp"
 
 #include <type_traits>
 
 using roboparty::dexhand::detail::CapiLHandProSdk;
+using roboparty::dexhand::detail::FakeLHandProSdk;
 
 static_assert(!std::is_copy_constructible_v<CapiLHandProSdk>);
 static_assert(!std::is_copy_assignable_v<CapiLHandProSdk>);
@@ -14,6 +16,15 @@ static_assert(!std::is_move_constructible_v<CapiLHandProSdk>);
 static_assert(!std::is_move_assignable_v<CapiLHandProSdk>);
 
 int main() {
+  FakeLHandProSdk fake_sdk;
+  unsigned int fake_sdo_value = 0;
+  CHECK_EQ(fake_sdk.get_sdo_drive_param(0x201D, 0x14, fake_sdo_value), 0);
+  const auto sdo_reads = fake_sdk.sdo_read_snapshot();
+  CHECK_EQ(sdo_reads.size(), 1U);
+  CHECK_EQ(sdo_reads[0].index, 0x201DU);
+  CHECK_EQ(sdo_reads[0].subindex, 0x14U);
+  CHECK_EQ(sdo_reads[0].value, 200U);
+
   CapiLHandProSdk sdk;
   unsigned int sdo_value = 0xDEADBEEFU;
   CHECK_EQ(sdk.get_sdo_drive_param(0x201D, 0x14, sdo_value), -1);

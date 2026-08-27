@@ -100,6 +100,11 @@ class FakeLHandProSdk final : public LHandProSdk {
     sdo_values_[index] = value;
   }
 
+  std::vector<SdoAccess> sdo_read_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return sdo_reads_;
+  }
+
   std::vector<SdoAccess> sdo_write_snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return sdo_writes_;
