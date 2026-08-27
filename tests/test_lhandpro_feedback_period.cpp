@@ -227,6 +227,8 @@ void test_each_target_write_failure_rolls_back() {
     CHECK(report.rollback_attempted);
     CHECK(report.rollback_verified);
     CHECK(!report.save_attempted);
+    CHECK_EQ(report.after_count, 6U);
+    CHECK_EQ(report.after, kOriginalPeriods);
     CHECK_EQ(sdk.count("set_sdo_drive_param"),
              static_cast<int>(failed_axis + 1 + target.size()));
     CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
@@ -272,6 +274,8 @@ void test_verification_read_failure_rolls_back() {
   CHECK(report.rollback_attempted);
   CHECK(report.rollback_verified);
   CHECK(!report.save_attempted);
+  CHECK_EQ(report.after_count, 6U);
+  CHECK_EQ(report.after, kOriginalPeriods);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
   CHECK_EQ(sdk.sdo_write_snapshot().size(), 12U);
   check_accesses(sdk.sdo_write_snapshot(), 0, std::array<unsigned int, 6>{
@@ -311,6 +315,8 @@ void test_verification_mismatch_rolls_back() {
   CHECK(report.rollback_attempted);
   CHECK(report.rollback_verified);
   CHECK(!report.save_attempted);
+  CHECK_EQ(report.after_count, 6U);
+  CHECK_EQ(report.after, kOriginalPeriods);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
   CHECK_EQ(sdk.sdo_read_snapshot().size(), 18U);
   CHECK_EQ(sdk.sdo_write_snapshot().size(), 12U);
@@ -345,8 +351,82 @@ void test_failed_rollback_is_uncertain() {
   CHECK(report.rollback_attempted);
   CHECK(!report.rollback_verified);
   CHECK(!report.save_attempted);
+  CHECK_EQ(report.after_count, 6U);
+  CHECK_EQ(report.after, kOriginalPeriods);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
   CHECK_EQ(sdk.count("set_sdo_drive_param"), 7);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes,
+                  std::array<unsigned int, 6>{200U, 200U, 200U,
+                                               200U, 200U, 200U},
+                  1);
+  append_accesses(expected_writes, kOriginalPeriods);
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
+}
+
+void test_rollback_read_failure_clears_final_observation() {
+  FakeLHandProSdk sdk;
+  seed_periods(sdk);
+  sdk.script_result("set_sdo_drive_param", 121);
+  for (int read = 0; read < 8; ++read) {
+    sdk.script_result("get_sdo_drive_param", 0);
+  }
+  sdk.script_result("get_sdo_drive_param", 122);
+  LHandProFeedbackPeriod transaction(sdk);
+
+  const auto report = transaction.apply_20ms();
+
+  check_failure(report, FeedbackPeriodOutcome::FailedUncertain,
+                "set_sdo_drive_param", 121, 1);
+  CHECK(report.rollback_attempted);
+  CHECK(!report.rollback_verified);
+  CHECK(!report.save_attempted);
+  CHECK_EQ(report.after_count, 0U);
+  const std::array<unsigned int, 6> no_final_observation{};
+  CHECK_EQ(report.after, no_final_observation);
+  CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
+  CHECK_EQ(sdk.count("get_sdo_drive_param"), 12);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes,
+                  std::array<unsigned int, 6>{200U, 200U, 200U,
+                                               200U, 200U, 200U},
+                  1);
+  append_accesses(expected_writes, kOriginalPeriods);
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
+}
+
+void test_rollback_read_mismatch_reports_observed_snapshot() {
+  FakeLHandProSdk sdk;
+  seed_periods(sdk);
+  sdk.script_result("set_sdo_drive_param", 131);
+  int reads = 0;
+  sdk.before_call = [&](const std::string& operation) {
+    if (operation == "get_sdo_drive_param" && ++reads == 7) {
+      sdk.set_sdo_value(kFeedbackPeriodIndexes[3], 999U);
+    }
+  };
+  LHandProFeedbackPeriod transaction(sdk);
+
+  const auto report = transaction.apply_20ms();
+
+  const std::array<unsigned int, 6> observed{101U, 102U, 103U,
+                                               999U, 105U, 106U};
+  check_failure(report, FeedbackPeriodOutcome::FailedUncertain,
+                "set_sdo_drive_param", 131, 1);
+  CHECK(report.rollback_attempted);
+  CHECK(!report.rollback_verified);
+  CHECK(!report.save_attempted);
+  CHECK_EQ(report.after_count, 6U);
+  CHECK_EQ(report.after, observed);
+  CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
   std::vector<SdoAccess> expected_reads;
   append_read_attempts(expected_reads);
   append_read_attempts(expected_reads);
@@ -422,6 +502,8 @@ int main() {
   test_verification_read_failure_rolls_back();
   test_verification_mismatch_rolls_back();
   test_failed_rollback_is_uncertain();
+  test_rollback_read_failure_clears_final_observation();
+  test_rollback_read_mismatch_reports_observed_snapshot();
   test_save_failure_is_not_rolled_back();
   test_outcome_labels_and_success_predicate();
   return 0;

@@ -179,7 +179,7 @@ class FakeLHandProSdk final : public LHandProSdk {
 
   int get_sdo_drive_param(unsigned int index, unsigned char subindex,
                           unsigned int& value) noexcept override {
-    if (!record_sdo_read_attempt_(index, subindex)) return failure_code;
+    record_sdo_read_attempt_(index, subindex);
     const int code = result_("get_sdo_drive_param");
     if (code != 0) return code;
     try {
@@ -197,9 +197,7 @@ class FakeLHandProSdk final : public LHandProSdk {
 
   int set_sdo_drive_param(unsigned int index, unsigned char subindex,
                           unsigned int value) noexcept override {
-    if (!record_sdo_write_attempt_(index, subindex, value)) {
-      return failure_code;
-    }
+    record_sdo_write_attempt_(index, subindex, value);
     const int code = result_("set_sdo_drive_param");
     if (code != 0) return code;
     try {
@@ -363,25 +361,21 @@ class FakeLHandProSdk final : public LHandProSdk {
     }
   }
 
-  bool record_sdo_read_attempt_(unsigned int index,
+  void record_sdo_read_attempt_(unsigned int index,
                                 unsigned char subindex) noexcept {
     try {
       std::lock_guard<std::mutex> lock(mutex_);
       sdo_read_attempts_.push_back({index, subindex, 0U});
-      return true;
     } catch (...) {
-      return false;
     }
   }
 
-  bool record_sdo_write_attempt_(unsigned int index, unsigned char subindex,
+  void record_sdo_write_attempt_(unsigned int index, unsigned char subindex,
                                  unsigned int value) noexcept {
     try {
       std::lock_guard<std::mutex> lock(mutex_);
       sdo_write_attempts_.push_back({index, subindex, value});
-      return true;
     } catch (...) {
-      return false;
     }
   }
 

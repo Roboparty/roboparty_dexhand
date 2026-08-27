@@ -122,6 +122,13 @@ bool LHandProFeedbackPeriod::rollback_(
       reads_succeeded = false;
     }
   }
+  if (reads_succeeded) {
+    report.after = restored;
+    report.after_count = restored.size();
+  } else {
+    report.after = {};
+    report.after_count = 0;
+  }
   report.rollback_verified =
       writes_succeeded && reads_succeeded && restored == before;
   return report.rollback_verified;
