@@ -20,6 +20,17 @@ add_dexhand_test(feedback_period test_lhandpro_feedback_period.cpp)
 target_link_libraries(feedback_period PRIVATE lhandpro_driver)
 add_dexhand_test(lhandpro_lifecycle test_lhandpro_driver.cpp)
 
+add_executable(lhandpro_config_cli_test test_lhandpro_config_cli.cpp)
+target_compile_features(lhandpro_config_cli_test PRIVATE cxx_std_17)
+target_include_directories(
+  lhandpro_config_cli_test
+  PRIVATE ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/src
+          ${PROJECT_SOURCE_DIR}/tests)
+target_link_libraries(lhandpro_config_cli_test
+                      PRIVATE lhandpro_config_cli Threads::Threads)
+add_test(NAME lhandpro_config_cli COMMAND lhandpro_config_cli_test)
+set_tests_properties(lhandpro_config_cli PROPERTIES TIMEOUT 30)
+
 add_executable(canfd_transport test_canfd_transport.cpp)
 target_compile_features(canfd_transport PRIVATE cxx_std_17)
 target_include_directories(canfd_transport PRIVATE ${PROJECT_SOURCE_DIR}/src

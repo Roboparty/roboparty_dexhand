@@ -18,3 +18,5 @@ target_link_libraries(
 set_target_properties(
   dexhand PROPERTIES BUILD_RPATH "${DEXHAND_SDK_DIR}"
   INSTALL_RPATH "\$ORIGIN")
+
+add_subdirectory(tools)
