@@ -1,0 +1,6 @@
+roboparty-dexhand (0.3.0-1) stable; urgency=medium
+
+  * Add verified LHandPro feedback-period provisioning.
+  * Install the roboparty-dexhand-config CLI for show, apply, and save workflows.
+
+ -- RoboParty <2321901849@qq.com>  Thu, 27 Aug 2026 18:43:10 +0800
