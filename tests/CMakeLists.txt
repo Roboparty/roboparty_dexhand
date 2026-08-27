@@ -63,6 +63,17 @@ add_test(NAME logging_boundaries
   COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -P
   ${CMAKE_CURRENT_SOURCE_DIR}/check_logging_boundaries.cmake)
 
+add_test(
+  NAME install_export
+  COMMAND
+    ${CMAKE_COMMAND}
+    -DBUILD_DIR=${PROJECT_BINARY_DIR}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}
+    -DCHECK_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/check_install_export.cmake
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/run_install_export_test.cmake)
+set_tests_properties(install_export PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+
 if(DEXHAND_ENABLE_VCAN_TESTS)
   add_executable(vcan_two_socket test_vcan_two_socket.cpp)
   target_compile_features(vcan_two_socket PRIVATE cxx_std_17)
