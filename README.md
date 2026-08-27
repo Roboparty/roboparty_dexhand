@@ -185,6 +185,40 @@ validated vendor DOF pair was `(11, 6)`. The command returned zero; postflight
 left can0 `ERROR-ACTIVE` at 1 Mbit/s nominal and 5 Mbit/s data rate with zero
 bus, protocol, RX, TX, and dropped-frame errors and no active receiver.
 
+Feedback-period write/save and runtime-rate evidence are recorded separately so
+their source revisions are not conflated. At commit
+`806f31de6386eed93206b6966b41afc0cf4f574c`, the physical no-motion write path
+changed all six axes from 201 to 200, received the exact acknowledgement for
+each write, and confirmed every value by post-write readback. The capture also
+contains the real save request and its exact acknowledgement. The installed CLI
+reported `result=saved` and exited zero; the capture contains zero motion
+frames. The complete save capture has SHA-256
+`4985359581d52589a4fc58b30b2baa0f0d99c5ac0edbf219a0c277df094973c2`.
+
+Runtime-fix commit `03938ca7437120ab6917187b06d60ce70b45c5ec` is the
+direct child of that save-path commit. Its only production-code change is the
+runtime feedback constant/name, accompanied by tests and documentation; the SDO
+write, acknowledgement, save, and CLI persistence paths are unchanged. The
+save-path evidence from its direct parent therefore remains the applicable
+physical evidence for those paths.
+
+The runtime-fix source completed a native AArch64 Orange Pi Debug/Werror build
+and all 10/10 CTests. After a hand-only power-cycle, the installed `show` command
+reported all six values as 200, printed `result=shown`, and exited zero. Its
+capture contains one vendor `initial_ex` configuration frame followed by three
+driver frames with exact payload `00 04 50 01 5A 01`, and zero frames with the
+old `00 04 50 14 5A 14` payload. After the CLI exited, a separate five-second
+capture counted `type50=250`, `type5A=250`, and `total=500`.
+
+Throughout that runtime validation, can1 remained `ERROR-ACTIVE` at 1 Mbit/s
+nominal and 5 Mbit/s data rate. Pre/post deltas were zero for bus errors,
+arbitration loss, warning, error-passive, bus-off, RX errors, TX errors, drops,
+and backlog. Evidence is retained at
+`/home/orangepi/roboparty_dexhand-feedback-6044ad5/evidence`; its recorded
+SHA-256 prefixes are `ac84891d...` for the final show capture, `a1ba99ce...` for
+the rate capture, `c1563f58...` for the output, and `9a271f2a...` for the return
+code record.
+
 ## Runtime Safety Constraints
 
 The driver uses the spdlog logger named `dexhand` from worker threads. If an
