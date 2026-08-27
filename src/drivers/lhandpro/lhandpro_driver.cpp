@@ -10,6 +10,7 @@
 #include <linux/can.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <exception>
@@ -49,6 +50,8 @@ constexpr int kValidationFailure = -2;
 constexpr int kCanFdMode = 1;
 constexpr int kVendorModel6DofS = 1;
 constexpr int kVendorModel16Dof = 2;
+constexpr std::array<std::uint8_t, 6> kRealtimeFeedback20ms{
+    0x00U, 0x04U, 0x50U, 0x14U, 0x5AU, 0x14U};
 
 std::mutex process_callback_mutex;
 std::weak_ptr<TxContext> active_tx_context;
@@ -530,13 +533,37 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
             "initial_ex")) {
       return fail();
     }
-    bool healthy_after_initial_ex = false;
+    bool healthy_before_feedback_config = false;
     {
       std::lock_guard<std::mutex> admission_lock(
           rx_init_admission_mutex_);
-      healthy_after_initial_ex = initialization_healthy_();
+      healthy_before_feedback_config = initialization_healthy_();
     }
-    if (!healthy_after_initial_ex) return fail();
+    if (!healthy_before_feedback_config) return fail();
+
+    CanFdFrame feedback_config;
+    feedback_config.id =
+        static_cast<std::uint32_t>(0x500 + canfd_node_id_);
+    feedback_config.len =
+        static_cast<std::uint8_t>(kRealtimeFeedback20ms.size());
+    std::copy(kRealtimeFeedback20ms.begin(), kRealtimeFeedback20ms.end(),
+              feedback_config.data.begin());
+    if (!transport_->transmit(feedback_config)) {
+      record_fault_("configure_realtime_feedback", kSdkException,
+                    FaultSource::Sync);
+      return fail();
+    }
+    // initial_ex configures both realtime streams to 1 ms. Allow two such
+    // device cycles for the 20 ms replacement to take effect before queries.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+    bool healthy_after_feedback_config = false;
+    {
+      std::lock_guard<std::mutex> admission_lock(
+          rx_init_admission_mutex_);
+      healthy_after_feedback_config = initialization_healthy_();
+    }
+    if (!healthy_after_feedback_config) return fail();
 
     sdk_->start_monitor();
     monitor_started_ = true;

@@ -36,7 +36,7 @@ struct Fixture {
   FakeCanFdTransport* transport{nullptr};
   std::unique_ptr<LHandProDriver> driver;
 
-  explicit Fixture(LHandProModel model = LHandProModel::Dof16) {
+  explicit Fixture(LHandProModel model = LHandProModel::Dof16, int node = 1) {
     auto sdk_owner = std::make_unique<FakeLHandProSdk>();
     auto transport_owner = std::make_unique<FakeCanFdTransport>();
     sdk = sdk_owner.get();
@@ -46,7 +46,7 @@ struct Fixture {
       sdk->active_dof = 16;
     }
     driver = std::make_unique<LHandProDriver>(
-        "can-test", model, 1, std::move(sdk_owner),
+        "can-test", model, node, std::move(sdk_owner),
         std::move(transport_owner));
   }
 
@@ -214,6 +214,27 @@ void check_no_motion_state_calls(const Fixture& fixture) {
   CHECK_EQ(fixture.sdk->count("stop_motors"), 0);
   CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
   CHECK_EQ(fixture.sdk->count_set_move_no_home(0), 0);
+}
+
+bool is_runtime_feedback_frame(const CanFdFrame& frame,
+                               std::uint32_t node_id) {
+  constexpr std::array<std::uint8_t, 6> payload{
+      0x00U, 0x04U, 0x50U, 0x14U, 0x5AU, 0x14U};
+  return frame.id == 0x500U + node_id && !frame.extended && !frame.brs &&
+         frame.len == payload.size() &&
+         std::equal(payload.begin(), payload.end(), frame.data.begin()) &&
+         std::all_of(std::next(frame.data.begin(), payload.size()),
+                     frame.data.end(),
+                     [](std::uint8_t value) { return value == 0U; });
+}
+
+std::size_t count_runtime_feedback_frames(
+    const FakeCanFdTransport& transport, std::uint32_t node_id) {
+  const auto frames = transport.sent_snapshot();
+  return static_cast<std::size_t>(std::count_if(
+      frames.begin(), frames.end(), [node_id](const CanFdFrame& frame) {
+        return is_runtime_feedback_frame(frame, node_id);
+      }));
 }
 
 void check_safety_trio_order(const Fixture& fixture) {
@@ -527,14 +548,17 @@ void check_models_and_initializing_callbacks() {
            (std::vector<std::uint32_t>{0x501, 0x481, 0x581, 0x181}));
 
   const auto initial_frames = six.transport->sent_snapshot();
-  CHECK_EQ(initial_frames.size(), 1U);
-  CHECK_EQ(initial_frames.front().id, 0x601U);
-  CHECK(!initial_frames.front().extended);
-  CHECK_EQ(initial_frames.front().len, 9U);
-  CHECK(initial_frames.front().brs);
+  const auto callback_frame =
+      std::find_if(initial_frames.begin(), initial_frames.end(),
+                   [](const CanFdFrame& frame) { return frame.id == 0x601U; });
+  CHECK(callback_frame != initial_frames.end());
+  CHECK(!callback_frame->extended);
+  CHECK_EQ(callback_frame->len, 9U);
+  CHECK(callback_frame->brs);
   for (std::size_t index = 0; index < 9; ++index) {
-    CHECK_EQ(initial_frames.front().data[index], index);
+    CHECK_EQ(callback_frame->data[index], index);
   }
+  CHECK_EQ(count_runtime_feedback_frames(*six.transport, 1U), 1U);
 
   int total = 0;
   int active = 0;
@@ -607,6 +631,71 @@ void check_models_and_initializing_callbacks() {
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 21, 15, 21, 16);
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 21, 17, 21, 16);
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 11, 6, 21, 16);
+}
+
+void check_runtime_feedback_is_capped_after_every_initial_ex() {
+  Fixture motion(LHandProModel::Dof6S, 7);
+  int motion_configure_attempts = 0;
+  motion.transport->before_transmit = [&] {
+    const auto frames = motion.transport->sent_snapshot();
+    if (!frames.empty()) return;
+    ++motion_configure_attempts;
+    CHECK_EQ(motion.sdk->count("initial_ex"), 1);
+    CHECK_EQ(motion.sdk->count("get_hand_type"), 1);
+    CHECK_EQ(motion.sdk->count("start_monitor"), 0);
+    CHECK_EQ(motion.sdk->count("get_dof"), 0);
+  };
+  CHECK(motion.driver->init_hand(false, false, 0.0F));
+  CHECK_EQ(motion_configure_attempts, 1);
+  CHECK_EQ(count_runtime_feedback_frames(*motion.transport, 7U), 1U);
+  CHECK_EQ(motion.sdk->count("set_sdo_drive_param"), 0);
+  CHECK_EQ(motion.sdk->count("save_sdo_drive_param"), 0);
+  motion.driver->deinit_hand();
+
+  Fixture provisioning(LHandProModel::Dof6S, 23);
+  int provisioning_configure_attempts = 0;
+  provisioning.transport->before_transmit = [&] {
+    const auto frames = provisioning.transport->sent_snapshot();
+    if (!frames.empty()) return;
+    ++provisioning_configure_attempts;
+    CHECK_EQ(provisioning.sdk->count("initial_ex"), 1);
+    CHECK_EQ(provisioning.sdk->count("get_hand_type"), 1);
+    CHECK_EQ(provisioning.sdk->count("start_monitor"), 0);
+    CHECK_EQ(provisioning.sdk->count("get_dof"), 0);
+  };
+  CHECK(provisioning.driver->init_for_provisioning());
+  CHECK_EQ(provisioning_configure_attempts, 1);
+  CHECK_EQ(count_runtime_feedback_frames(*provisioning.transport, 23U), 1U);
+  CHECK_EQ(provisioning.sdk->count("get_sdo_drive_param"), 0);
+  CHECK_EQ(provisioning.sdk->count("set_sdo_drive_param"), 0);
+  CHECK_EQ(provisioning.sdk->count("save_sdo_drive_param"), 0);
+  check_no_motion_state_calls(provisioning);
+  provisioning.driver->deinit_hand();
+  check_no_motion_state_calls(provisioning);
+}
+
+void check_runtime_feedback_transmit_failure_aborts_initialization() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.transport->transmit_result = false;
+
+  CHECK(!fixture.driver->init_hand(true, true, 0.0F));
+  CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U), 1U);
+  CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
+  CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
+  CHECK_EQ(fixture.sdk->count("get_hand_type"), 1);
+  CHECK_EQ(fixture.sdk->count("get_dof"), 0);
+  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+  CHECK_EQ(fixture.sdk->count("move_motors"), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  CHECK_EQ(fixture.sdk->count("get_sdo_drive_param"), 0);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 0);
+  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
+  check_safety_trio_once(fixture);
+  check_fully_released(fixture);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "configure_realtime_feedback", -1, "sync");
 }
 
 void check_ready_async_decode_faults() {
@@ -683,11 +772,41 @@ void check_initializing_async_decode_fault_aborts_risky_init() {
 
   CHECK(!fixture.driver->init_hand(true, true, 0.0F));
   CHECK(callback_checked);
+  CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U), 0U);
   CHECK_EQ(fixture.sdk->count("decode_canfd"), 1);
   CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
   CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
   CHECK_EQ(fixture.sdk->count("home_motors"), 0);
   CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  const auto root = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(root, "decode_canfd", 7, "async");
+}
+
+void check_async_fault_during_feedback_window_aborts_before_queries() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->fail_operation = "decode_canfd";
+  bool delivered = false;
+  fixture.transport->before_transmit = [&] {
+    if (delivered) return;
+    delivered = true;
+    CanFdFrame feedback;
+    feedback.id = 0x501;
+    feedback.len = 8;
+    fixture.transport->deliver(feedback);
+  };
+
+  CHECK(!fixture.driver->init_hand(true, true, 0.0F));
+  CHECK(delivered);
+  CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U), 1U);
+  CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
+  CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
+  CHECK_EQ(fixture.sdk->count("get_hand_type"), 1);
+  CHECK_EQ(fixture.sdk->count("get_dof"), 0);
+  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  check_safety_trio_once(fixture);
   const auto root = expect_exception<std::runtime_error>(
       [&] { fixture.driver->check_health(); });
   check_fault_message(root, "decode_canfd", 7, "async");
@@ -2239,9 +2358,12 @@ int main() {
   check_constructor_and_home_wait_validation();
   check_failure_rollback_and_retry();
   check_models_and_initializing_callbacks();
+  check_runtime_feedback_is_capped_after_every_initial_ex();
+  check_runtime_feedback_transmit_failure_aborts_initialization();
   check_ready_async_decode_faults();
   check_decode_exception_is_contained_as_async_fault();
   check_initializing_async_decode_fault_aborts_risky_init();
+  check_async_fault_during_feedback_window_aborts_before_queries();
   check_completed_async_fault_blocks_later_risky_init();
   check_admitted_risky_init_serializes_async_fault();
   check_async_fault_precedes_final_ready_transition();
