@@ -115,6 +115,22 @@ SocketCAN transport, receive decoding, health checks, and cleanup ordering. The
 installed CLI links to private implementation targets; no new installed C++
 header or Python binding is introduced.
 
+The bundled vendor set and save calls return after transmitting their SDO
+requests; a zero return is not an acknowledgement from the device. The driver
+therefore arms a private acknowledgement gate before each call and waits up to
+100 ms for the exact standard-ID `0x580 + node`, command `0x60`, index, and
+subindex response. An exact `0x80` response fails the active request. A response
+that arrives before the vendor call returns is retained, but it releases the
+caller only after that receive callback has finished. Cleanup cancels and wakes
+any pending wait.
+
+All `0x60` SDO write acknowledgements are still passed to the vendor decoder so
+it can clear internal pending state, but the raw frame is authoritative. The
+bundled AArch64 SDK consistently returns decoder code 3 for these valid frames,
+so that return is ignored only for `0x60` write acknowledgements. Other frames,
+including nonmatching `0x80` aborts and normal feedback, retain the existing
+fail-closed decoder handling.
+
 The CLI establishes a normal communication session for the 6DOF S model with
 motor enable and homing disabled. The same process-global callback ownership
 gate and callback-quiescence cleanup contract used by `LHandProDriver` apply.
@@ -165,12 +181,13 @@ for diagnostics but is not reported as a successful configuration.
 2. If all six values already equal 200, perform no writes and no nonvolatile
    save, report `already-compliant`, clean up, and exit successfully.
 3. Otherwise retain the complete original six-axis snapshot in memory.
-4. Write target value 200 to all six indexes. The vendor protocol explicitly
-   requires the six indexes to be written together; the implementation must not
-   update only the mismatching axes.
+4. Write target value 200 to all six indexes. Each write must receive its exact
+   SDO acknowledgement before the next write begins. The vendor protocol
+   explicitly requires the six indexes to be written together; the
+   implementation must not update only the mismatching axes.
 5. Read all six indexes again.
 6. Only when every read succeeds and every value equals 200, invoke the vendor
-   save call exactly once.
+   save call exactly once and require the exact `0x1010:0x01` acknowledgement.
 7. Report the final values and save acknowledgement, then clean up.
 
 No persistent save occurs before full six-axis verification. A successful save
@@ -186,7 +203,9 @@ command exits nonzero on every such failure.
 If a write or post-write readback fails after any target write was attempted,
 the tool makes one best-effort rollback transaction:
 
-1. Write the original snapshot back to all six indexes.
+1. Write the original snapshot back to all six indexes, waiting for each exact
+   acknowledgement. Continue best-effort across all six axes after an
+   individual rollback failure.
 2. Read all six values and compare them with the original snapshot.
 3. Do not invoke persistent save.
 
@@ -232,6 +251,9 @@ Hardware-free tests use the existing fake SDK and fake transport. They cover:
 - verified and failed rollback reporting;
 - save failure reporting without automatic retry;
 - SDK exceptions and asynchronous decode faults;
+- acknowledgement-before-return, exact acknowledgement matching, SDO abort,
+  timeout, per-axis serialization, save acknowledgement, and cleanup
+  cancellation;
 - cleanup on every success and failure path;
 - installed executable presence and runtime lookup of the pinned vendor SDK;
 - no change to the public C++ or Python API surface.

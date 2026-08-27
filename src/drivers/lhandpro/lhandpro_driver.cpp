@@ -30,6 +30,177 @@ struct TxContext {
 
 struct SlotToken {};
 
+class SdoAckTracker final {
+ public:
+  enum class Result { Acknowledged, Aborted, TimedOut, Cancelled };
+
+  struct Ticket {
+    std::uint64_t generation{0};
+    bool valid{false};
+  };
+
+  struct Observation {
+    bool recognized{false};
+    bool matched{false};
+    Ticket ticket{};
+    Result result{Result::Cancelled};
+  };
+
+  void start_session() noexcept {
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      accepting_ = true;
+      state_ = State::Idle;
+      captured_ = false;
+      ++generation_;
+    } catch (...) {
+    }
+  }
+
+  void shutdown() noexcept {
+    try {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        accepting_ = false;
+        captured_ = false;
+        if (state_ == State::Pending) state_ = State::Cancelled;
+      }
+      cv_.notify_all();
+    } catch (...) {
+    }
+  }
+
+  Ticket arm(unsigned int index, unsigned char subindex) noexcept {
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!accepting_ || state_ == State::Pending) return {};
+      ++generation_;
+      expected_index_ = index;
+      expected_subindex_ = subindex;
+      state_ = State::Pending;
+      captured_ = false;
+      return {generation_, true};
+    } catch (...) {
+      return {};
+    }
+  }
+
+  Observation observe(const CanFdFrame& frame,
+                      std::uint32_t response_id) noexcept {
+    Observation observation;
+    if (frame.extended || frame.id != response_id || frame.len < 4U) {
+      return observation;
+    }
+
+    const auto command = frame.data[0];
+    if (command != 0x60U && command != 0x80U) return observation;
+    const auto index = static_cast<unsigned int>(frame.data[1]) |
+                       (static_cast<unsigned int>(frame.data[2]) << 8U);
+    const auto subindex = frame.data[3];
+
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const bool matches = accepting_ && state_ == State::Pending &&
+                           !captured_ && index == expected_index_ &&
+                           subindex == expected_subindex_;
+      if (command == 0x80U && !matches) return observation;
+
+      observation.recognized = true;
+      if (!matches) return observation;
+      captured_ = true;
+      observation.matched = true;
+      observation.ticket = {generation_, true};
+      observation.result = command == 0x60U ? Result::Acknowledged
+                                             : Result::Aborted;
+      return observation;
+    } catch (...) {
+      return observation;
+    }
+  }
+
+  void complete(const Observation& observation) noexcept {
+    if (!observation.matched || !observation.ticket.valid) return;
+    try {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ != State::Pending ||
+            observation.ticket.generation != generation_ || !captured_) {
+          return;
+        }
+        state_ = observation.result == Result::Acknowledged
+                     ? State::Acknowledged
+                     : State::Aborted;
+        captured_ = false;
+      }
+      cv_.notify_all();
+    } catch (...) {
+    }
+  }
+
+  void discard(Ticket ticket) noexcept {
+    if (!ticket.valid) return;
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (ticket.generation != generation_) return;
+      state_ = State::Idle;
+      captured_ = false;
+    } catch (...) {
+    }
+  }
+
+  Result wait(Ticket ticket, std::chrono::milliseconds timeout) noexcept {
+    if (!ticket.valid) return Result::Cancelled;
+    try {
+      std::unique_lock<std::mutex> lock(mutex_);
+      const auto complete = [this, ticket] {
+        return ticket.generation != generation_ ||
+               state_ != State::Pending;
+      };
+      if (!cv_.wait_for(lock, timeout, complete)) {
+        if (ticket.generation == generation_ && state_ == State::Pending) {
+          state_ = State::TimedOut;
+          captured_ = false;
+        }
+        return Result::TimedOut;
+      }
+      if (ticket.generation != generation_) return Result::Cancelled;
+      switch (state_) {
+        case State::Acknowledged:
+          return Result::Acknowledged;
+        case State::Aborted:
+          return Result::Aborted;
+        case State::TimedOut:
+          return Result::TimedOut;
+        case State::Idle:
+        case State::Pending:
+        case State::Cancelled:
+          return Result::Cancelled;
+      }
+    } catch (...) {
+    }
+    return Result::Cancelled;
+  }
+
+ private:
+  enum class State {
+    Idle,
+    Pending,
+    Acknowledged,
+    Aborted,
+    TimedOut,
+    Cancelled
+  };
+
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  bool accepting_{false};
+  bool captured_{false};
+  std::uint64_t generation_{0};
+  unsigned int expected_index_{0};
+  unsigned char expected_subindex_{0};
+  State state_{State::Idle};
+};
+
 }  // namespace roboparty::dexhand::detail
 
 namespace {
@@ -47,11 +218,17 @@ using roboparty::dexhand::detail::TxContext;
 constexpr int kSdkSuccess = 0;
 constexpr int kSdkException = -1;
 constexpr int kValidationFailure = -2;
+constexpr int kTransactionCancelled = -3;
+constexpr int kSdoAckTimeout = -4;
+constexpr int kSdoAbort = -5;
 constexpr int kCanFdMode = 1;
 constexpr int kVendorModel6DofS = 1;
 constexpr int kVendorModel16Dof = 2;
 constexpr int kRealtimeFeedbackConfigAttempts = 3;
 constexpr auto kRealtimeFeedbackTargetPeriod = std::chrono::milliseconds(20);
+constexpr auto kSdoAckTimeoutPeriod = std::chrono::milliseconds(100);
+constexpr unsigned int kSaveSdoIndex = 0x1010U;
+constexpr unsigned char kSaveSdoSubindex = 0x01U;
 constexpr std::array<std::uint8_t, 6> kRealtimeFeedback20ms{
     0x00U, 0x04U, 0x50U, 0x14U, 0x5AU, 0x14U};
 
@@ -167,7 +344,9 @@ LHandProDriver::LHandProDriver(
     : model_(model),
       sdk_(std::move(sdk)),
       transport_(std::move(transport)),
-      state_(DriverState::Created) {
+      state_(DriverState::Created),
+      sdo_ack_tracker_(
+          std::make_unique<roboparty::dexhand::detail::SdoAckTracker>()) {
   if (can_interface.empty()) {
     throw std::invalid_argument("CAN interface must not be empty");
   }
@@ -425,6 +604,7 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
   }
 
   session_generation_.fetch_add(1, std::memory_order_acq_rel);
+  sdo_ack_tracker_->start_session();
   session_purpose_.store(purpose, std::memory_order_release);
   safety_cleanup_required_ = purpose == SessionPurpose::Motion;
 
@@ -510,9 +690,24 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
 
     transport_->set_receive_callback([this](const CanFdFrame& frame) noexcept {
       if (!begin_rx_callback_()) return;
+      const auto sdo_observation = sdo_ack_tracker_->observe(
+          frame, static_cast<std::uint32_t>(0x580 + canfd_node_id_));
+      if (sdo_observation.recognized) {
+        try {
+          // The vendor decoder still receives write ACKs to clear any pending
+          // internal request, but its return value is not authoritative.
+          (void)sdk_->decode_canfd(frame.id, frame.data.data(),
+                                   static_cast<int>(frame.len));
+        } catch (...) {
+        }
+        finish_rx_callback_(false, kSdkSuccess);
+        sdo_ack_tracker_->complete(sdo_observation);
+        return;
+      }
       try {
         if (state_.load(std::memory_order_acquire) == DriverState::Created) {
           finish_rx_callback_(false, kSdkSuccess);
+          sdo_ack_tracker_->complete(sdo_observation);
           return;
         }
         const int code = sdk_->decode_canfd(frame.id, frame.data.data(),
@@ -523,6 +718,7 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
         sdk_ok_(kSdkException, "decode_canfd");
         finish_rx_callback_(true, kSdkException);
       }
+      sdo_ack_tracker_->complete(sdo_observation);
     });
 
     sdk_->set_send_canfd_callback(&transmit_bridge);
@@ -705,6 +901,7 @@ void LHandProDriver::deinit_hand() {
 LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
   CleanupResult result;
   state_.store(DriverState::Stopping, std::memory_order_release);
+  sdo_ack_tracker_->shutdown();
 
   {
     std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
@@ -786,6 +983,54 @@ LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
   return result;
 }
 
+int LHandProDriver::set_sdo_drive_param_verified_(
+    unsigned int index, unsigned char subindex, unsigned int value) noexcept {
+  const auto ticket = sdo_ack_tracker_->arm(index, subindex);
+  if (!ticket.valid) return kTransactionCancelled;
+
+  const int code = sdk_->set_sdo_drive_param(index, subindex, value);
+  if (code != kSdkSuccess) {
+    sdo_ack_tracker_->discard(ticket);
+    return code;
+  }
+
+  switch (sdo_ack_tracker_->wait(ticket, kSdoAckTimeoutPeriod)) {
+    case roboparty::dexhand::detail::SdoAckTracker::Result::Acknowledged:
+      return kSdkSuccess;
+    case roboparty::dexhand::detail::SdoAckTracker::Result::Aborted:
+      return kSdoAbort;
+    case roboparty::dexhand::detail::SdoAckTracker::Result::TimedOut:
+      return kSdoAckTimeout;
+    case roboparty::dexhand::detail::SdoAckTracker::Result::Cancelled:
+      return kTransactionCancelled;
+  }
+  return kTransactionCancelled;
+}
+
+int LHandProDriver::save_sdo_drive_param_verified_() noexcept {
+  const auto ticket =
+      sdo_ack_tracker_->arm(kSaveSdoIndex, kSaveSdoSubindex);
+  if (!ticket.valid) return kTransactionCancelled;
+
+  const int code = sdk_->save_sdo_drive_param();
+  if (code != kSdkSuccess) {
+    sdo_ack_tracker_->discard(ticket);
+    return code;
+  }
+
+  switch (sdo_ack_tracker_->wait(ticket, kSdoAckTimeoutPeriod)) {
+    case roboparty::dexhand::detail::SdoAckTracker::Result::Acknowledged:
+      return kSdkSuccess;
+    case roboparty::dexhand::detail::SdoAckTracker::Result::Aborted:
+      return kSdoAbort;
+    case roboparty::dexhand::detail::SdoAckTracker::Result::TimedOut:
+      return kSdoAckTimeout;
+    case roboparty::dexhand::detail::SdoAckTracker::Result::Cancelled:
+      return kTransactionCancelled;
+  }
+  return kTransactionCancelled;
+}
+
 roboparty::dexhand::detail::FeedbackPeriodReport
 LHandProDriver::show_feedback_period() {
   constexpr const char* operation = "show_feedback_period";
@@ -817,7 +1062,13 @@ LHandProDriver::apply_feedback_period_20ms() {
   auto report = roboparty::dexhand::detail::LHandProFeedbackPeriod(
                     *sdk_, [this, generation] {
                       return provisioning_epoch_active_(generation);
-                    })
+                    },
+                    [this](unsigned int index, unsigned char subindex,
+                           unsigned int value) {
+                      return set_sdo_drive_param_verified_(index, subindex,
+                                                           value);
+                    },
+                    [this] { return save_sdo_drive_param_verified_(); })
                     .apply_20ms();
   validate_provisioning_call_(operation, generation);
   check_health();

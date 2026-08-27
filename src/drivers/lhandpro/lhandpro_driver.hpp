@@ -29,6 +29,7 @@ struct ExpectedDof {
 };
 struct TxContext;
 struct SlotToken;
+class SdoAckTracker;
 
 }  // namespace roboparty::dexhand::detail
 
@@ -139,6 +140,10 @@ class LHandProDriver final : public HandDriver {
   void validate_provisioning_call_(const char* operation,
                                    std::uint64_t generation) const;
   bool provisioning_epoch_active_(std::uint64_t generation) const noexcept;
+  int set_sdo_drive_param_verified_(unsigned int index,
+                                    unsigned char subindex,
+                                    unsigned int value) noexcept;
+  int save_sdo_drive_param_verified_() noexcept;
   void throw_if_sdk_failed_(int code, const char* operation);
   [[noreturn]] void throw_sticky_fault_() const;
   static const char* fault_source_name_(FaultSource source) noexcept;
@@ -180,4 +185,6 @@ class LHandProDriver final : public HandDriver {
   bool safety_cleanup_required_{false};
   std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
   std::shared_ptr<roboparty::dexhand::detail::SlotToken> slot_token_;
+  std::unique_ptr<roboparty::dexhand::detail::SdoAckTracker>
+      sdo_ack_tracker_;
 };

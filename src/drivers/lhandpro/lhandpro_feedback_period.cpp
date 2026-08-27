@@ -14,8 +14,12 @@ bool FeedbackPeriodReport::success() const noexcept {
 }
 
 LHandProFeedbackPeriod::LHandProFeedbackPeriod(
-    LHandProSdk& sdk, std::function<bool()> continue_allowed) noexcept
-    : sdk_(sdk), continue_allowed_(std::move(continue_allowed)) {}
+    LHandProSdk& sdk, std::function<bool()> continue_allowed,
+    VerifiedSet verified_set, VerifiedSave verified_save) noexcept
+    : sdk_(sdk),
+      continue_allowed_(std::move(continue_allowed)),
+      verified_set_(std::move(verified_set)),
+      verified_save_(std::move(verified_save)) {}
 
 FeedbackPeriodReport LHandProFeedbackPeriod::show() {
   FeedbackPeriodReport report;
@@ -84,7 +88,8 @@ FeedbackPeriodReport LHandProFeedbackPeriod::apply_20ms() {
   }
 
   report.save_attempted = true;
-  const int save_code = sdk_.save_sdo_drive_param();
+  const int save_code = verified_save_ ? verified_save_()
+                                       : sdk_.save_sdo_drive_param();
   if (save_code != 0) {
     report.failure = {"save_sdo_drive_param", save_code, 0};
     report.outcome = FeedbackPeriodOutcome::SaveFailed;
@@ -114,10 +119,18 @@ bool LHandProFeedbackPeriod::read_all_(std::array<unsigned int, 6>& values,
 bool LHandProFeedbackPeriod::write_all_(
     const std::array<unsigned int, 6>& values, FeedbackPeriodFailure& failure) {
   for (std::size_t axis = 0; axis < kFeedbackPeriodIndexes.size(); ++axis) {
-    const int code = sdk_.set_sdo_drive_param(
-        kFeedbackPeriodIndexes[axis], kFeedbackPeriodSubindex, values[axis]);
+    const int code =
+        verified_set_
+            ? verified_set_(kFeedbackPeriodIndexes[axis],
+                            kFeedbackPeriodSubindex, values[axis])
+            : sdk_.set_sdo_drive_param(kFeedbackPeriodIndexes[axis],
+                                       kFeedbackPeriodSubindex, values[axis]);
     if (code != 0) {
       failure = {"set_sdo_drive_param", code, axis + 1};
+      return false;
+    }
+    if (!continuation_allowed_()) {
+      failure = {"transaction_cancelled", -3, axis + 1};
       return false;
     }
   }
@@ -129,10 +142,16 @@ bool LHandProFeedbackPeriod::rollback_(
   report.rollback_attempted = true;
   bool writes_succeeded = true;
   for (std::size_t axis = 0; axis < kFeedbackPeriodIndexes.size(); ++axis) {
-    if (sdk_.set_sdo_drive_param(kFeedbackPeriodIndexes[axis],
-                                 kFeedbackPeriodSubindex, before[axis]) != 0) {
+    const int code =
+        verified_set_
+            ? verified_set_(kFeedbackPeriodIndexes[axis],
+                            kFeedbackPeriodSubindex, before[axis])
+            : sdk_.set_sdo_drive_param(kFeedbackPeriodIndexes[axis],
+                                       kFeedbackPeriodSubindex, before[axis]);
+    if (code != 0) {
       writes_succeeded = false;
     }
+    if (!continuation_allowed_()) writes_succeeded = false;
   }
 
   std::array<unsigned int, 6> restored{};

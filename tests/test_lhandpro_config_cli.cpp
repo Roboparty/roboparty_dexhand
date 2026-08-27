@@ -64,11 +64,35 @@ ConfigDriverFactory recording_factory(DriverRecord& record,
     if (configure) configure(*sdk, *transport);
     auto configured_before_call = std::move(sdk->before_call);
     sdk->before_call = [&record,
+                        node_id,
                         configured_before_call =
                             std::move(configured_before_call)](
                            const std::string& operation) {
       if (configured_before_call) configured_before_call(operation);
       record.sdk_calls.push_back(operation);
+      if (operation == "set_sdo_drive_param") {
+        const auto writes = record.sdk->sdo_write_attempt_snapshot();
+        CHECK(!writes.empty());
+        const auto& write = writes.back();
+        CanFdFrame frame;
+        frame.id = static_cast<std::uint32_t>(0x580 + node_id);
+        frame.len = 8;
+        frame.data[0] = 0x60U;
+        frame.data[1] = static_cast<std::uint8_t>(write.index & 0xFFU);
+        frame.data[2] =
+            static_cast<std::uint8_t>((write.index >> 8U) & 0xFFU);
+        frame.data[3] = write.subindex;
+        record.transport->deliver(frame);
+      } else if (operation == "save_sdo_drive_param") {
+        CanFdFrame frame;
+        frame.id = static_cast<std::uint32_t>(0x580 + node_id);
+        frame.len = 8;
+        frame.data[0] = 0x60U;
+        frame.data[1] = 0x10U;
+        frame.data[2] = 0x10U;
+        frame.data[3] = 0x01U;
+        record.transport->deliver(frame);
+      }
       if (operation != "destroy") return;
       ++record.destroy_calls;
       record.transport_close_calls_at_destroy =

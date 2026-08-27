@@ -50,9 +50,14 @@ struct FeedbackPeriodReport {
 
 class LHandProFeedbackPeriod final {
  public:
+  using VerifiedSet = std::function<int(unsigned int, unsigned char,
+                                        unsigned int)>;
+  using VerifiedSave = std::function<int()>;
+
   explicit LHandProFeedbackPeriod(
       LHandProSdk&,
-      std::function<bool()> continue_allowed = {}) noexcept;
+      std::function<bool()> continue_allowed = {},
+      VerifiedSet verified_set = {}, VerifiedSave verified_save = {}) noexcept;
 
   FeedbackPeriodReport show();
   FeedbackPeriodReport apply_20ms();
@@ -68,6 +73,8 @@ class LHandProFeedbackPeriod final {
 
   LHandProSdk& sdk_;
   std::function<bool()> continue_allowed_;
+  VerifiedSet verified_set_;
+  VerifiedSave verified_save_;
 };
 
 const char* feedback_period_outcome_name(FeedbackPeriodOutcome) noexcept;

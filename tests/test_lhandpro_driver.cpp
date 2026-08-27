@@ -237,6 +237,36 @@ std::size_t count_runtime_feedback_frames(
       }));
 }
 
+CanFdFrame sdo_response(std::uint8_t command, unsigned int index,
+                        unsigned char subindex, int node_id = 1) {
+  CanFdFrame frame;
+  frame.id = static_cast<std::uint32_t>(0x580 + node_id);
+  frame.len = 8;
+  frame.data[0] = command;
+  frame.data[1] = static_cast<std::uint8_t>(index & 0xFFU);
+  frame.data[2] = static_cast<std::uint8_t>((index >> 8U) & 0xFFU);
+  frame.data[3] = subindex;
+  return frame;
+}
+
+void deliver_latest_write_response(Fixture& fixture, std::uint8_t command) {
+  const auto attempts = fixture.sdk->sdo_write_attempt_snapshot();
+  CHECK(!attempts.empty());
+  const auto& request = attempts.back();
+  fixture.transport->deliver(
+      sdo_response(command, request.index, request.subindex));
+}
+
+void install_early_sdo_acknowledgements(Fixture& fixture) {
+  fixture.sdk->before_call = [&fixture](const std::string& operation) {
+    if (operation == "set_sdo_drive_param") {
+      deliver_latest_write_response(fixture, 0x60U);
+    } else if (operation == "save_sdo_drive_param") {
+      fixture.transport->deliver(sdo_response(0x60U, 0x1010U, 0x01U));
+    }
+  };
+}
+
 void check_safety_trio_order(const Fixture& fixture) {
   const auto events = fixture.sdk->event_snapshot();
   const auto stop_reverse =
@@ -2026,6 +2056,7 @@ void check_provisioning_apply_and_fresh_session() {
   Fixture changed(LHandProModel::Dof6S);
   changed.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
   CHECK(changed.driver->init_for_provisioning());
+  install_early_sdo_acknowledgements(changed);
   const auto changed_report = changed.driver->apply_feedback_period_20ms();
   CHECK_EQ(changed_report.outcome, FeedbackPeriodOutcome::Saved);
   CHECK(changed_report.success());
@@ -2056,6 +2087,261 @@ void check_provisioning_apply_and_fresh_session() {
   CHECK_EQ(changed.transport->clear_calls.load(), 2);
   CHECK_EQ(changed.transport->close_calls.load(), 2);
   check_no_motion_state_calls(changed);
+}
+
+void check_provisioning_sdo_acks_are_consumed_and_may_arrive_early() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 3;
+  install_early_sdo_acknowledgements(fixture);
+
+  const auto report = fixture.driver->apply_feedback_period_20ms();
+
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::Saved);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 6);
+  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 1);
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 7);
+
+  CanFdFrame ordinary_feedback;
+  ordinary_feedback.id = 0x501U;
+  ordinary_feedback.len = 8;
+  fixture.transport->deliver(ordinary_feedback);
+  const auto error = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(error, "decode_canfd", 3, "async");
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 8);
+  fixture.sdk->before_call = {};
+  fixture.sdk->fail_operation.clear();
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_waits_for_each_exact_sdo_ack() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+
+  auto apply = std::async(std::launch::async, [&] {
+    return fixture.driver->apply_feedback_period_20ms();
+  });
+  CHECK(wait_until(
+      [&] { return fixture.sdk->count("set_sdo_drive_param") == 1; }));
+  CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+
+  fixture.transport->deliver(
+      sdo_response(0x60U, kFeedbackPeriodIndexes[1],
+                   kFeedbackPeriodSubindex));
+  CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 1);
+
+  for (std::size_t axis = 0; axis < kFeedbackPeriodIndexes.size(); ++axis) {
+    fixture.transport->deliver(
+        sdo_response(0x60U, kFeedbackPeriodIndexes[axis],
+                     kFeedbackPeriodSubindex));
+    if (axis + 1 < kFeedbackPeriodIndexes.size()) {
+      CHECK(wait_until([&] {
+        return fixture.sdk->count("set_sdo_drive_param") ==
+               static_cast<int>(axis + 2);
+      }));
+      CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+    }
+  }
+
+  CHECK(wait_until(
+      [&] { return fixture.sdk->count("save_sdo_drive_param") == 1; }));
+  CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+  fixture.transport->deliver(sdo_response(0x60U, 0x1010U, 0x01U));
+  CHECK(apply.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(apply.get().outcome, FeedbackPeriodOutcome::Saved);
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_waits_for_ack_callback_completion() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  std::promise<void> decode_entered_promise;
+  auto decode_entered = decode_entered_promise.get_future();
+  std::promise<void> release_decode_promise;
+  auto release_decode = release_decode_promise.get_future().share();
+  std::atomic<bool> block_first_decode{true};
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_sdo_drive_param") {
+      if (fixture.sdk->sdo_write_attempt_snapshot().size() > 1U) {
+        deliver_latest_write_response(fixture, 0x60U);
+      }
+    } else if (operation == "save_sdo_drive_param") {
+      fixture.transport->deliver(sdo_response(0x60U, 0x1010U, 0x01U));
+    } else if (operation == "decode_canfd" &&
+               block_first_decode.exchange(false)) {
+      decode_entered_promise.set_value();
+      release_decode.wait();
+    }
+  };
+
+  auto apply = std::async(std::launch::async, [&] {
+    return fixture.driver->apply_feedback_period_20ms();
+  });
+  CHECK(wait_until(
+      [&] { return fixture.sdk->count("set_sdo_drive_param") == 1; }));
+  auto ack = std::async(std::launch::async, [&] {
+    fixture.transport->deliver(
+        sdo_response(0x60U, kFeedbackPeriodIndexes.front(),
+                     kFeedbackPeriodSubindex));
+  });
+  CHECK(decode_entered.wait_for(2s) == std::future_status::ready);
+  CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 1);
+
+  release_decode_promise.set_value();
+  CHECK(ack.wait_for(2s) == std::future_status::ready);
+  ack.get();
+  CHECK(apply.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(apply.get().outcome, FeedbackPeriodOutcome::Saved);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 6);
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_sdo_abort_rolls_back_all_axes() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  int writes = 0;
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation != "set_sdo_drive_param") return;
+    ++writes;
+    deliver_latest_write_response(fixture, writes == 2 ? 0x80U : 0x60U);
+  };
+
+  const auto report = fixture.driver->apply_feedback_period_20ms();
+
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::FailedRestored);
+  CHECK_EQ(report.failure.operation, std::string("set_sdo_drive_param"));
+  CHECK_EQ(report.failure.axis, 2U);
+  CHECK(report.failure.code != 0);
+  CHECK(report.rollback_attempted);
+  CHECK(report.rollback_verified);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 8);
+  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_sdo_ack_timeout_rolls_back() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  int writes = 0;
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation != "set_sdo_drive_param") return;
+    if (++writes > 1) deliver_latest_write_response(fixture, 0x60U);
+  };
+
+  const auto report = fixture.driver->apply_feedback_period_20ms();
+
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::FailedRestored);
+  CHECK_EQ(report.failure.operation, std::string("set_sdo_drive_param"));
+  CHECK_EQ(report.failure.axis, 1U);
+  CHECK(report.failure.code != 0);
+  CHECK(report.rollback_attempted);
+  CHECK(report.rollback_verified);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 7);
+  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_sync_write_failure_cancels_ack_wait() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  fixture.sdk->script_result("set_sdo_drive_param", 71);
+  CHECK(fixture.driver->init_for_provisioning());
+  int writes = 0;
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation != "set_sdo_drive_param") return;
+    if (++writes > 1) deliver_latest_write_response(fixture, 0x60U);
+  };
+
+  const auto report = fixture.driver->apply_feedback_period_20ms();
+
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::FailedRestored);
+  CHECK_EQ(report.failure.operation, std::string("set_sdo_drive_param"));
+  CHECK_EQ(report.failure.code, 71);
+  CHECK_EQ(report.failure.axis, 1U);
+  CHECK(report.rollback_verified);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 7);
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_save_requires_ack() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_sdo_drive_param") {
+      deliver_latest_write_response(fixture, 0x60U);
+    } else if (operation == "save_sdo_drive_param") {
+      fixture.transport->deliver(sdo_response(0x80U, 0x1010U, 0x01U));
+    }
+  };
+
+  const auto report = fixture.driver->apply_feedback_period_20ms();
+
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::SaveFailed);
+  CHECK_EQ(report.failure.operation, std::string("save_sdo_drive_param"));
+  CHECK(report.failure.code != 0);
+  CHECK(report.save_attempted);
+  CHECK(!report.success());
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
+void check_provisioning_wrong_save_ack_times_out() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_sdo_drive_param") {
+      deliver_latest_write_response(fixture, 0x60U);
+    } else if (operation == "save_sdo_drive_param") {
+      fixture.transport->deliver(sdo_response(0x60U, 0x1011U, 0x01U));
+    }
+  };
+
+  const auto report = fixture.driver->apply_feedback_period_20ms();
+
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::SaveFailed);
+  CHECK_EQ(report.failure.operation, std::string("save_sdo_drive_param"));
+  CHECK(report.failure.code != 0);
+  CHECK(report.save_attempted);
+  CHECK(!report.success());
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
+void check_cleanup_cancels_pending_sdo_ack_wait() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+
+  auto apply = std::async(std::launch::async, [&] {
+    return expect_exception<std::logic_error>(
+        [&] { (void)fixture.driver->apply_feedback_period_20ms(); });
+  });
+  CHECK(wait_until(
+      [&] { return fixture.sdk->count("set_sdo_drive_param") == 1; }));
+  auto cleanup = std::async(std::launch::async,
+                            [&] { fixture.driver->deinit_hand(); });
+
+  CHECK(cleanup.wait_for(2s) == std::future_status::ready);
+  cleanup.get();
+  CHECK(apply.wait_for(2s) == std::future_status::ready);
+  CHECK(apply.get().find("requires Ready state") != std::string::npos);
+  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
 }
 
 void check_provisioning_state_purpose_and_model_guards() {
@@ -2297,19 +2583,22 @@ void check_async_fault_during_apply_writes_rolls_back() {
   fixture.sdk->fail_operation = "decode_canfd";
   bool delivered = false;
   fixture.sdk->before_call = [&](const std::string& operation) {
-    if (operation != "set_sdo_drive_param" || delivered) return;
-    delivered = true;
-    CanFdFrame frame;
-    frame.id = 0x581;
-    frame.len = 8;
-    fixture.transport->deliver(frame);
+    if (operation != "set_sdo_drive_param") return;
+    if (!delivered) {
+      delivered = true;
+      CanFdFrame frame;
+      frame.id = 0x581;
+      frame.len = 8;
+      fixture.transport->deliver(frame);
+    }
+    deliver_latest_write_response(fixture, 0x60U);
   };
 
   const auto error = expect_exception<std::runtime_error>(
       [&] { (void)fixture.driver->apply_feedback_period_20ms(); });
   check_fault_message(error, "decode_canfd", 7, "async");
   CHECK_EQ(fixture.sdk->count("get_sdo_drive_param"), 12);
-  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 12);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 7);
   CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
   fixture.sdk->before_call = {};
   fixture.sdk->fail_operation.clear();
@@ -2334,11 +2623,16 @@ void check_async_fault_before_apply_save_rolls_back() {
   fixture.sdk->fail_operation = "decode_canfd";
   int reads = 0;
   fixture.sdk->before_call = [&](const std::string& operation) {
-    if (operation != "get_sdo_drive_param" || ++reads != 12) return;
-    CanFdFrame frame;
-    frame.id = 0x581;
-    frame.len = 8;
-    fixture.transport->deliver(frame);
+    if (operation == "set_sdo_drive_param") {
+      deliver_latest_write_response(fixture, 0x60U);
+      return;
+    }
+    if (operation == "get_sdo_drive_param" && ++reads == 12) {
+      CanFdFrame frame;
+      frame.id = 0x581;
+      frame.len = 8;
+      fixture.transport->deliver(frame);
+    }
   };
 
   const auto error = expect_exception<std::runtime_error>(
@@ -2400,6 +2694,15 @@ int main() {
   check_provisioning_show_and_cleanup_without_motion();
   check_ready_sessions_reject_cross_purpose_initialization();
   check_provisioning_apply_and_fresh_session();
+  check_provisioning_sdo_acks_are_consumed_and_may_arrive_early();
+  check_provisioning_waits_for_each_exact_sdo_ack();
+  check_provisioning_waits_for_ack_callback_completion();
+  check_provisioning_sdo_abort_rolls_back_all_axes();
+  check_provisioning_sdo_ack_timeout_rolls_back();
+  check_provisioning_sync_write_failure_cancels_ack_wait();
+  check_provisioning_save_requires_ack();
+  check_provisioning_wrong_save_ack_times_out();
+  check_cleanup_cancels_pending_sdo_ack_wait();
   check_provisioning_state_purpose_and_model_guards();
   check_provisioning_initialization_failure_matrix();
   check_provisioning_show_surfaces_async_fault();

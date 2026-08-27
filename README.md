@@ -55,6 +55,14 @@ Normal `HandDriver::init_hand()` never writes the feedback period. After an
 `apply --save`, power-cycle the hand and run `feedback-period show` again before
 returning it to service.
 
+The vendor SDO set/save functions only confirm that a request was sent. The
+provisioning command waits for each exact device acknowledgement before sending
+the next request and fails on an abort or a 100 ms timeout. A fixed delay is not
+used as proof: an Orange Pi trace showed that even 20 ms pacing still produced
+one vendor decoder code 3 for every valid write acknowledgement. The driver now
+uses the raw `0x60` acknowledgement as authoritative while still passing it to
+the vendor decoder to clear pending internal state.
+
 ## Build
 
 ```bash
