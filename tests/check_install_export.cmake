@@ -347,10 +347,14 @@ if(NOT config_ldd_rc EQUAL 0 OR config_ldd_all MATCHES "not found")
 endif()
 
 foreach(dependency IN ITEMS libdexhand.so libLHandProLib.so)
+  string(REPLACE "." "\\." dependency_pattern "${dependency}")
+  string(CONCAT dependency_regex
+    "(^|\n)[ \t]*${dependency_pattern}[^\n]*=>[ \t]+"
+    "([^\n]*[^ \t\n])[ \t]+\\(0x[0-9a-fA-F]+\\)[ \t]*(\n|$)")
   string(REGEX MATCH
-    "${dependency}[^\n]*=>[ \t]+([^ \t\n]+)"
+    "${dependency_regex}"
     dependency_line "${config_ldd_out}")
-  set(resolved_dependency "${CMAKE_MATCH_1}")
+  set(resolved_dependency "${CMAKE_MATCH_2}")
   if(dependency_line STREQUAL "" OR
     NOT EXISTS "${resolved_dependency}" OR
     IS_DIRECTORY "${resolved_dependency}")
