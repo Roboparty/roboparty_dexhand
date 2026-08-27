@@ -26,6 +26,7 @@ class FakeCanFdTransport final : public CanFdTransport {
   std::atomic<int> clear_calls{0};
   std::atomic<int> close_calls{0};
   std::function<void()> before_transmit;
+  std::function<void()> after_transmit;
   std::function<void()> before_close;
 
   bool open(const std::string& interface,
@@ -41,9 +42,14 @@ class FakeCanFdTransport final : public CanFdTransport {
     if (!is_open_.load(std::memory_order_acquire)) return false;
     try {
       if (before_transmit) before_transmit();
-      std::lock_guard<std::mutex> lock(mutex_);
-      sent_frames.push_back(frame);
-      return transmit_result;
+      bool result = false;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sent_frames.push_back(frame);
+        result = transmit_result;
+      }
+      if (after_transmit) after_transmit();
+      return result;
     } catch (...) {
       return false;
     }

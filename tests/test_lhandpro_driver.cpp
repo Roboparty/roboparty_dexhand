@@ -558,7 +558,7 @@ void check_models_and_initializing_callbacks() {
   for (std::size_t index = 0; index < 9; ++index) {
     CHECK_EQ(callback_frame->data[index], index);
   }
-  CHECK_EQ(count_runtime_feedback_frames(*six.transport, 1U), 1U);
+  CHECK_EQ(count_runtime_feedback_frames(*six.transport, 1U), 3U);
 
   int total = 0;
   int active = 0;
@@ -637,8 +637,6 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
   Fixture motion(LHandProModel::Dof6S, 7);
   int motion_configure_attempts = 0;
   motion.transport->before_transmit = [&] {
-    const auto frames = motion.transport->sent_snapshot();
-    if (!frames.empty()) return;
     ++motion_configure_attempts;
     CHECK_EQ(motion.sdk->count("initial_ex"), 1);
     CHECK_EQ(motion.sdk->count("get_hand_type"), 1);
@@ -646,8 +644,8 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
     CHECK_EQ(motion.sdk->count("get_dof"), 0);
   };
   CHECK(motion.driver->init_hand(false, false, 0.0F));
-  CHECK_EQ(motion_configure_attempts, 1);
-  CHECK_EQ(count_runtime_feedback_frames(*motion.transport, 7U), 1U);
+  CHECK_EQ(motion_configure_attempts, 3);
+  CHECK_EQ(count_runtime_feedback_frames(*motion.transport, 7U), 3U);
   CHECK_EQ(motion.sdk->count("set_sdo_drive_param"), 0);
   CHECK_EQ(motion.sdk->count("save_sdo_drive_param"), 0);
   motion.driver->deinit_hand();
@@ -655,8 +653,6 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
   Fixture provisioning(LHandProModel::Dof6S, 23);
   int provisioning_configure_attempts = 0;
   provisioning.transport->before_transmit = [&] {
-    const auto frames = provisioning.transport->sent_snapshot();
-    if (!frames.empty()) return;
     ++provisioning_configure_attempts;
     CHECK_EQ(provisioning.sdk->count("initial_ex"), 1);
     CHECK_EQ(provisioning.sdk->count("get_hand_type"), 1);
@@ -664,8 +660,8 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
     CHECK_EQ(provisioning.sdk->count("get_dof"), 0);
   };
   CHECK(provisioning.driver->init_for_provisioning());
-  CHECK_EQ(provisioning_configure_attempts, 1);
-  CHECK_EQ(count_runtime_feedback_frames(*provisioning.transport, 23U), 1U);
+  CHECK_EQ(provisioning_configure_attempts, 3);
+  CHECK_EQ(count_runtime_feedback_frames(*provisioning.transport, 23U), 3U);
   CHECK_EQ(provisioning.sdk->count("get_sdo_drive_param"), 0);
   CHECK_EQ(provisioning.sdk->count("set_sdo_drive_param"), 0);
   CHECK_EQ(provisioning.sdk->count("save_sdo_drive_param"), 0);
@@ -675,27 +671,35 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
 }
 
 void check_runtime_feedback_transmit_failure_aborts_initialization() {
-  Fixture fixture(LHandProModel::Dof6S);
-  fixture.transport->transmit_result = false;
+  for (int failed_attempt = 1; failed_attempt <= 3; ++failed_attempt) {
+    Fixture fixture(LHandProModel::Dof6S);
+    int attempts = 0;
+    fixture.transport->before_transmit = [&] {
+      ++attempts;
+      fixture.transport->transmit_result = attempts != failed_attempt;
+    };
 
-  CHECK(!fixture.driver->init_hand(true, true, 0.0F));
-  CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U), 1U);
-  CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
-  CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
-  CHECK_EQ(fixture.sdk->count("get_hand_type"), 1);
-  CHECK_EQ(fixture.sdk->count("get_dof"), 0);
-  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
-  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
-  CHECK_EQ(fixture.sdk->count("move_motors"), 0);
-  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
-  CHECK_EQ(fixture.sdk->count("get_sdo_drive_param"), 0);
-  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 0);
-  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
-  check_safety_trio_once(fixture);
-  check_fully_released(fixture);
-  const auto root = expect_exception<std::runtime_error>(
-      [&] { fixture.driver->check_health(); });
-  check_fault_message(root, "configure_realtime_feedback", -1, "sync");
+    CHECK(!fixture.driver->init_hand(true, true, 0.0F));
+    CHECK_EQ(attempts, failed_attempt);
+    CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U),
+             static_cast<std::size_t>(failed_attempt));
+    CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
+    CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
+    CHECK_EQ(fixture.sdk->count("get_hand_type"), 1);
+    CHECK_EQ(fixture.sdk->count("get_dof"), 0);
+    CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+    CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+    CHECK_EQ(fixture.sdk->count("move_motors"), 0);
+    CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+    CHECK_EQ(fixture.sdk->count("get_sdo_drive_param"), 0);
+    CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 0);
+    CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
+    check_safety_trio_once(fixture);
+    check_fully_released(fixture);
+    const auto root = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    check_fault_message(root, "configure_realtime_feedback", -1, "sync");
+  }
 }
 
 void check_ready_async_decode_faults() {
@@ -784,32 +788,39 @@ void check_initializing_async_decode_fault_aborts_risky_init() {
 }
 
 void check_async_fault_during_feedback_window_aborts_before_queries() {
-  Fixture fixture(LHandProModel::Dof6S);
-  fixture.sdk->fail_operation = "decode_canfd";
-  bool delivered = false;
-  fixture.transport->before_transmit = [&] {
-    if (delivered) return;
-    delivered = true;
-    CanFdFrame feedback;
-    feedback.id = 0x501;
-    feedback.len = 8;
-    fixture.transport->deliver(feedback);
-  };
+  for (int fault_after_attempt = 1; fault_after_attempt <= 3;
+       ++fault_after_attempt) {
+    Fixture fixture(LHandProModel::Dof6S);
+    fixture.sdk->fail_operation = "decode_canfd";
+    int attempts = 0;
+    bool delivered = false;
+    fixture.transport->after_transmit = [&] {
+      ++attempts;
+      if (attempts != fault_after_attempt) return;
+      delivered = true;
+      CanFdFrame feedback;
+      feedback.id = 0x501;
+      feedback.len = 8;
+      fixture.transport->deliver(feedback);
+    };
 
-  CHECK(!fixture.driver->init_hand(true, true, 0.0F));
-  CHECK(delivered);
-  CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U), 1U);
-  CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
-  CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
-  CHECK_EQ(fixture.sdk->count("get_hand_type"), 1);
-  CHECK_EQ(fixture.sdk->count("get_dof"), 0);
-  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
-  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
-  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
-  check_safety_trio_once(fixture);
-  const auto root = expect_exception<std::runtime_error>(
-      [&] { fixture.driver->check_health(); });
-  check_fault_message(root, "decode_canfd", 7, "async");
+    CHECK(!fixture.driver->init_hand(true, true, 0.0F));
+    CHECK(delivered);
+    CHECK_EQ(attempts, fault_after_attempt);
+    CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U),
+             static_cast<std::size_t>(fault_after_attempt));
+    CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
+    CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
+    CHECK_EQ(fixture.sdk->count("get_hand_type"), 1);
+    CHECK_EQ(fixture.sdk->count("get_dof"), 0);
+    CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+    CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+    CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+    check_safety_trio_once(fixture);
+    const auto root = expect_exception<std::runtime_error>(
+        [&] { fixture.driver->check_health(); });
+    check_fault_message(root, "decode_canfd", 7, "async");
+  }
 }
 
 void check_completed_async_fault_blocks_later_risky_init() {
