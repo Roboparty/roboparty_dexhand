@@ -2157,6 +2157,44 @@ void check_provisioning_waits_for_each_exact_sdo_ack() {
   fixture.driver->deinit_hand();
 }
 
+void check_provisioning_rejects_malformed_sdo_ack_lengths() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_sdo_drive_param" &&
+        fixture.sdk->sdo_write_attempt_snapshot().size() > 1U) {
+      deliver_latest_write_response(fixture, 0x60U);
+    } else if (operation == "save_sdo_drive_param") {
+      fixture.transport->deliver(sdo_response(0x60U, 0x1010U, 0x01U));
+    }
+  };
+
+  auto apply = std::async(std::launch::async, [&] {
+    return fixture.driver->apply_feedback_period_20ms();
+  });
+  CHECK(wait_until(
+      [&] { return fixture.sdk->count("set_sdo_drive_param") == 1; }));
+
+  for (const std::uint8_t length : {4U, 5U, 6U, 7U, 9U, 16U, 64U}) {
+    auto malformed =
+        sdo_response(0x60U, kFeedbackPeriodIndexes.front(),
+                     kFeedbackPeriodSubindex);
+    malformed.len = length;
+    fixture.transport->deliver(malformed);
+  }
+  CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.sdk->count("set_sdo_drive_param"), 1);
+
+  fixture.transport->deliver(
+      sdo_response(0x60U, kFeedbackPeriodIndexes.front(),
+                   kFeedbackPeriodSubindex));
+  CHECK(apply.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(apply.get().outcome, FeedbackPeriodOutcome::Saved);
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+}
+
 void check_provisioning_waits_for_ack_callback_completion() {
   Fixture fixture(LHandProModel::Dof6S);
   fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
@@ -2696,6 +2734,7 @@ int main() {
   check_provisioning_apply_and_fresh_session();
   check_provisioning_sdo_acks_are_consumed_and_may_arrive_early();
   check_provisioning_waits_for_each_exact_sdo_ack();
+  check_provisioning_rejects_malformed_sdo_ack_lengths();
   check_provisioning_waits_for_ack_callback_completion();
   check_provisioning_sdo_abort_rolls_back_all_axes();
   check_provisioning_sdo_ack_timeout_rolls_back();

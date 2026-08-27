@@ -88,7 +88,7 @@ class SdoAckTracker final {
   Observation observe(const CanFdFrame& frame,
                       std::uint32_t response_id) noexcept {
     Observation observation;
-    if (frame.extended || frame.id != response_id || frame.len < 4U) {
+    if (frame.extended || frame.id != response_id || frame.len != 8U) {
       return observation;
     }
 
