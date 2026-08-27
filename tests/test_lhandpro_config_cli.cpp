@@ -313,6 +313,8 @@ void check_partial_show_failure_output() {
   check_contains(result.output, "rollback-attempted=0\n");
   check_contains(result.output, "rollback-verified=0\n");
   check_contains(result.output, "save-attempted=0\n");
+  check_not_contains(result.error, "transient device state is uncertain");
+  check_not_contains(result.error, "running feedback-period values are 200");
   check_cleanup(record);
 }
 
@@ -335,6 +337,10 @@ void check_rollback_failure_outputs() {
   check_contains(restored_result.output, "rollback-verified=1\n");
   check_contains(restored_result.output, "save-attempted=0\n");
   CHECK_EQ(count_substring(restored_result.output, " after="), 6);
+  check_not_contains(restored_result.error,
+                     "transient device state is uncertain");
+  check_not_contains(restored_result.error,
+                     "running feedback-period values are 200");
   check_cleanup(restored);
 
   DriverRecord uncertain;
@@ -355,6 +361,12 @@ void check_rollback_failure_outputs() {
   check_contains(uncertain_result.output, "rollback-attempted=1\n");
   check_contains(uncertain_result.output, "rollback-verified=0\n");
   CHECK_EQ(count_substring(uncertain_result.output, " after="), 0);
+  check_contains(
+      uncertain_result.error,
+      "warning: current transient device state is uncertain; power-cycle "
+      "before continuing\n");
+  check_not_contains(uncertain_result.error,
+                     "running feedback-period values are 200");
   check_cleanup(uncertain);
 }
 
@@ -373,6 +385,11 @@ void check_save_failure_has_no_retry() {
                  "failure-operation=save_sdo_drive_param failure-axis=0 "
                  "failure-code=61\n");
   check_contains(result.output, "save-attempted=1\n");
+  check_contains(
+      result.error,
+      "warning: running feedback-period values are 200; persistence is "
+      "unknown\n");
+  check_not_contains(result.error, "transient device state is uncertain");
   CHECK_EQ(count_call(record, "save_sdo_drive_param"), 1);
   check_cleanup(record);
 }

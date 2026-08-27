@@ -260,7 +260,18 @@ int run_lhandpro_config_cli(int argc, const char* const argv[],
                               : driver->apply_feedback_period_20ms();
       print_report(report, arguments.command, output);
       result = report.success() ? 0 : 1;
-      if (!report.success()) primary_diagnostic = "feedback-period failed";
+      if (!report.success()) {
+        primary_diagnostic = "feedback-period failed";
+        if (report.outcome == FeedbackPeriodOutcome::FailedUncertain) {
+          primary_diagnostic +=
+              "\nwarning: current transient device state is uncertain; "
+              "power-cycle before continuing";
+        } else if (report.outcome == FeedbackPeriodOutcome::SaveFailed) {
+          primary_diagnostic +=
+              "\nwarning: running feedback-period values are 200; "
+              "persistence is unknown";
+        }
+      }
     }
   } catch (const std::exception& exception) {
     primary_diagnostic = exception_message("operation failed", &exception);
