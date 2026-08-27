@@ -40,6 +40,34 @@ void check_accesses(const std::vector<SdoAccess>& actual,
   }
 }
 
+void append_accesses(std::vector<SdoAccess>& expected,
+                     const std::array<unsigned int, 6>& values,
+                     std::size_t count = kFeedbackPeriodIndexes.size()) {
+  for (std::size_t axis = 0; axis < count; ++axis) {
+    expected.push_back(
+        {kFeedbackPeriodIndexes[axis], kFeedbackPeriodSubindex, values[axis]});
+  }
+}
+
+void append_read_attempts(std::vector<SdoAccess>& expected,
+                          std::size_t count =
+                              kFeedbackPeriodIndexes.size()) {
+  for (std::size_t axis = 0; axis < count; ++axis) {
+    expected.push_back(
+        {kFeedbackPeriodIndexes[axis], kFeedbackPeriodSubindex, 0U});
+  }
+}
+
+void check_exact_accesses(const std::vector<SdoAccess>& actual,
+                          const std::vector<SdoAccess>& expected) {
+  CHECK_EQ(actual.size(), expected.size());
+  for (std::size_t access = 0; access < expected.size(); ++access) {
+    CHECK_EQ(actual[access].index, expected[access].index);
+    CHECK_EQ(actual[access].subindex, expected[access].subindex);
+    CHECK_EQ(actual[access].value, expected[access].value);
+  }
+}
+
 void check_failure(const FeedbackPeriodReport& report,
                    FeedbackPeriodOutcome outcome, const char* operation,
                    int code, std::size_t axis) {
@@ -63,7 +91,11 @@ void test_show_reads_all_axes_in_order() {
   CHECK_EQ(report.before_count, 6U);
   CHECK_EQ(report.after_count, 6U);
   check_accesses(sdk.sdo_read_snapshot(), 0, kOriginalPeriods);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
   CHECK_EQ(sdk.sdo_write_snapshot().size(), 0U);
+  CHECK_EQ(sdk.sdo_write_attempt_snapshot().size(), 0U);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
 }
 
@@ -87,6 +119,34 @@ void test_show_reports_partial_read_failure() {
   CHECK_EQ(reads.size(), 2U);
   CHECK_EQ(reads[0].index, kFeedbackPeriodIndexes[0]);
   CHECK_EQ(reads[1].index, kFeedbackPeriodIndexes[1]);
+  std::vector<SdoAccess> expected_attempts;
+  append_read_attempts(expected_attempts, 3);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_attempts);
+  CHECK_EQ(sdk.sdo_write_attempt_snapshot().size(), 0U);
+}
+
+void test_apply_returns_initial_read_failure_unchanged() {
+  FakeLHandProSdk sdk;
+  seed_periods(sdk);
+  sdk.script_result("get_sdo_drive_param", 0);
+  sdk.script_result("get_sdo_drive_param", 0);
+  sdk.script_result("get_sdo_drive_param", 72);
+  LHandProFeedbackPeriod transaction(sdk);
+
+  const auto report = transaction.apply_20ms();
+
+  check_failure(report, FeedbackPeriodOutcome::ReadFailed,
+                "get_sdo_drive_param", 72, 3);
+  CHECK_EQ(report.before_count, 2U);
+  CHECK_EQ(report.after_count, 0U);
+  CHECK(!report.rollback_attempted);
+  CHECK(!report.rollback_verified);
+  CHECK(!report.save_attempted);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads, 3);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  CHECK_EQ(sdk.sdo_write_attempt_snapshot().size(), 0U);
+  CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
 }
 
 void test_apply_skips_compliant_values() {
@@ -101,6 +161,10 @@ void test_apply_skips_compliant_values() {
   CHECK_EQ(report.after_count, 6U);
   CHECK_EQ(sdk.sdo_read_snapshot().size(), 6U);
   CHECK_EQ(sdk.sdo_write_snapshot().size(), 0U);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  CHECK_EQ(sdk.sdo_write_attempt_snapshot().size(), 0U);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
   CHECK(!report.rollback_attempted);
   CHECK(!report.rollback_verified);
@@ -130,6 +194,13 @@ void test_apply_mutates_verifies_and_saves() {
   check_accesses(sdk.sdo_read_snapshot(), 0, expected_before);
   check_accesses(sdk.sdo_read_snapshot(), 6, target);
   check_accesses(sdk.sdo_write_snapshot(), 0, target);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes, target);
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 1);
   CHECK(!report.rollback_attempted);
   CHECK(!report.rollback_verified);
@@ -170,6 +241,14 @@ void test_each_target_write_failure_rolls_back() {
     CHECK_EQ(sdk.sdo_read_snapshot().size(), 12U);
     check_accesses(sdk.sdo_read_snapshot(), 0, kOriginalPeriods);
     check_accesses(sdk.sdo_read_snapshot(), 6, kOriginalPeriods);
+    std::vector<SdoAccess> expected_reads;
+    append_read_attempts(expected_reads);
+    append_read_attempts(expected_reads);
+    check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+    std::vector<SdoAccess> expected_writes;
+    append_accesses(expected_writes, target, failed_axis + 1);
+    append_accesses(expected_writes, kOriginalPeriods);
+    check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
 
     const auto restored = transaction.show();
     CHECK_EQ(restored.outcome, FeedbackPeriodOutcome::Shown);
@@ -199,8 +278,19 @@ void test_verification_read_failure_rolls_back() {
                                                200U, 200U, 200U,
                                                200U, 200U, 200U});
   check_accesses(sdk.sdo_write_snapshot(), 6, kOriginalPeriods);
-  CHECK_EQ(sdk.count("get_sdo_drive_param"), 18);
-  CHECK_EQ(sdk.sdo_read_snapshot().size(), 17U);
+  CHECK_EQ(sdk.count("get_sdo_drive_param"), 15);
+  CHECK_EQ(sdk.sdo_read_snapshot().size(), 14U);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads, 3);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes,
+                  std::array<unsigned int, 6>{200U, 200U, 200U,
+                                               200U, 200U, 200U});
+  append_accesses(expected_writes, kOriginalPeriods);
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
 }
 
 void test_verification_mismatch_rolls_back() {
@@ -228,6 +318,17 @@ void test_verification_mismatch_rolls_back() {
                                                200U, 200U, 200U,
                                                200U, 200U, 200U});
   check_accesses(sdk.sdo_write_snapshot(), 6, kOriginalPeriods);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes,
+                  std::array<unsigned int, 6>{200U, 200U, 200U,
+                                               200U, 200U, 200U});
+  append_accesses(expected_writes, kOriginalPeriods);
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
 }
 
 void test_failed_rollback_is_uncertain() {
@@ -246,6 +347,17 @@ void test_failed_rollback_is_uncertain() {
   CHECK(!report.save_attempted);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 0);
   CHECK_EQ(sdk.count("set_sdo_drive_param"), 7);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes,
+                  std::array<unsigned int, 6>{200U, 200U, 200U,
+                                               200U, 200U, 200U},
+                  1);
+  append_accesses(expected_writes, kOriginalPeriods);
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
 }
 
 void test_save_failure_is_not_rolled_back() {
@@ -263,6 +375,15 @@ void test_save_failure_is_not_rolled_back() {
   CHECK(report.save_attempted);
   CHECK_EQ(sdk.count("save_sdo_drive_param"), 1);
   CHECK_EQ(sdk.sdo_write_snapshot().size(), 6U);
+  std::vector<SdoAccess> expected_reads;
+  append_read_attempts(expected_reads);
+  append_read_attempts(expected_reads);
+  check_exact_accesses(sdk.sdo_read_attempt_snapshot(), expected_reads);
+  std::vector<SdoAccess> expected_writes;
+  append_accesses(expected_writes,
+                  std::array<unsigned int, 6>{200U, 200U, 200U,
+                                               200U, 200U, 200U});
+  check_exact_accesses(sdk.sdo_write_attempt_snapshot(), expected_writes);
 }
 
 void test_outcome_labels_and_success_predicate() {
@@ -294,6 +415,7 @@ void test_outcome_labels_and_success_predicate() {
 int main() {
   test_show_reads_all_axes_in_order();
   test_show_reports_partial_read_failure();
+  test_apply_returns_initial_read_failure_unchanged();
   test_apply_skips_compliant_values();
   test_apply_mutates_verifies_and_saves();
   test_each_target_write_failure_rolls_back();

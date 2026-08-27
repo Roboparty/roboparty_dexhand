@@ -47,21 +47,7 @@ FeedbackPeriodReport LHandProFeedbackPeriod::apply_20ms() {
   }
 
   report.after_count = 0;
-  bool verification_reads_succeeded = true;
-  for (std::size_t axis = 0; axis < kFeedbackPeriodIndexes.size(); ++axis) {
-    const int code = sdk_.get_sdo_drive_param(
-        kFeedbackPeriodIndexes[axis], kFeedbackPeriodSubindex,
-        report.after[axis]);
-    if (code != 0) {
-      if (verification_reads_succeeded) {
-        report.failure = {"get_sdo_drive_param", code, axis + 1};
-      }
-      verification_reads_succeeded = false;
-      continue;
-    }
-    ++report.after_count;
-  }
-  if (!verification_reads_succeeded) {
+  if (!read_all_(report.after, report.after_count, report.failure)) {
     report.outcome = rollback_(report.before, report)
                          ? FeedbackPeriodOutcome::FailedRestored
                          : FeedbackPeriodOutcome::FailedUncertain;
