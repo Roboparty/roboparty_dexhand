@@ -16,6 +16,8 @@ endfunction()
 
 add_dexhand_test(callback_gate test_callback_gate.cpp)
 add_dexhand_test(factory_contract test_factory.cpp)
+add_dexhand_test(feedback_period test_lhandpro_feedback_period.cpp)
+target_link_libraries(feedback_period PRIVATE lhandpro_driver)
 add_dexhand_test(lhandpro_lifecycle test_lhandpro_driver.cpp)
 
 add_executable(canfd_transport test_canfd_transport.cpp)
