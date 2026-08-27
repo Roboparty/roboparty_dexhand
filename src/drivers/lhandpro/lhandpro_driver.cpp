@@ -93,13 +93,27 @@ class SdoAckTracker final {
     }
 
     const auto command = frame.data[0];
-    if (command != 0x60U && command != 0x80U) return observation;
+    constexpr std::array<std::uint8_t, 8> kSaveCompatibilityProbe{
+        0x00U, 0x10U, 0x10U, 0x00U, 0x20U, 0x00U, 0x00U, 0x00U};
+    const bool save_compatibility_probe = std::equal(
+        kSaveCompatibilityProbe.begin(), kSaveCompatibilityProbe.end(),
+        frame.data.begin());
+    if (!save_compatibility_probe && command != 0x60U && command != 0x80U) {
+      return observation;
+    }
     const auto index = static_cast<unsigned int>(frame.data[1]) |
                        (static_cast<unsigned int>(frame.data[2]) << 8U);
     const auto subindex = frame.data[3];
 
     try {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (save_compatibility_probe) {
+        if (accepting_ && state_ == State::Pending &&
+            expected_index_ == 0x1010U && expected_subindex_ == 0x01U) {
+          observation.recognized = true;
+        }
+        return observation;
+      }
       const bool matches = accepting_ && state_ == State::Pending &&
                            !captured_ && index == expected_index_ &&
                            subindex == expected_subindex_;

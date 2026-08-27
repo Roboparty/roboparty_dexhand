@@ -249,6 +249,12 @@ CanFdFrame sdo_response(std::uint8_t command, unsigned int index,
   return frame;
 }
 
+CanFdFrame save_compatibility_probe_response(int node_id = 1) {
+  auto frame = sdo_response(0x00U, 0x1010U, 0x00U, node_id);
+  frame.data[4] = 0x20U;
+  return frame;
+}
+
 void deliver_latest_write_response(Fixture& fixture, std::uint8_t command) {
   const auto attempts = fixture.sdk->sdo_write_attempt_snapshot();
   CHECK(!attempts.empty());
@@ -2360,6 +2366,103 @@ void check_provisioning_wrong_save_ack_times_out() {
   fixture.driver->deinit_hand();
 }
 
+void check_provisioning_save_probe_does_not_complete_ack_wait() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(fixture.driver->init_for_provisioning());
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 3;
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation == "set_sdo_drive_param") {
+      deliver_latest_write_response(fixture, 0x60U);
+    } else if (operation == "save_sdo_drive_param") {
+      fixture.transport->deliver(save_compatibility_probe_response());
+    }
+  };
+
+  auto apply = std::async(std::launch::async, [&] {
+    try {
+      const auto report = fixture.driver->apply_feedback_period_20ms();
+      return std::string(feedback_period_outcome_name(report.outcome));
+    } catch (const std::exception& error) {
+      return std::string(error.what());
+    }
+  });
+  CHECK(wait_until(
+      [&] { return fixture.sdk->count("save_sdo_drive_param") == 1; }));
+  CHECK(apply.wait_for(20ms) == std::future_status::timeout);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 7);
+
+  fixture.transport->deliver(sdo_response(0x60U, 0x1010U, 0x01U));
+  CHECK(apply.wait_for(2s) == std::future_status::ready);
+  CHECK_EQ(apply.get(), std::string("saved"));
+  CHECK_EQ(fixture.sdk->count("decode_canfd"), 8);
+  fixture.sdk->before_call = {};
+  fixture.sdk->fail_operation.clear();
+  fixture.driver->deinit_hand();
+}
+
+void check_save_probe_outside_pending_save_remains_fail_closed() {
+  Fixture fixture(LHandProModel::Dof6S);
+  CHECK(fixture.driver->init_for_provisioning());
+  fixture.sdk->fail_operation = "decode_canfd";
+  fixture.sdk->failure_code = 3;
+
+  fixture.transport->deliver(save_compatibility_probe_response());
+
+  const auto error = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(error, "decode_canfd", 3, "async");
+  fixture.sdk->fail_operation.clear();
+  fixture.driver->deinit_hand();
+}
+
+void check_malformed_save_probes_remain_fail_closed() {
+  std::vector<CanFdFrame> malformed;
+  auto append = [&](const std::function<void(CanFdFrame&)>& mutate) {
+    auto frame = save_compatibility_probe_response();
+    mutate(frame);
+    malformed.push_back(frame);
+  };
+  append([](CanFdFrame& frame) { frame.id = 0x582U; });
+  append([](CanFdFrame& frame) { frame.extended = true; });
+  append([](CanFdFrame& frame) { frame.len = 7U; });
+  append([](CanFdFrame& frame) { frame.len = 9U; });
+  append([](CanFdFrame& frame) { frame.data[0] = 0x01U; });
+  append([](CanFdFrame& frame) { frame.data[1] = 0x11U; });
+  append([](CanFdFrame& frame) { frame.data[3] = 0x01U; });
+  append([](CanFdFrame& frame) { frame.data[4] = 0x21U; });
+
+  for (const auto& malformed_probe : malformed) {
+    Fixture fixture(LHandProModel::Dof6S);
+    fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+    CHECK(fixture.driver->init_for_provisioning());
+    fixture.sdk->fail_operation = "decode_canfd";
+    fixture.sdk->failure_code = 3;
+    fixture.sdk->before_call = [&](const std::string& operation) {
+      if (operation == "set_sdo_drive_param") {
+        deliver_latest_write_response(fixture, 0x60U);
+      }
+    };
+
+    auto apply = std::async(std::launch::async, [&] {
+      return expect_exception<std::runtime_error>(
+          [&] { (void)fixture.driver->apply_feedback_period_20ms(); });
+    });
+    CHECK(wait_until(
+        [&] { return fixture.sdk->count("save_sdo_drive_param") == 1; }));
+    fixture.transport->deliver(malformed_probe);
+    fixture.transport->deliver(sdo_response(0x60U, 0x1010U, 0x01U));
+
+    CHECK(apply.wait_for(2s) == std::future_status::ready);
+    check_fault_message(apply.get(), "decode_canfd", 3, "async");
+    fixture.sdk->before_call = {};
+    fixture.sdk->fail_operation.clear();
+    fixture.driver->deinit_hand();
+  }
+}
+
 void check_cleanup_cancels_pending_sdo_ack_wait() {
   Fixture fixture(LHandProModel::Dof6S);
   fixture.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
@@ -2741,6 +2844,9 @@ int main() {
   check_provisioning_sync_write_failure_cancels_ack_wait();
   check_provisioning_save_requires_ack();
   check_provisioning_wrong_save_ack_times_out();
+  check_provisioning_save_probe_does_not_complete_ack_wait();
+  check_save_probe_outside_pending_save_remains_fail_closed();
+  check_malformed_save_probes_remain_fail_closed();
   check_cleanup_cancels_pending_sdo_ack_wait();
   check_provisioning_state_purpose_and_model_guards();
   check_provisioning_initialization_failure_matrix();

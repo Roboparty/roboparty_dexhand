@@ -63,6 +63,12 @@ one vendor decoder code 3 for every valid write acknowledgement. The driver now
 uses the raw `0x60` acknowledgement as authoritative while still passing it to
 the vendor decoder to clear pending internal state.
 
+The pinned AArch64 SDK also emits a compatibility probe before its real save
+request. Its exact response payload is `00 10 10 00 20 00 00 00`, followed
+about 5 ms later by the real `0x60/0x1010:01` save acknowledgement. The probe is
+ignored as a decoder fault only while a save is pending and never completes the
+save wait. Any payload or context mismatch remains fail-closed.
+
 ## Build
 
 ```bash

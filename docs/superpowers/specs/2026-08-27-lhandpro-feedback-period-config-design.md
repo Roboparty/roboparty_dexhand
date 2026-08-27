@@ -131,6 +131,17 @@ so that return is ignored only for `0x60` write acknowledgements. Other frames,
 including nonmatching `0x80` aborts and normal feedback, retain the existing
 fail-closed decoder handling.
 
+The pinned AArch64 SDK's save call was also observed to perform a two-stage
+exchange. It first sends `00 10 10 00 00 00 00 00` and receives
+`00 10 10 00 20 00 00 00`; about 5 ms later it sends the documented
+`2F 10 10 01 73 61 76 65` save request and receives
+`60 10 10 01 00 00 00 00`. The first response also produces decoder code 3.
+Only while the acknowledgement gate is pending for save `0x1010:0x01`, the
+driver recognizes that exact first response, passes it to the decoder without
+recording code 3 as a fault, and continues waiting. It never completes the save
+wait. The complete payload, including observed version byte `0x20`, is pinned;
+another value fails closed and requires renewed SDK/firmware validation.
+
 The CLI establishes a normal communication session for the 6DOF S model with
 motor enable and homing disabled. The same process-global callback ownership
 gate and callback-quiescence cleanup contract used by `LHandProDriver` apply.
