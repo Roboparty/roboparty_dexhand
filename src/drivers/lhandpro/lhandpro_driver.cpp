@@ -370,6 +370,18 @@ ExpectedDof LHandProDriver::expected_dof_() const noexcept {
 
 bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,
                                float home_wait_time) {
+  return init_session_(SessionPurpose::Motion, enable_motors, home_motors,
+                       home_wait_time);
+}
+
+bool LHandProDriver::init_for_provisioning() {
+  if (model_ != LHandProModel::Dof6S) return false;
+  return init_session_(SessionPurpose::Provisioning, false, false, 0.0F);
+}
+
+bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
+                                   bool home_motors,
+                                   float home_wait_time) {
   std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
   const auto current = state_.load(std::memory_order_acquire);
   if (current == DriverState::Ready) return true;
@@ -381,6 +393,9 @@ bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,
     }
     return false;
   }
+
+  session_purpose_ = purpose;
+  safety_cleanup_required_ = purpose == SessionPurpose::Motion;
 
   {
     std::lock_guard<std::mutex> health_lock(health_mutex_);
@@ -558,24 +573,27 @@ bool LHandProDriver::init_hand(bool enable_motors, bool home_motors,
                                    operation);
         };
 
-    if (enable_motors) {
+    if (purpose == SessionPurpose::Motion) {
+      if (enable_motors) {
+        if (!run_admitted_init_command(
+                [this] { return sdk_->set_enable(0, true); }, "set_enable")) {
+          return fail();
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
+      if (home_motors) {
+        if (!run_admitted_init_command(
+                [this] { return sdk_->home_motors(0); }, "home_motors")) {
+          return fail();
+        }
+        std::this_thread::sleep_for(
+            std::chrono::duration<float>(home_wait_time));
+      }
       if (!run_admitted_init_command(
-              [this] { return sdk_->set_enable(0, true); }, "set_enable")) {
+              [this] { return sdk_->set_move_no_home(1); },
+              "set_move_no_home")) {
         return fail();
       }
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
-    if (home_motors) {
-      if (!run_admitted_init_command(
-              [this] { return sdk_->home_motors(0); }, "home_motors")) {
-        return fail();
-      }
-      std::this_thread::sleep_for(std::chrono::duration<float>(home_wait_time));
-    }
-    if (!run_admitted_init_command(
-            [this] { return sdk_->set_move_no_home(1); },
-            "set_move_no_home")) {
-      return fail();
     }
 
     bool became_ready = false;
@@ -632,7 +650,8 @@ LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
 
   {
     std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
-    if (initial_ex_attempted_ && !safety_cleanup_attempted_ && sdk_created_) {
+    if (safety_cleanup_required_ && initial_ex_attempted_ &&
+        !safety_cleanup_attempted_ && sdk_created_) {
       safety_cleanup_attempted_ = true;
       const auto attempt_safety_call =
           [this, &result](auto&& command, const char* operation) noexcept {
@@ -703,8 +722,44 @@ LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
   slot_token_.reset();
   initial_ex_attempted_ = false;
   safety_cleanup_attempted_ = false;
+  safety_cleanup_required_ = false;
+  session_purpose_ = SessionPurpose::Motion;
   state_.store(DriverState::Created, std::memory_order_release);
   return result;
+}
+
+roboparty::dexhand::detail::FeedbackPeriodReport
+LHandProDriver::show_feedback_period() {
+  constexpr const char* operation = "show_feedback_period";
+  validate_call_state_(false, operation);
+  if (model_ != LHandProModel::Dof6S ||
+      session_purpose_ != SessionPurpose::Provisioning) {
+    throw std::logic_error(
+        "LHandPro show_feedback_period requires a Dof6S provisioning session");
+  }
+  std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
+  validate_call_state_(false, operation);
+  auto report = roboparty::dexhand::detail::LHandProFeedbackPeriod(*sdk_).show();
+  check_health();
+  return report;
+}
+
+roboparty::dexhand::detail::FeedbackPeriodReport
+LHandProDriver::apply_feedback_period_20ms() {
+  constexpr const char* operation = "apply_feedback_period_20ms";
+  validate_call_state_(false, operation);
+  if (model_ != LHandProModel::Dof6S ||
+      session_purpose_ != SessionPurpose::Provisioning) {
+    throw std::logic_error(
+        "LHandPro apply_feedback_period_20ms requires a Dof6S provisioning "
+        "session");
+  }
+  std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
+  validate_call_state_(false, operation);
+  auto report =
+      roboparty::dexhand::detail::LHandProFeedbackPeriod(*sdk_).apply_20ms();
+  check_health();
+  return report;
 }
 
 void LHandProDriver::move_motors(int id) {

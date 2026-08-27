@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "drivers/lhandpro/lhandpro_feedback_period.hpp"
 #include "drivers/lhandpro/lhandpro_sdk.hpp"
 #include "hand_driver.hpp"
 #include "protocol/canfd_transport.hpp"
@@ -51,7 +52,12 @@ class LHandProDriver final : public HandDriver {
 
   bool init_hand(bool enable_motors, bool home_motors,
                  float home_wait_time) override;
+  bool init_for_provisioning();
   void deinit_hand() override;
+
+  roboparty::dexhand::detail::FeedbackPeriodReport show_feedback_period();
+  roboparty::dexhand::detail::FeedbackPeriodReport
+  apply_feedback_period_20ms();
 
   void move_motors(int finger_id) override;
   void stop_motors(int finger_id) override;
@@ -101,6 +107,7 @@ class LHandProDriver final : public HandDriver {
   }
 
  private:
+  enum class SessionPurpose { Motion, Provisioning };
   enum class FaultSource { Sync, Async, Cleanup };
   struct FaultRecord {
     const char* operation{nullptr};
@@ -113,6 +120,8 @@ class LHandProDriver final : public HandDriver {
   };
 
   CleanupResult cleanup_locked_() noexcept;
+  bool init_session_(SessionPurpose purpose, bool enable_motors,
+                     bool home_motors, float home_wait_time);
   bool sdk_ok_(int code, const char* operation) const noexcept;
   void record_fault_(const char* operation, int code,
                      FaultSource source) noexcept;
@@ -157,6 +166,8 @@ class LHandProDriver final : public HandDriver {
   bool slot_claimed_{false};
   bool initial_ex_attempted_{false};
   bool safety_cleanup_attempted_{false};
+  SessionPurpose session_purpose_{SessionPurpose::Motion};
+  bool safety_cleanup_required_{false};
   std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
   std::shared_ptr<roboparty::dexhand::detail::SlotToken> slot_token_;
 };

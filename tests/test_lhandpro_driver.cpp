@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Roboparty
 
 #include "drivers/lhandpro/lhandpro_driver.hpp"
+#include "drivers/lhandpro/lhandpro_feedback_period.hpp"
 #include "fakes/fake_canfd_transport.hpp"
 #include "fakes/fake_lhandpro_sdk.hpp"
 #include "test_support.hpp"
@@ -182,6 +183,16 @@ void check_safety_trio_once(const Fixture& fixture) {
   CHECK_EQ(fixture.sdk->count_stop_motors(0), 1);
   CHECK_EQ(fixture.sdk->count_set_enable(0, false), 1);
   CHECK_EQ(fixture.sdk->count_set_move_no_home(0), 1);
+}
+
+void check_no_motion_state_calls(const Fixture& fixture) {
+  CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
+  CHECK_EQ(fixture.sdk->count_set_enable(false), 0);
+  CHECK_EQ(fixture.sdk->count("home_motors"), 0);
+  CHECK_EQ(fixture.sdk->count("move_motors"), 0);
+  CHECK_EQ(fixture.sdk->count("stop_motors"), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(1), 0);
+  CHECK_EQ(fixture.sdk->count_set_move_no_home(0), 0);
 }
 
 void check_safety_trio_order(const Fixture& fixture) {
@@ -1749,6 +1760,223 @@ void check_slot_release_after_full_cleanup() {
   contender.driver->deinit_hand();
 }
 
+void check_provisioning_show_and_cleanup_without_motion() {
+  Fixture fixture(LHandProModel::Dof6S);
+
+  CHECK(fixture.driver->init_for_provisioning());
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+  check_no_motion_state_calls(fixture);
+
+  const auto report = fixture.driver->show_feedback_period();
+  CHECK_EQ(report.outcome, FeedbackPeriodOutcome::Shown);
+  CHECK(report.success());
+  CHECK_EQ(report.before_count, kFeedbackPeriodIndexes.size());
+  CHECK_EQ(report.after_count, kFeedbackPeriodIndexes.size());
+  const auto reads = fixture.sdk->sdo_read_snapshot();
+  CHECK_EQ(reads.size(), kFeedbackPeriodIndexes.size());
+  for (std::size_t axis = 0; axis < kFeedbackPeriodIndexes.size(); ++axis) {
+    CHECK_EQ(reads[axis].index, kFeedbackPeriodIndexes[axis]);
+    CHECK_EQ(reads[axis].subindex, kFeedbackPeriodSubindex);
+  }
+
+  fixture.driver->deinit_hand();
+  CHECK_EQ(fixture.sdk->count("stop_monitor"), 1);
+  CHECK_EQ(fixture.sdk->count("close"), 1);
+  CHECK_EQ(fixture.sdk->count("clear_tx"), 1);
+  CHECK_EQ(fixture.sdk->count("destroy"), 1);
+  CHECK_EQ(fixture.transport->clear_calls.load(), 1);
+  CHECK_EQ(fixture.transport->close_calls.load(), 1);
+  check_no_motion_state_calls(fixture);
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+
+  fixture.driver->deinit_hand();
+  CHECK_EQ(fixture.sdk->count("stop_monitor"), 1);
+  CHECK_EQ(fixture.sdk->count("close"), 1);
+  CHECK_EQ(fixture.sdk->count("clear_tx"), 1);
+  CHECK_EQ(fixture.sdk->count("destroy"), 1);
+  CHECK_EQ(fixture.transport->clear_calls.load(), 1);
+  CHECK_EQ(fixture.transport->close_calls.load(), 1);
+  check_no_motion_state_calls(fixture);
+}
+
+void check_provisioning_apply_and_fresh_session() {
+  Fixture compliant(LHandProModel::Dof6S);
+  CHECK(compliant.driver->init_for_provisioning());
+  const auto compliant_report =
+      compliant.driver->apply_feedback_period_20ms();
+  CHECK_EQ(compliant_report.outcome,
+           FeedbackPeriodOutcome::AlreadyCompliant);
+  CHECK_EQ(compliant.sdk->count("get_sdo_drive_param"), 6);
+  CHECK_EQ(compliant.sdk->count("set_sdo_drive_param"), 0);
+  CHECK_EQ(compliant.sdk->count("save_sdo_drive_param"), 0);
+  compliant.driver->deinit_hand();
+  check_no_motion_state_calls(compliant);
+
+  Fixture changed(LHandProModel::Dof6S);
+  changed.sdk->set_sdo_value(kFeedbackPeriodIndexes.front(), 100U);
+  CHECK(changed.driver->init_for_provisioning());
+  const auto changed_report = changed.driver->apply_feedback_period_20ms();
+  CHECK_EQ(changed_report.outcome, FeedbackPeriodOutcome::Saved);
+  CHECK(changed_report.success());
+  CHECK_EQ(changed_report.before.front(), 100U);
+  CHECK(std::all_of(changed_report.after.begin(), changed_report.after.end(),
+                    [](unsigned int value) {
+                      return value == kFeedbackPeriod20msUnits;
+                    }));
+  CHECK_EQ(changed.sdk->count("get_sdo_drive_param"), 12);
+  CHECK_EQ(changed.sdk->count("set_sdo_drive_param"), 6);
+  CHECK_EQ(changed.sdk->count("save_sdo_drive_param"), 1);
+  changed.driver->deinit_hand();
+  check_no_motion_state_calls(changed);
+
+  CHECK(changed.driver->init_for_provisioning());
+  CHECK_EQ(changed.driver->state_for_test(), DriverState::Ready);
+  const auto fresh_report = changed.driver->show_feedback_period();
+  CHECK_EQ(fresh_report.outcome, FeedbackPeriodOutcome::Shown);
+  CHECK(std::all_of(fresh_report.before.begin(), fresh_report.before.end(),
+                    [](unsigned int value) {
+                      return value == kFeedbackPeriod20msUnits;
+                    }));
+  changed.driver->deinit_hand();
+  CHECK_EQ(changed.sdk->count("stop_monitor"), 2);
+  CHECK_EQ(changed.sdk->count("close"), 2);
+  CHECK_EQ(changed.sdk->count("clear_tx"), 2);
+  CHECK_EQ(changed.sdk->count("destroy"), 2);
+  CHECK_EQ(changed.transport->clear_calls.load(), 2);
+  CHECK_EQ(changed.transport->close_calls.load(), 2);
+  check_no_motion_state_calls(changed);
+}
+
+void check_provisioning_state_purpose_and_model_guards() {
+  Fixture created(LHandProModel::Dof6S);
+  (void)expect_exception<std::logic_error>(
+      [&] { (void)created.driver->show_feedback_period(); });
+  (void)expect_exception<std::logic_error>(
+      [&] { (void)created.driver->apply_feedback_period_20ms(); });
+  CHECK_EQ(created.sdk->count("get_sdo_drive_param"), 0);
+  CHECK_EQ(created.sdk->count("set_sdo_drive_param"), 0);
+  CHECK_EQ(created.sdk->count("save_sdo_drive_param"), 0);
+
+  Fixture motion(LHandProModel::Dof6S);
+  CHECK(motion.driver->init_hand(false, false, 0.0F));
+  CHECK_EQ(motion.sdk->count_set_move_no_home(1), 1);
+  const auto show_error = expect_exception<std::logic_error>(
+      [&] { (void)motion.driver->show_feedback_period(); });
+  const auto apply_error = expect_exception<std::logic_error>(
+      [&] { (void)motion.driver->apply_feedback_period_20ms(); });
+  CHECK(show_error.find("provisioning session") != std::string::npos);
+  CHECK(apply_error.find("provisioning session") != std::string::npos);
+  CHECK_EQ(motion.sdk->count("get_sdo_drive_param"), 0);
+  CHECK_EQ(motion.sdk->count("set_sdo_drive_param"), 0);
+  CHECK_EQ(motion.sdk->count("save_sdo_drive_param"), 0);
+  motion.driver->deinit_hand();
+  CHECK_EQ(motion.sdk->count_set_move_no_home(1), 1);
+  check_safety_trio_once(motion);
+
+  Fixture dof16(LHandProModel::Dof16);
+  CHECK(!dof16.driver->init_for_provisioning());
+  CHECK_EQ(dof16.driver->state_for_test(), DriverState::Created);
+  CHECK_EQ(dof16.sdk->count("create"), 0);
+  CHECK_EQ(dof16.sdk->count("set_hand_type"), 0);
+  CHECK_EQ(dof16.transport->open_calls.load(), 0);
+  dof16.driver->deinit_hand();
+  CHECK_EQ(dof16.sdk->count("destroy"), 0);
+  check_no_motion_state_calls(dof16);
+}
+
+void check_provisioning_initialization_failure_matrix() {
+  struct Scenario {
+    const char* operation;
+    std::function<void(Fixture&)> inject;
+  };
+  const std::vector<Scenario> scenarios{
+      {"create", [](Fixture& fixture) { fixture.fail("create"); }},
+      {"set_hand_type",
+       [](Fixture& fixture) { fixture.fail("set_hand_type"); }},
+      {"get_hand_type",
+       [](Fixture& fixture) { fixture.fail("get_hand_type"); }},
+      {"transport.open",
+       [](Fixture& fixture) { fixture.fail("transport.open"); }},
+      {"initial_ex", [](Fixture& fixture) { fixture.fail("initial_ex"); }},
+      {"get_dof", [](Fixture& fixture) { fixture.fail("get_dof"); }},
+      {"decode_canfd",
+       [](Fixture& fixture) {
+         fixture.fail("decode_canfd");
+         fixture.sdk->during_initial_ex = [&fixture] {
+           CanFdFrame frame;
+           frame.id = 0x581;
+           frame.len = 8;
+           fixture.transport->deliver(frame);
+         };
+       }},
+  };
+
+  for (const auto& scenario : scenarios) {
+    Fixture fixture(LHandProModel::Dof6S);
+    scenario.inject(fixture);
+    CHECK(!fixture.driver->init_for_provisioning());
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+    CHECK(!fixture.sdk->created);
+    CHECK(!fixture.sdk->monitor_started);
+    CHECK(fixture.sdk->tx_callback == nullptr);
+    CHECK(!fixture.transport->is_open());
+    CHECK(!fixture.transport->callback_active());
+    CHECK_EQ(fixture.sdk->count("destroy"),
+             std::string(scenario.operation) == "create" ? 0 : 1);
+    if (std::string(scenario.operation) == "initial_ex" ||
+        std::string(scenario.operation) == "get_dof" ||
+        std::string(scenario.operation) == "decode_canfd") {
+      CHECK_EQ(fixture.sdk->count("close"), 1);
+      CHECK_EQ(fixture.sdk->count("clear_tx"), 1);
+      CHECK_EQ(fixture.transport->clear_calls.load(), 1);
+      CHECK_EQ(fixture.transport->close_calls.load(), 1);
+    }
+    check_no_motion_state_calls(fixture);
+
+    fixture.clear_failure();
+    fixture.sdk->during_initial_ex = {};
+    CHECK(fixture.driver->init_for_provisioning());
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+    fixture.driver->deinit_hand();
+    CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+    check_no_motion_state_calls(fixture);
+  }
+}
+
+void check_provisioning_show_surfaces_async_fault() {
+  Fixture fixture(LHandProModel::Dof6S);
+  CHECK(fixture.driver->init_for_provisioning());
+
+  fixture.sdk->fail_operation = "decode_canfd";
+  bool delivered = false;
+  fixture.sdk->before_call = [&](const std::string& operation) {
+    if (operation != "get_sdo_drive_param" || delivered) return;
+    delivered = true;
+    CanFdFrame frame;
+    frame.id = 0x581;
+    frame.len = 8;
+    fixture.transport->deliver(frame);
+  };
+
+  const auto error = expect_exception<std::runtime_error>(
+      [&] { (void)fixture.driver->show_feedback_period(); });
+  CHECK(delivered);
+  check_fault_message(error, "decode_canfd", 7, "async");
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  CHECK_EQ(fixture.sdk->count("get_sdo_drive_param"), 6);
+  CHECK_EQ(fixture.sdk->count("save_sdo_drive_param"), 0);
+  check_no_motion_state_calls(fixture);
+
+  fixture.sdk->before_call = {};
+  fixture.driver->deinit_hand();
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Created);
+  CHECK_EQ(fixture.sdk->count("stop_monitor"), 1);
+  CHECK_EQ(fixture.sdk->count("close"), 1);
+  CHECK_EQ(fixture.sdk->count("clear_tx"), 1);
+  CHECK_EQ(fixture.sdk->count("destroy"), 1);
+  check_no_motion_state_calls(fixture);
+}
+
 }  // namespace
 
 int main() {
@@ -1781,5 +2009,10 @@ int main() {
   check_early_stopping_rx_feedback();
   check_single_active_instance();
   check_slot_release_after_full_cleanup();
+  check_provisioning_show_and_cleanup_without_motion();
+  check_provisioning_apply_and_fresh_session();
+  check_provisioning_state_purpose_and_model_guards();
+  check_provisioning_initialization_failure_matrix();
+  check_provisioning_show_surfaces_async_fault();
   return 0;
 }
