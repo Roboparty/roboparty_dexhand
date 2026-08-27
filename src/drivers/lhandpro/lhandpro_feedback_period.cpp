@@ -3,6 +3,8 @@
 
 #include "drivers/lhandpro/lhandpro_feedback_period.hpp"
 
+#include <utility>
+
 namespace roboparty::dexhand::detail {
 
 bool FeedbackPeriodReport::success() const noexcept {
@@ -11,8 +13,9 @@ bool FeedbackPeriodReport::success() const noexcept {
          outcome == FeedbackPeriodOutcome::Saved;
 }
 
-LHandProFeedbackPeriod::LHandProFeedbackPeriod(LHandProSdk& sdk) noexcept
-    : sdk_(sdk) {}
+LHandProFeedbackPeriod::LHandProFeedbackPeriod(
+    LHandProSdk& sdk, std::function<bool()> continue_allowed) noexcept
+    : sdk_(sdk), continue_allowed_(std::move(continue_allowed)) {}
 
 FeedbackPeriodReport LHandProFeedbackPeriod::show() {
   FeedbackPeriodReport report;
@@ -29,6 +32,11 @@ FeedbackPeriodReport LHandProFeedbackPeriod::show() {
 FeedbackPeriodReport LHandProFeedbackPeriod::apply_20ms() {
   FeedbackPeriodReport report = show();
   if (report.outcome == FeedbackPeriodOutcome::ReadFailed) return report;
+  if (!continuation_allowed_()) {
+    report.failure = {"transaction_cancelled", -3, 0};
+    report.outcome = FeedbackPeriodOutcome::ReadFailed;
+    return report;
+  }
 
   const std::array<unsigned int, 6> target{
       kFeedbackPeriod20msUnits, kFeedbackPeriod20msUnits,
@@ -45,6 +53,13 @@ FeedbackPeriodReport LHandProFeedbackPeriod::apply_20ms() {
                          : FeedbackPeriodOutcome::FailedUncertain;
     return report;
   }
+  if (!continuation_allowed_()) {
+    report.failure = {"transaction_cancelled", -3, 0};
+    report.outcome = rollback_(report.before, report)
+                         ? FeedbackPeriodOutcome::FailedRestored
+                         : FeedbackPeriodOutcome::FailedUncertain;
+    return report;
+  }
 
   report.after_count = 0;
   if (!read_all_(report.after, report.after_count, report.failure)) {
@@ -55,6 +70,13 @@ FeedbackPeriodReport LHandProFeedbackPeriod::apply_20ms() {
   }
   if (report.after != target) {
     report.failure = {"verify_feedback_period", -2, 0};
+    report.outcome = rollback_(report.before, report)
+                         ? FeedbackPeriodOutcome::FailedRestored
+                         : FeedbackPeriodOutcome::FailedUncertain;
+    return report;
+  }
+  if (!continuation_allowed_()) {
+    report.failure = {"transaction_cancelled", -3, 0};
     report.outcome = rollback_(report.before, report)
                          ? FeedbackPeriodOutcome::FailedRestored
                          : FeedbackPeriodOutcome::FailedUncertain;
@@ -132,6 +154,15 @@ bool LHandProFeedbackPeriod::rollback_(
   report.rollback_verified =
       writes_succeeded && reads_succeeded && restored == before;
   return report.rollback_verified;
+}
+
+bool LHandProFeedbackPeriod::continuation_allowed_() noexcept {
+  if (!continue_allowed_) return true;
+  try {
+    return continue_allowed_();
+  } catch (...) {
+    return false;
+  }
 }
 
 const char* feedback_period_outcome_name(FeedbackPeriodOutcome outcome) noexcept {

@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstddef>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -135,7 +136,9 @@ class LHandProDriver final : public HandDriver {
   bool initialization_healthy_() const noexcept;
   void validate_call_state_(bool allow_faulted,
                             const char* operation) const;
-  void validate_provisioning_call_(const char* operation) const;
+  void validate_provisioning_call_(const char* operation,
+                                   std::uint64_t generation) const;
+  bool provisioning_epoch_active_(std::uint64_t generation) const noexcept;
   void throw_if_sdk_failed_(int code, const char* operation);
   [[noreturn]] void throw_sticky_fault_() const;
   static const char* fault_source_name_(FaultSource source) noexcept;
@@ -173,6 +176,7 @@ class LHandProDriver final : public HandDriver {
   bool initial_ex_attempted_{false};
   bool safety_cleanup_attempted_{false};
   std::atomic<SessionPurpose> session_purpose_{SessionPurpose::Motion};
+  std::atomic<std::uint64_t> session_generation_{0};
   bool safety_cleanup_required_{false};
   std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
   std::shared_ptr<roboparty::dexhand::detail::SlotToken> slot_token_;

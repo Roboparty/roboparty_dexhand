@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <string>
 
 namespace roboparty::dexhand::detail {
@@ -49,7 +50,9 @@ struct FeedbackPeriodReport {
 
 class LHandProFeedbackPeriod final {
  public:
-  explicit LHandProFeedbackPeriod(LHandProSdk&) noexcept;
+  explicit LHandProFeedbackPeriod(
+      LHandProSdk&,
+      std::function<bool()> continue_allowed = {}) noexcept;
 
   FeedbackPeriodReport show();
   FeedbackPeriodReport apply_20ms();
@@ -61,8 +64,10 @@ class LHandProFeedbackPeriod final {
                   FeedbackPeriodFailure& failure);
   bool rollback_(const std::array<unsigned int, 6>& before,
                  FeedbackPeriodReport& report);
+  bool continuation_allowed_() noexcept;
 
   LHandProSdk& sdk_;
+  std::function<bool()> continue_allowed_;
 };
 
 const char* feedback_period_outcome_name(FeedbackPeriodOutcome) noexcept;

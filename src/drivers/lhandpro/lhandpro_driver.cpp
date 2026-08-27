@@ -347,7 +347,11 @@ void LHandProDriver::validate_call_state_(bool allow_faulted,
 }
 
 void LHandProDriver::validate_provisioning_call_(
-    const char* operation) const {
+    const char* operation, std::uint64_t generation) const {
+  if (session_generation_.load(std::memory_order_acquire) != generation) {
+    throw std::logic_error(std::string("LHandPro ") + operation +
+                           " provisioning session changed");
+  }
   validate_call_state_(false, operation);
   if (model_ != LHandProModel::Dof6S ||
       session_purpose_.load(std::memory_order_acquire) !=
@@ -355,6 +359,14 @@ void LHandProDriver::validate_provisioning_call_(
     throw std::logic_error(std::string("LHandPro ") + operation +
                            " requires a Dof6S provisioning session");
   }
+}
+
+bool LHandProDriver::provisioning_epoch_active_(
+    std::uint64_t generation) const noexcept {
+  return state_.load(std::memory_order_acquire) == DriverState::Ready &&
+         session_purpose_.load(std::memory_order_acquire) ==
+             SessionPurpose::Provisioning &&
+         session_generation_.load(std::memory_order_acquire) == generation;
 }
 
 void LHandProDriver::throw_if_sdk_failed_(int code, const char* operation) {
@@ -407,6 +419,7 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
     return false;
   }
 
+  session_generation_.fetch_add(1, std::memory_order_acq_rel);
   session_purpose_.store(purpose, std::memory_order_release);
   safety_cleanup_required_ = purpose == SessionPurpose::Motion;
 
@@ -744,13 +757,16 @@ LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
 roboparty::dexhand::detail::FeedbackPeriodReport
 LHandProDriver::show_feedback_period() {
   constexpr const char* operation = "show_feedback_period";
-  validate_provisioning_call_(operation);
+  const auto generation =
+      session_generation_.load(std::memory_order_acquire);
+  validate_provisioning_call_(operation, generation);
   if (provisioning_pre_lock_hook_for_test_) {
     provisioning_pre_lock_hook_for_test_();
   }
   std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
-  validate_provisioning_call_(operation);
+  validate_provisioning_call_(operation, generation);
   auto report = roboparty::dexhand::detail::LHandProFeedbackPeriod(*sdk_).show();
+  validate_provisioning_call_(operation, generation);
   check_health();
   return report;
 }
@@ -758,14 +774,20 @@ LHandProDriver::show_feedback_period() {
 roboparty::dexhand::detail::FeedbackPeriodReport
 LHandProDriver::apply_feedback_period_20ms() {
   constexpr const char* operation = "apply_feedback_period_20ms";
-  validate_provisioning_call_(operation);
+  const auto generation =
+      session_generation_.load(std::memory_order_acquire);
+  validate_provisioning_call_(operation, generation);
   if (provisioning_pre_lock_hook_for_test_) {
     provisioning_pre_lock_hook_for_test_();
   }
   std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
-  validate_provisioning_call_(operation);
-  auto report =
-      roboparty::dexhand::detail::LHandProFeedbackPeriod(*sdk_).apply_20ms();
+  validate_provisioning_call_(operation, generation);
+  auto report = roboparty::dexhand::detail::LHandProFeedbackPeriod(
+                    *sdk_, [this, generation] {
+                      return provisioning_epoch_active_(generation);
+                    })
+                    .apply_20ms();
+  validate_provisioning_call_(operation, generation);
   check_health();
   return report;
 }
