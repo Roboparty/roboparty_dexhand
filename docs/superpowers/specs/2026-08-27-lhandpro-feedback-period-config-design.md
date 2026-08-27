@@ -169,6 +169,13 @@ The documented unit is 0.1 ms. The only accepted target is therefore:
 20 ms / 0.1 ms = 200 = 0x00C8
 ```
 
+The object subindex `0x14` identifies the stored base-period field; it is not a
+runtime period value. After `initial_ex`, the separate runtime command on CAN ID
+`0x500 + node_id` uses payload `00 04 50 01 5A 01`. The bytes following frame
+types `0x50` and `0x5A` are multipliers of the current stored base period, so
+`0x01` schedules each type every 20 ms. A runtime multiplier of `0x14` would
+schedule each type every 20 base periods, or 400 ms with these SDO values.
+
 ## Show Transaction
 
 `show` performs these steps:

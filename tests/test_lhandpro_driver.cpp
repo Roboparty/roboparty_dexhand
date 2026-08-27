@@ -216,10 +216,10 @@ void check_no_motion_state_calls(const Fixture& fixture) {
   CHECK_EQ(fixture.sdk->count_set_move_no_home(0), 0);
 }
 
-bool is_runtime_feedback_frame(const CanFdFrame& frame,
-                               std::uint32_t node_id) {
+bool is_runtime_feedback_every_base_period_frame(const CanFdFrame& frame,
+                                                 std::uint32_t node_id) {
   constexpr std::array<std::uint8_t, 6> payload{
-      0x00U, 0x04U, 0x50U, 0x14U, 0x5AU, 0x14U};
+      0x00U, 0x04U, 0x50U, 0x01U, 0x5AU, 0x01U};
   return frame.id == 0x500U + node_id && !frame.extended && !frame.brs &&
          frame.len == payload.size() &&
          std::equal(payload.begin(), payload.end(), frame.data.begin()) &&
@@ -228,12 +228,12 @@ bool is_runtime_feedback_frame(const CanFdFrame& frame,
                      [](std::uint8_t value) { return value == 0U; });
 }
 
-std::size_t count_runtime_feedback_frames(
+std::size_t count_runtime_feedback_every_base_period_frames(
     const FakeCanFdTransport& transport, std::uint32_t node_id) {
   const auto frames = transport.sent_snapshot();
   return static_cast<std::size_t>(std::count_if(
       frames.begin(), frames.end(), [node_id](const CanFdFrame& frame) {
-        return is_runtime_feedback_frame(frame, node_id);
+        return is_runtime_feedback_every_base_period_frame(frame, node_id);
       }));
 }
 
@@ -594,7 +594,8 @@ void check_models_and_initializing_callbacks() {
   for (std::size_t index = 0; index < 9; ++index) {
     CHECK_EQ(callback_frame->data[index], index);
   }
-  CHECK_EQ(count_runtime_feedback_frames(*six.transport, 1U), 3U);
+  CHECK_EQ(count_runtime_feedback_every_base_period_frames(*six.transport, 1U),
+           3U);
 
   int total = 0;
   int active = 0;
@@ -669,7 +670,7 @@ void check_models_and_initializing_callbacks() {
   check_dof_mismatch_and_retry(LHandProModel::Dof16, 11, 6, 21, 16);
 }
 
-void check_runtime_feedback_is_capped_after_every_initial_ex() {
+void check_runtime_feedback_uses_unit_multiplier_after_every_initial_ex() {
   Fixture motion(LHandProModel::Dof6S, 7);
   int motion_configure_attempts = 0;
   motion.transport->before_transmit = [&] {
@@ -681,7 +682,9 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
   };
   CHECK(motion.driver->init_hand(false, false, 0.0F));
   CHECK_EQ(motion_configure_attempts, 3);
-  CHECK_EQ(count_runtime_feedback_frames(*motion.transport, 7U), 3U);
+  CHECK_EQ(
+      count_runtime_feedback_every_base_period_frames(*motion.transport, 7U),
+      3U);
   CHECK_EQ(motion.sdk->count("set_sdo_drive_param"), 0);
   CHECK_EQ(motion.sdk->count("save_sdo_drive_param"), 0);
   motion.driver->deinit_hand();
@@ -697,7 +700,9 @@ void check_runtime_feedback_is_capped_after_every_initial_ex() {
   };
   CHECK(provisioning.driver->init_for_provisioning());
   CHECK_EQ(provisioning_configure_attempts, 3);
-  CHECK_EQ(count_runtime_feedback_frames(*provisioning.transport, 23U), 3U);
+  CHECK_EQ(count_runtime_feedback_every_base_period_frames(
+               *provisioning.transport, 23U),
+           3U);
   CHECK_EQ(provisioning.sdk->count("get_sdo_drive_param"), 0);
   CHECK_EQ(provisioning.sdk->count("set_sdo_drive_param"), 0);
   CHECK_EQ(provisioning.sdk->count("save_sdo_drive_param"), 0);
@@ -717,7 +722,8 @@ void check_runtime_feedback_transmit_failure_aborts_initialization() {
 
     CHECK(!fixture.driver->init_hand(true, true, 0.0F));
     CHECK_EQ(attempts, failed_attempt);
-    CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U),
+    CHECK_EQ(count_runtime_feedback_every_base_period_frames(
+                 *fixture.transport, 1U),
              static_cast<std::size_t>(failed_attempt));
     CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
     CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
@@ -812,7 +818,9 @@ void check_initializing_async_decode_fault_aborts_risky_init() {
 
   CHECK(!fixture.driver->init_hand(true, true, 0.0F));
   CHECK(callback_checked);
-  CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U), 0U);
+  CHECK_EQ(count_runtime_feedback_every_base_period_frames(*fixture.transport,
+                                                            1U),
+           0U);
   CHECK_EQ(fixture.sdk->count("decode_canfd"), 1);
   CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
   CHECK_EQ(fixture.sdk->count_set_enable(true), 0);
@@ -843,7 +851,8 @@ void check_async_fault_during_feedback_window_aborts_before_queries() {
     CHECK(!fixture.driver->init_hand(true, true, 0.0F));
     CHECK(delivered);
     CHECK_EQ(attempts, fault_after_attempt);
-    CHECK_EQ(count_runtime_feedback_frames(*fixture.transport, 1U),
+    CHECK_EQ(count_runtime_feedback_every_base_period_frames(
+                 *fixture.transport, 1U),
              static_cast<std::size_t>(fault_after_attempt));
     CHECK_EQ(fixture.sdk->count("initial_ex"), 1);
     CHECK_EQ(fixture.sdk->count("start_monitor"), 0);
@@ -2804,7 +2813,7 @@ int main() {
   check_constructor_and_home_wait_validation();
   check_failure_rollback_and_retry();
   check_models_and_initializing_callbacks();
-  check_runtime_feedback_is_capped_after_every_initial_ex();
+  check_runtime_feedback_uses_unit_multiplier_after_every_initial_ex();
   check_runtime_feedback_transmit_failure_aborts_initialization();
   check_ready_async_decode_faults();
   check_decode_exception_is_contained_as_async_fault();

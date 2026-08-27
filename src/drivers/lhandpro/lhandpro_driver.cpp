@@ -243,8 +243,8 @@ constexpr auto kRealtimeFeedbackTargetPeriod = std::chrono::milliseconds(20);
 constexpr auto kSdoAckTimeoutPeriod = std::chrono::milliseconds(100);
 constexpr unsigned int kSaveSdoIndex = 0x1010U;
 constexpr unsigned char kSaveSdoSubindex = 0x01U;
-constexpr std::array<std::uint8_t, 6> kRealtimeFeedback20ms{
-    0x00U, 0x04U, 0x50U, 0x14U, 0x5AU, 0x14U};
+constexpr std::array<std::uint8_t, 6> kRealtimeFeedbackEveryBasePeriod{
+    0x00U, 0x04U, 0x50U, 0x01U, 0x5AU, 0x01U};
 
 std::mutex process_callback_mutex;
 std::weak_ptr<TxContext> active_tx_context;
@@ -757,8 +757,9 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
     feedback_config.id =
         static_cast<std::uint32_t>(0x500 + canfd_node_id_);
     feedback_config.len =
-        static_cast<std::uint8_t>(kRealtimeFeedback20ms.size());
-    std::copy(kRealtimeFeedback20ms.begin(), kRealtimeFeedback20ms.end(),
+        static_cast<std::uint8_t>(kRealtimeFeedbackEveryBasePeriod.size());
+    std::copy(kRealtimeFeedbackEveryBasePeriod.begin(),
+              kRealtimeFeedbackEveryBasePeriod.end(),
               feedback_config.data.begin());
     // The firmware has no acknowledgement for this idempotent command and may
     // ignore a frame near initial_ex. Span three complete target periods.

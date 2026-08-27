@@ -41,6 +41,13 @@ Set each axis to 20 ms, verify the readback, and persist the verified value:
 roboparty-dexhand-config feedback-period apply --interface can0 --node-id 1 --milliseconds 20 --save
 ```
 
+The six SDO objects use subindex `0x14`; their stored value `200` is the 20 ms
+base TPDO period in 0.1 ms units. Separately, after each successful
+`initial_ex`, the driver sends runtime configuration payload
+`00 04 50 01 5A 01` on CAN ID `0x500 + node_id`. Each `0x01` is a multiplier
+that requests the corresponding feedback type every one base period. It is not
+a duration: multiplier `0x14` would produce `20 * 20 ms = 400 ms`, not 20 ms.
+
 ```text
 20 ms = 50 emissions/second for frame type 0x50
 20 ms = 50 emissions/second for frame type 0x5A

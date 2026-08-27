@@ -4,7 +4,7 @@
 
 **Goal:** Install a `roboparty-dexhand-config` command that safely reads, sets, verifies, and persists the LHandPro 6DOF S feedback period at 20 ms without enabling, homing, stopping, or moving the hand.
 
-**Architecture:** Extend the private vendor-SDK adapter with its existing SDO get/set/save calls, then isolate the six-axis transaction in a deterministic helper. Add a private provisioning lifecycle to `LHandProDriver` that reuses its callback and SocketCAN ownership but skips every motion-state command, and place a tested CLI over that private interface without changing installed C++ headers or Python bindings.
+**Architecture:** Extend the private vendor-SDK adapter with its existing SDO get/set/save calls, then isolate the six-axis transaction in a deterministic helper. Add a private provisioning lifecycle to `LHandProDriver` that reuses its callback and SocketCAN ownership but skips every motion-state command, and place a tested CLI over that private interface without changing installed C++ headers or Python bindings. Keep the stored SDO base period distinct from runtime emission selection: subindex `0x14` value `200` sets a 20 ms base period, while runtime payload `00 04 50 01 5A 01` uses multiplier `0x01` to request each type every one base period.
 
 **Tech Stack:** C++17, CMake 3.15+, Linux SocketCAN/CAN-FD, pinned LHandPro C SDK, existing fake SDK/transport tests, CTest, can-utils for physical observation only.
 
@@ -861,6 +861,9 @@ Add a `Feedback-Period Provisioning` section to `README.md` containing the exact
 `show` and `apply` commands. State explicitly:
 
 ```text
+SDO subindex 0x14 value 200 = 20 ms base TPDO period
+runtime payload 00 04 50 01 5A 01 = each type every one base period
+runtime multiplier 0x14 = 20 base periods = 400 ms, not 20 ms
 20 ms = 50 emissions/second for frame type 0x50
 20 ms = 50 emissions/second for frame type 0x5A
 observed aggregate = approximately 100 CAN-FD frames/second
