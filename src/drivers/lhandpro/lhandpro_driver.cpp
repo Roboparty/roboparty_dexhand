@@ -346,6 +346,17 @@ void LHandProDriver::validate_call_state_(bool allow_faulted,
                          " requires Ready state");
 }
 
+void LHandProDriver::validate_provisioning_call_(
+    const char* operation) const {
+  validate_call_state_(false, operation);
+  if (model_ != LHandProModel::Dof6S ||
+      session_purpose_.load(std::memory_order_acquire) !=
+          SessionPurpose::Provisioning) {
+    throw std::logic_error(std::string("LHandPro ") + operation +
+                           " requires a Dof6S provisioning session");
+  }
+}
+
 void LHandProDriver::throw_if_sdk_failed_(int code, const char* operation) {
   if (code == kSdkSuccess) return;
   try {
@@ -384,7 +395,9 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
                                    float home_wait_time) {
   std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
   const auto current = state_.load(std::memory_order_acquire);
-  if (current == DriverState::Ready) return true;
+  if (current == DriverState::Ready) {
+    return session_purpose_.load(std::memory_order_acquire) == purpose;
+  }
   if (current != DriverState::Created) return false;
   if (!std::isfinite(home_wait_time) || home_wait_time < 0.0F) {
     try {
@@ -394,7 +407,7 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
     return false;
   }
 
-  session_purpose_ = purpose;
+  session_purpose_.store(purpose, std::memory_order_release);
   safety_cleanup_required_ = purpose == SessionPurpose::Motion;
 
   {
@@ -723,7 +736,7 @@ LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
   initial_ex_attempted_ = false;
   safety_cleanup_attempted_ = false;
   safety_cleanup_required_ = false;
-  session_purpose_ = SessionPurpose::Motion;
+  session_purpose_.store(SessionPurpose::Motion, std::memory_order_release);
   state_.store(DriverState::Created, std::memory_order_release);
   return result;
 }
@@ -731,14 +744,12 @@ LHandProDriver::CleanupResult LHandProDriver::cleanup_locked_() noexcept {
 roboparty::dexhand::detail::FeedbackPeriodReport
 LHandProDriver::show_feedback_period() {
   constexpr const char* operation = "show_feedback_period";
-  validate_call_state_(false, operation);
-  if (model_ != LHandProModel::Dof6S ||
-      session_purpose_ != SessionPurpose::Provisioning) {
-    throw std::logic_error(
-        "LHandPro show_feedback_period requires a Dof6S provisioning session");
+  validate_provisioning_call_(operation);
+  if (provisioning_pre_lock_hook_for_test_) {
+    provisioning_pre_lock_hook_for_test_();
   }
   std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
-  validate_call_state_(false, operation);
+  validate_provisioning_call_(operation);
   auto report = roboparty::dexhand::detail::LHandProFeedbackPeriod(*sdk_).show();
   check_health();
   return report;
@@ -747,15 +758,12 @@ LHandProDriver::show_feedback_period() {
 roboparty::dexhand::detail::FeedbackPeriodReport
 LHandProDriver::apply_feedback_period_20ms() {
   constexpr const char* operation = "apply_feedback_period_20ms";
-  validate_call_state_(false, operation);
-  if (model_ != LHandProModel::Dof6S ||
-      session_purpose_ != SessionPurpose::Provisioning) {
-    throw std::logic_error(
-        "LHandPro apply_feedback_period_20ms requires a Dof6S provisioning "
-        "session");
+  validate_provisioning_call_(operation);
+  if (provisioning_pre_lock_hook_for_test_) {
+    provisioning_pre_lock_hook_for_test_();
   }
   std::lock_guard<std::mutex> sdk_lock(sdk_call_mutex_);
-  validate_call_state_(false, operation);
+  validate_provisioning_call_(operation);
   auto report =
       roboparty::dexhand::detail::LHandProFeedbackPeriod(*sdk_).apply_20ms();
   check_health();

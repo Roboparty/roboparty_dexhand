@@ -96,6 +96,10 @@ class LHandProDriver final : public HandDriver {
     final_commit_hook_for_test_ = std::move(hook);
   }
 
+  void set_provisioning_pre_lock_hook_for_test(std::function<void()> hook) {
+    provisioning_pre_lock_hook_for_test_ = std::move(hook);
+  }
+
   unsigned int pending_rx_callbacks_for_test() const noexcept {
     return pending_rx_callbacks_.load(std::memory_order_acquire);
   }
@@ -131,6 +135,7 @@ class LHandProDriver final : public HandDriver {
   bool initialization_healthy_() const noexcept;
   void validate_call_state_(bool allow_faulted,
                             const char* operation) const;
+  void validate_provisioning_call_(const char* operation) const;
   void throw_if_sdk_failed_(int code, const char* operation);
   [[noreturn]] void throw_sticky_fault_() const;
   static const char* fault_source_name_(FaultSource source) noexcept;
@@ -153,6 +158,7 @@ class LHandProDriver final : public HandDriver {
   std::function<void()> rx_registered_hook_for_test_;
   std::function<void()> rx_entry_attempt_hook_for_test_;
   std::function<void()> final_commit_hook_for_test_;
+  std::function<void()> provisioning_pre_lock_hook_for_test_;
   std::mutex sdk_call_mutex_;
   mutable std::mutex health_mutex_;
   std::optional<FaultRecord> first_fault_;
@@ -166,7 +172,7 @@ class LHandProDriver final : public HandDriver {
   bool slot_claimed_{false};
   bool initial_ex_attempted_{false};
   bool safety_cleanup_attempted_{false};
-  SessionPurpose session_purpose_{SessionPurpose::Motion};
+  std::atomic<SessionPurpose> session_purpose_{SessionPurpose::Motion};
   bool safety_cleanup_required_{false};
   std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
   std::shared_ptr<roboparty::dexhand::detail::SlotToken> slot_token_;
