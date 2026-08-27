@@ -871,9 +871,20 @@ observed aggregate = approximately 100 CAN-FD frames/second
 
 Document that the two frame types are distinct, that `0x5A` is documented as
 axis status/status2 while the supplied protocol export does not define `0x50`,
-and that normal `HandDriver::init_hand()` never writes the period. Require all
-other hand-control processes to be stopped, and require power-cycle plus `show`
-after a saved change.
+and that normal `HandDriver::init_hand()` never writes the period. Document this
+as a mandatory manufacturing/deployment prerequisite, not optional tuning. For
+every new, replacement, factory-reset, or unknown-configuration hand, require
+this exact gate before the first normal initialization or robot startup: stop
+all control processes, run `apply --save`, power-cycle the hand itself, then run
+`show` and require all six raw values to equal 200. Any failure prohibits normal
+startup. Explain that runtime multiplier 1 is 50 Hz only with a verified 20 ms
+base period and that an unprovisioned period can produce unexpectedly high
+feedback rates. Assign the gate to the `roboparty_dexhand` CLI and the
+manufacturing/deployment process without automatically modifying
+`roboparty_deploy` or making normal initialization write persistent parameters.
+Do not describe provisioning as zero-traffic: it initializes communication and
+may emit transient runtime-configuration frames while still issuing no motion
+commands.
 
 - [ ] **Step 4: Run the install/export gate**
 
@@ -971,6 +982,18 @@ matches, and only intentionally uncommitted evidence/documentation remains.
 - Do not add board credentials, raw private logs, or mutable device identifiers
   to the repository.
 
+This task enforces the manufacturing/deployment gate for any new, replacement,
+factory-reset, or unknown-configuration hand. Before the first normal
+`init_hand()` or robot startup: stop all control processes, run the installed
+`apply --save`, power-cycle only the hand, then run the installed `show` and
+require all six raw values to equal 200. Any failure blocks normal startup.
+Runtime multiplier 1 produces 50 Hz only after this verifies the 20 ms base
+period; an unknown base period can produce unexpectedly high feedback rates.
+The CLI and manufacturing/deployment process own this gate. It does not
+automatically change `roboparty_deploy`, and normal initialization must not write
+persistent parameters. The provisioning lifecycle may emit transient
+runtime-configuration traffic; no-motion does not mean zero CAN traffic.
+
 - [ ] **Step 1: Deploy the exact source commit through the GitHub-style flow**
 
 On the Orange Pi, clone or fetch the exact implementation commit into a fresh
@@ -1004,8 +1027,9 @@ env -u LD_LIBRARY_PATH "$PWD/install/bin/roboparty-dexhand-config" \
   feedback-period show --interface can1 --node-id 1
 ```
 
-Expected: six indexes read as 200, no enable/home/move frames are emitted, and
-the process exits zero with `result=shown`.
+Expected: the command reports the six current values for diagnosis, emits no
+enable/home/move frames, and exits zero with `result=shown`. On an unprovisioned
+device the values need not yet be 200; do not proceed to normal robot startup.
 
 - [ ] **Step 4: Prove the already-compliant no-write path**
 
@@ -1050,7 +1074,8 @@ second mutation.
 After the operator power-cycles the hand, rerun `show`.
 
 Expected: every index remains 200. A successful pre-power-cycle save alone is
-not accepted as persistence evidence.
+not accepted as persistence evidence. Only after this step may normal
+`init_hand()` or robot startup proceed.
 
 - [ ] **Step 7: Measure both real-time feedback types for five seconds**
 

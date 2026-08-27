@@ -27,18 +27,34 @@ The project requires CMake 3.15 or newer.
 
 ## Feedback-Period Provisioning
 
-Stop every other hand-control process before reading or changing the feedback
-period. Show the six stored axis values without enabling, homing, or moving the
-hand:
+This is a mandatory manufacturing/deployment prerequisite, not optional tuning.
+For every new hand, replacement hand, factory-reset hand, or device with an
+unknown configuration, complete this gate before the first normal
+`HandDriver::init_hand()` or robot startup:
 
-```bash
-roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
-```
+1. Stop every other hand-control process.
+2. Run `feedback-period apply` with `--milliseconds 20 --save` as shown below.
+3. Power-cycle the hand itself; restarting only the host is not sufficient.
+4. Run `feedback-period show` and require all six axes to report raw value `200`.
 
-Set each axis to 20 ms, verify the readback, and persist the verified value:
+If any step fails, do not start normal hand control. The runtime multiplier
+`0x01` produces 50 Hz only when the stored base period is 20 ms; an
+unprovisioned or unknown base period can produce unexpectedly high feedback
+rates.
+
+The provisioning session does not enable, home, or move the hand, but it does
+initialize communication and may emit transient runtime-configuration traffic.
+It is not a zero-CAN-traffic operation. Apply and persist the required base
+period with:
 
 ```bash
 roboparty-dexhand-config feedback-period apply --interface can0 --node-id 1 --milliseconds 20 --save
+```
+
+After power-cycling the hand itself, verify all six stored axis values with:
+
+```bash
+roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
 ```
 
 The six SDO objects use subindex `0x14`; their stored value `200` is the 20 ms
@@ -58,9 +74,9 @@ These are distinct frame types, not duplicate frames. The protocol documents
 `0x5A` as axis status/status2, while the supplied protocol export does not
 define `0x50`.
 
-Normal `HandDriver::init_hand()` never writes the feedback period. After an
-`apply --save`, power-cycle the hand and run `feedback-period show` again before
-returning it to service.
+This gate is owned by the `roboparty-dexhand-config` CLI and the manufacturing
+or deployment process. It does not automatically modify `roboparty_deploy`, and
+normal `HandDriver::init_hand()` never writes persistent feedback parameters.
 
 The vendor SDO set/save functions only confirm that a request was sent. The
 provisioning command waits for each exact device acknowledgement before sending

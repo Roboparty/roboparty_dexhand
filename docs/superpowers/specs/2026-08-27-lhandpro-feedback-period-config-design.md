@@ -40,9 +40,15 @@ It does not:
   provisioning command;
 - accept a period other than the physically validated 20 ms value.
 
-Production staff or system integrators may invoke the installed command as a
-documented one-time operation. Deciding whether another repository calls the
-command is outside this design.
+Production staff or system integrators must invoke the installed command as a
+manufacturing/deployment gate for every new, replacement, factory-reset, or
+unknown-configuration hand. Before the first normal `init_hand()` or robot
+startup, they must stop all control processes, run `apply --save`, power-cycle
+the hand itself, then run `show` and require all six raw values to equal 200. Any
+failure blocks normal startup. This responsibility belongs to the
+`roboparty_dexhand` CLI and the manufacturing/deployment process; this design
+does not automatically modify `roboparty_deploy` or make normal initialization
+rewrite persistent parameters.
 
 ## Existing Boundaries
 
@@ -284,6 +290,16 @@ SDK artifact, and callback-quiescence gates remain required.
 Physical validation runs on an Orange Pi with the hand at node ID 1 and an
 already configured 1 Mbit/s nominal, 5 Mbit/s data-rate CAN-FD interface. The
 test must not reconfigure the Linux CAN interface and must not command motion.
+Provisioning still initializes communication and can emit transient runtime
+configuration traffic; the no-motion requirement does not mean zero CAN
+traffic.
+
+Before any normal robot startup, the device-level acceptance gate is mandatory:
+stop all control processes, run `apply --save`, power-cycle only the hand, and
+run `show` to prove all six raw values are 200. A new, replacement,
+factory-reset, or unknown-configuration hand is rejected from service if any
+step fails. Runtime multiplier 1 yields 50 Hz only with this verified 20 ms base
+period; an unprovisioned base period can yield unexpectedly high feedback rates.
 
 Acceptance requires:
 
@@ -310,6 +326,8 @@ configured real-time feedback types.
 ## Release Impact
 
 The change adds installed functionality without changing existing motion API
-semantics, so it is released as a new minor version. README documentation must
-state that provisioning is an explicit one-time operation and that normal
-`HandDriver` initialization never rewrites device parameters.
+semantics, so it is released as a new minor version. Release documentation and
+manufacturing instructions must make provisioning a mandatory device gate, not
+optional tuning. The gate is implemented by `roboparty-dexhand-config`; it does
+not automatically change `roboparty_deploy`, and normal `HandDriver`
+initialization never rewrites device parameters.
