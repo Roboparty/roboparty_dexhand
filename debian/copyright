@@ -2,6 +2,20 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: roboparty-dexhand
 Source: https://github.com/Roboparty/roboparty_dexhand
 
+Files: thirdparty/include/LHandProLib/LHandProLib.h
+ thirdparty/lib/aarch64/libLHandProLib.so
+ thirdparty/lib/x86_64/libLHandProLib.so
+Copyright: 2026 Leadtron
+License: LHandPro-proprietary-owner-authorized
+ All rights reserved.
+ .
+ The exact header and binary artifacts listed in this stanza are separately authorized by the project owner for redistribution with this project.
+ .
+ The x86-64 binary SHA-256 is 3b0e3ec7e40c02b2f5ddd465ac2e22735b8730d9eec568ee6390caf1e66f8640.
+ The AArch64 binary SHA-256 is 476f7687ff3063c7adbafef52b4f9326469a1d41f96eb1a516488f9be4064044.
+ .
+ These vendor artifacts are not licensed under GPL-3.0 and are not relicensed by their inclusion in this package.
+
 Files: *
 Copyright: 2026 Roboparty
 License: GPL-3.0

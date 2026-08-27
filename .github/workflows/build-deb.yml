@@ -3,6 +3,9 @@ name: Build RoboParty DexHand Deb Package
 on:
   push:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -16,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Version check (package.xml vs changelog)
         run: |
@@ -58,21 +61,102 @@ jobs:
             python3-dev pybind11-dev
 
       - name: Build deb package
+        id: package
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
         run: |
-          dpkg-buildpackage -us -uc -b
-          mv ../*.deb .
+          set -euo pipefail
 
-          VERSION=$(dpkg-parsechangelog -S Version | cut -d'-' -f1 || echo "unknown")
-          echo "PKG_VERSION=$VERSION" >> $GITHUB_ENV
+          PACKAGE_VERSION=$(dpkg-parsechangelog -S Version)
+          UPSTREAM_VERSION=${PACKAGE_VERSION%%-*}
+          PACKAGE_ARCH=$(dpkg --print-architecture)
+
+          echo "matrix architecture:  $MATRIX_ARCH"
+          echo "package architecture: $PACKAGE_ARCH"
+          if [ "$PACKAGE_ARCH" != "$MATRIX_ARCH" ]; then
+            echo "::error::Runner architecture mismatch! matrix=$MATRIX_ARCH, dpkg=$PACKAGE_ARCH"
+            exit 1
+          fi
+
+          ARTIFACT_DIR=$(mktemp -d "$RUNNER_TEMP/roboparty-dexhand-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MATRIX_ARCH}.XXXXXX")
+          dpkg-buildpackage -us -uc -b
+
+          EXPECTED_DEB="roboparty-dexhand_${PACKAGE_VERSION}_${PACKAGE_ARCH}.deb"
+          mapfile -t PACKAGE_FILES < <(find .. -maxdepth 1 -type f -name "$EXPECTED_DEB" -print)
+          if [ "${#PACKAGE_FILES[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one ../$EXPECTED_DEB, found ${#PACKAGE_FILES[@]}"
+            exit 1
+          fi
+
+          cp -- "${PACKAGE_FILES[0]}" "$ARTIFACT_DIR/$EXPECTED_DEB"
+          echo "Selected package: ${PACKAGE_FILES[0]}"
+          {
+            echo "artifact_dir=$ARTIFACT_DIR"
+            echo "package_arch=$PACKAGE_ARCH"
+            echo "upstream_version=$UPSTREAM_VERSION"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: roboparty-dexhand-v${{ env.PKG_VERSION }}-${{ matrix.arch }}
-          path: "*.deb"
+          name: roboparty-dexhand-v${{ steps.package.outputs.upstream_version }}-${{ steps.package.outputs.package_arch }}
+          path: ${{ steps.package.outputs.artifact_dir }}/roboparty-dexhand_*.deb
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: roboparty-dexhand-v*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Verify release packages
+        run: |
+          set -euo pipefail
+
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          mapfile -t RELEASE_FILES < <(find release-artifacts -maxdepth 1 -type f -name 'roboparty-dexhand_*.deb' -print)
+          if [ "${#RELEASE_FILES[@]}" -ne 2 ]; then
+            echo "::error::Expected exactly two release packages, found ${#RELEASE_FILES[@]}"
+            exit 1
+          fi
+
+          declare -A SEEN_ARCH=()
+          for PACKAGE_FILE in "${RELEASE_FILES[@]}"; do
+            PACKAGE_NAME=$(dpkg-deb -f "$PACKAGE_FILE" Package)
+            PACKAGE_VERSION=$(dpkg-deb -f "$PACKAGE_FILE" Version)
+            PACKAGE_ARCH=$(dpkg-deb -f "$PACKAGE_FILE" Architecture)
+            UPSTREAM_VERSION=${PACKAGE_VERSION%%-*}
+
+            if [ "$PACKAGE_NAME" != "roboparty-dexhand" ] || [ "$UPSTREAM_VERSION" != "$TAG_VERSION" ]; then
+              echo "::error::Unexpected release package: $PACKAGE_FILE ($PACKAGE_NAME $PACKAGE_VERSION)"
+              exit 1
+            fi
+            if [ "$PACKAGE_ARCH" != "amd64" ] && [ "$PACKAGE_ARCH" != "arm64" ]; then
+              echo "::error::Unexpected package architecture: $PACKAGE_ARCH"
+              exit 1
+            fi
+            if [ -n "${SEEN_ARCH[$PACKAGE_ARCH]:-}" ]; then
+              echo "::error::Duplicate package architecture: $PACKAGE_ARCH"
+              exit 1
+            fi
+            SEEN_ARCH[$PACKAGE_ARCH]=1
+            echo "Verified release package: $PACKAGE_FILE ($PACKAGE_VERSION, $PACKAGE_ARCH)"
+          done
+
+          if [ -z "${SEEN_ARCH[amd64]:-}" ] || [ -z "${SEEN_ARCH[arm64]:-}" ]; then
+            echo "::error::Release requires one amd64 and one arm64 package"
+            exit 1
+          fi
 
       - name: Upload to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: "*.deb"
+          files: release-artifacts/roboparty-dexhand_*.deb
