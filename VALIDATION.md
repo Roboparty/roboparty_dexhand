@@ -160,6 +160,55 @@ PY
 
 `candump` 中看到自己发送的帧可能只是本地回显，不能单独证明物理设备已经应答。
 
+### A1. `failure-code=7` 且 RX 停止：gs_usb 适配器通道卡死恢复
+
+`failure-code=7` 是厂商 SDK 的"通讯接收错误"。若第 4 步发现接口
+**RX 完全停止、而发送队列仍有积压**，通常是 gs_usb 适配器通道卡死，
+这是该四路 USB-CAN 适配器的已知复发问题，应先于代码问题怀疑。
+
+1. 确认症状：RX 增量为 0，同时发送队列积压不清零：
+
+   ```bash
+   a=$(cat /sys/class/net/canX/statistics/rx_packets); sleep 2
+   b=$(cat /sys/class/net/canX/statistics/rx_packets)
+   echo "RX delta=$((b-a))"
+   tc -s qdisc show dev canX
+   ```
+
+2. **先停止机械臂和灵巧手的所有控制进程**：下面的重绑会同时复位
+   同一 USB 适配器上的全部四路 CAN（can0..can3），其他路上的设备
+   也会一并中断；
+3. 重绑 gs_usb。重绑后适配器的四路接口会以**未配置的 DOWN 状态**
+   重新出现，不会保留原配置：
+
+   ```bash
+   usb_iface=$(basename "$(readlink -f /sys/class/net/canX/device)")
+   printf '%s\n' "$usb_iface" | sudo tee /sys/bus/usb/drivers/gs_usb/unbind
+   sleep 1
+   printf '%s\n' "$usb_iface" | sudo tee /sys/bus/usb/drivers/gs_usb/bind
+   ```
+
+4. 重新配置并拉起适配器的四路 CAN-FD，然后确认目标接口状态
+   （若板上有其他 CAN 适配器，接口编号可能不同，按实际调整）：
+
+   ```bash
+   for i in can0 can1 can2 can3; do
+     sudo ip link set "$i" down
+     sudo ip link set "$i" type can bitrate 1000000 sample-point 0.8 sjw 4 \
+       dbitrate 5000000 dsample-point 0.75 dsjw 2 fd on
+     sudo ip link set "$i" txqueuelen 10000
+     sudo ip link set "$i" up
+   done
+   ip -details link show canX
+   ```
+
+5. 复验：重新执行 `feedback-period show`，六轴 raw value 全部为 `200`
+   即恢复。
+
+2026-08-28 实测：can3 RX 停止、TX 积压 18 帧、报 `failure-code=7`；
+unbind/bind 后接口以 DOWN 状态重新出现，重新配置 CAN-FD 并拉起后
+2 秒内恢复约 100 帧/秒，`show` 六轴全部为 `200`。
+
 ### B. 帧率约 `2000 fps`
 
 1. 再次运行 `feedback-period show`，确认六轴 raw value 是否全部为 `200`；
