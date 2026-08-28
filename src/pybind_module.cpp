@@ -23,7 +23,8 @@ PYBIND11_MODULE(dexhand_py, module) {
       .def_static("create_hand", &HandDriver::create_hand,
                   py::arg("hand_type"), py::arg("interface_type"),
                   py::arg("interface"),
-                  py::arg("hand_model") = HAND_RP_HAND_6DOF,
+                  py::arg_v("hand_model", HAND_RP_HAND_6DOF,
+                             "HandModel.RP_HAND_6DOF"),
                   py::arg("canfd_node_id") = 1)
       .def("init_hand", &HandDriver::init_hand,
            py::arg("enable_motors") = true,

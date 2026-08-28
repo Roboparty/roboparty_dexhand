@@ -41,6 +41,12 @@ class DexhandApiTest(unittest.TestCase):
             dexhand_py.HandDriver.create_hand(
                 'LHandPro', 'canfd', 'can0', canfd_dat_baudrate=5000000)
 
+    def test_factory_doc_brands_hand_model_default(self):
+        doc = dexhand_py.HandDriver.create_hand.__doc__
+        hand_model_default = doc.split('hand_model:', 1)[1].split(',', 1)[0]
+        self.assertIn('HandModel.RP_HAND_6DOF', hand_model_default)
+        self.assertNotIn('LHANDPRO_6DOF', hand_model_default)
+
     def test_factory_accepts_explicit_model_and_node_keywords(self):
         hand = dexhand_py.HandDriver.create_hand(
             'LHandPro',
