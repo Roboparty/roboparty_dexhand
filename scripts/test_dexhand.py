@@ -27,12 +27,12 @@ def run_hand_sequence(
 ):
     """Run the authorized motion sequence with an injected factory."""
     output('=' * 60)
-    output('  roboparty_dexhand manual motion test')
+    output('  roboparty_dexhand RP_Hand manual motion test')
     output('=' * 60)
 
     output('\n[1] Creating hand driver...')
     hand = create_hand(
-        hand_type='LHandPro',
+        hand_type='RP_Hand',
         interface_type='canfd',
         interface='can0',
         hand_model=hand_model,
@@ -96,7 +96,7 @@ def run_hand_sequence(
 
 def main(argv=None):
     """Validate consent, load the selected SDK, and run the manual test."""
-    parser = argparse.ArgumentParser(description='Manual LHandPro motion test')
+    parser = argparse.ArgumentParser(description='Manual RP_Hand motion test')
     parser.add_argument(
         '--confirm-motion',
         action='store_true',
@@ -142,7 +142,7 @@ def main(argv=None):
 
     return run_hand_sequence(
         HandDriver.create_hand,
-        HandModel.LHANDPRO_6DOF,
+        HandModel.RP_HAND_6DOF,
     )
 
 

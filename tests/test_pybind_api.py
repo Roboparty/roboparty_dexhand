@@ -16,8 +16,20 @@ class DexhandApiTest(unittest.TestCase):
         self.assertEqual(int(dexhand_py.HandCommType.CANFD.value), 0)
         self.assertFalse(hasattr(dexhand_py.HandCommType, 'ETHERCAT'))
         self.assertFalse(hasattr(dexhand_py.HandCommType, 'RS485'))
-        self.assertEqual(int(dexhand_py.HandModel.LHANDPRO_6DOF.value), 0)
+        self.assertTrue(hasattr(dexhand_py.HandModel, 'RP_HAND_6DOF'))
+        preferred_model = dexhand_py.HandModel.RP_HAND_6DOF
+        legacy_model = dexhand_py.HandModel.LHANDPRO_6DOF
+        self.assertEqual(int(preferred_model.value), 0)
+        self.assertEqual(int(legacy_model.value), 0)
+        self.assertEqual(
+            preferred_model,
+            legacy_model,
+        )
+        self.assertEqual(legacy_model.name, 'LHANDPRO_6DOF')
+        self.assertEqual(str(legacy_model), 'HandModel.LHANDPRO_6DOF')
+        self.assertEqual(repr(legacy_model), '<HandModel.LHANDPRO_6DOF: 0>')
         self.assertEqual(int(dexhand_py.HandModel.LHANDPRO_16DOF.value), 1)
+        self.assertFalse(hasattr(dexhand_py.HandModel, 'RP_HAND_16DOF'))
 
     def test_factory_defaults_and_removed_keywords(self):
         hand = dexhand_py.HandDriver.create_hand('LHandPro', 'canfd', 'can0')
@@ -29,6 +41,12 @@ class DexhandApiTest(unittest.TestCase):
             dexhand_py.HandDriver.create_hand(
                 'LHandPro', 'canfd', 'can0', canfd_dat_baudrate=5000000)
 
+    def test_factory_doc_brands_hand_model_default(self):
+        doc = dexhand_py.HandDriver.create_hand.__doc__
+        hand_model_default = doc.split('hand_model:', 1)[1].split(',', 1)[0]
+        self.assertIn('HandModel.RP_HAND_6DOF', hand_model_default)
+        self.assertNotIn('LHANDPRO_6DOF', hand_model_default)
+
     def test_factory_accepts_explicit_model_and_node_keywords(self):
         hand = dexhand_py.HandDriver.create_hand(
             'LHandPro',
@@ -38,6 +56,16 @@ class DexhandApiTest(unittest.TestCase):
             canfd_node_id=2,
         )
         self.assertEqual(hand.get_can_name(), 'can0')
+
+    def test_rp_hand_factory_accepts_preferred_model_without_hardware_io(self):
+        hand = dexhand_py.HandDriver.create_hand(
+            'RP_Hand',
+            'canfd',
+            'can0',
+            hand_model=dexhand_py.HandModel.RP_HAND_6DOF,
+        )
+        self.assertEqual(hand.get_can_name(), 'can0')
+        self.assertIsNone(hand.check_health())
 
     def test_complete_base_api(self):
         expected = {
@@ -220,6 +248,9 @@ class ManualHardwareHelperTest(unittest.TestCase):
                 self.assertEqual(hand.deinit_calls, 1)
                 self.assertEqual(len(factory_calls), 1)
                 self.assertIs(factory_calls[0]['hand_model'], model)
+                self.assertEqual(factory_calls[0]['hand_type'], 'RP_Hand')
+                self.assertEqual(factory_calls[0]['interface_type'], 'canfd')
+                self.assertEqual(factory_calls[0]['interface'], 'can0')
                 self.assertEqual(factory_calls[0]['canfd_node_id'], 1)
 
 

@@ -107,18 +107,25 @@ void check_drop_recreates_registered_logger() {
 void check_invalid(const std::string& hand_type,
                    const std::string& interface_type,
                    const std::string& interface, int model, int node,
-                   const std::string& expected_text) {
+                   const std::string& expected_text,
+                   const std::string& expected_contract = {}) {
   try {
     (void)HandDriver::create_hand(hand_type, interface_type, interface, model,
                                   node);
     CHECK(false);
   } catch (const std::invalid_argument& error) {
-    CHECK(std::string(error.what()).find(expected_text) != std::string::npos);
+    const std::string message(error.what());
+    CHECK(message.find(expected_text) != std::string::npos);
+    if (!expected_contract.empty()) {
+      CHECK(message.find(expected_contract) != std::string::npos);
+    }
   }
 }
 
 int main() {
+  CHECK_EQ(HAND_RP_HAND_6DOF, 0);
   CHECK_EQ(HAND_LHANDPRO_6DOF, 0);
+  CHECK_EQ(HAND_LHANDPRO_6DOF, HAND_RP_HAND_6DOF);
   CHECK_EQ(HAND_LHANDPRO_16DOF, 1);
 
   using Factory = std::shared_ptr<HandDriver> (*)(
@@ -130,12 +137,20 @@ int main() {
   check_concurrent_first_factory_creation();
   check_external_logger_reuse();
   check_drop_recreates_registered_logger();
+  CHECK(HandDriver::create_hand("RP_Hand", "canfd", "can0",
+                                HAND_RP_HAND_6DOF, 1) != nullptr);
+  CHECK(HandDriver::create_hand("LHandPro", "canfd", "can0",
+                                HAND_LHANDPRO_16DOF, 1) != nullptr);
   CHECK(HandDriver::create_hand("LHandPro", "canfd", "can0") != nullptr);
-  check_invalid("Unknown", "canfd", "can0", 0, 1, "Unknown");
+  check_invalid("Unknown", "canfd", "can0", 0, 1, "Unknown",
+                "supported hand_type is RP_Hand");
   check_invalid("LHandPro", "ethercanfd", "can0", 0, 1, "ethercanfd");
   check_invalid("LHandPro", "canfd", "", 0, 1, "empty");
   check_invalid("LHandPro", "canfd", "can0", -1, 1, "-1");
-  check_invalid("LHandPro", "canfd", "can0", 2, 1, "2");
+  check_invalid("LHandPro", "canfd", "can0", 2, 1, "2",
+                "RP_Hand supports HAND_RP_HAND_6DOF (0)");
+  check_invalid("RP_Hand", "canfd", "can0", 1, 1, "1",
+                "RP_Hand supports HAND_RP_HAND_6DOF (0)");
   check_invalid("LHandPro", "canfd", "can0", 0, 0, "0");
   check_invalid("LHandPro", "canfd", "can0", 0, 128, "128");
   spdlog::drop("dexhand");
