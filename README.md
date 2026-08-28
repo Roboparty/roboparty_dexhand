@@ -69,7 +69,7 @@ roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
 
 查询结果中六个轴的 raw value 都必须是 `200`。`20 ms` 表示两个反馈类型
 各自以 `50 Hz` 发送，因此合计约为 `100` 帧/秒。该配置由 CLI 持久化，
-正常的 `init_hand()` 不会持续改写它。
+正常的 `init_hand()` 永远不会写入或修改持久化反馈周期参数。
 
 ## Python 使用
 
@@ -187,15 +187,17 @@ Python 方法使用 `hand.method()`。
   home_wait_time)`、`deinit_hand()`。工厂参数依次为
   `hand_type`、`interface_type`、`interface`、`hand_model`、
   `canfd_node_id`；本部署使用 `"LHandPro"`、`"canfd"` 和
-  `LHANDPRO_6DOF`。
-- 枚举：通信类型使用 `HandCommType.CANFD`；`HandModel.LHANDPRO_6DOF`
-  是本部署支持的模型，`HandModel.LHANDPRO_16DOF` 虽由绑定导出但不受本
-  部署支持。
-- 运动执行：`move_motors(finger_id)`、`stop_motors(finger_id)`、
-  `home_motors(finger_id)`、`set_move_no_home(enable)`、
-  `set_enable(finger_id, enable)`。这些方法中 `finger_id == 0` 表示
-  广播到全部关节（默认值也为 `0`）。`set_move_no_home(1)` 允许未完成
-  回零时运动，`0` 则要求先完成回零。
+  C++ 模型常量 `HAND_LHANDPRO_6DOF`；Python 使用
+  `HandModel.LHANDPRO_6DOF`。
+- 枚举名称按语言区分：Python 使用 `HandCommType.CANFD` 和
+  `HandModel.LHANDPRO_6DOF`；C++ 使用 `HandCommType::CANFD` 和
+  `HAND_LHANDPRO_6DOF`。`HandModel.LHANDPRO_16DOF` 虽由 Python 绑定导出，
+  但不受本部署支持。
+- 运动执行：`move_motors(finger_id=0)`、`stop_motors(finger_id=0)`、
+  `home_motors(finger_id=0)` 的默认 `finger_id` 是 `0`，表示广播到全部
+  关节。`set_enable(finger_id, enable)` 必须显式传入 `finger_id`，但传入
+  `0` 仍表示广播；`set_move_no_home(enable)` 没有 `finger_id`，只接受
+  `1`（允许未完成回零时运动）或 `0`（要求先完成回零）。
 - 目标参数：`set_target_position(finger_id, position)`（编码器计数）、
   `set_target_angle(finger_id, angle)`（角度）、
   `set_position_velocity(finger_id, velocity)`（计数/秒）、
