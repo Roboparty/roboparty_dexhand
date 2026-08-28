@@ -36,7 +36,7 @@ enum HandModel {
  *   - Static factory create_hand() dispatches by hand_type string.
  *   - Python bindings (dexhand_py) only bind this base class.
  *
- * Concrete drivers (e.g. LHandProDriver) live in src/drivers/<vendor>/.
+ * The RP_Hand implementation remains private to the library.
  */
 class HandDriver {
    public:

@@ -44,7 +44,9 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
     int hand_model,
     int canfd_node_id) {
     if (hand_type != "RP_Hand" && hand_type != "LHandPro") {
-        throw std::invalid_argument("Unsupported hand_type: " + hand_type);
+        throw std::invalid_argument(
+            "Unsupported hand_type: " + hand_type +
+            "; supported hand_type is RP_Hand");
     }
     if (interface_type != "canfd") {
         throw std::invalid_argument("Unsupported interface_type: " +
@@ -68,8 +70,9 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
             model = LHandProModel::Dof16;
             break;
         default:
-            throw std::invalid_argument("Unsupported hand_model: " +
-                                        std::to_string(hand_model));
+            throw std::invalid_argument(
+                "Unsupported hand_model: " + std::to_string(hand_model) +
+                "; RP_Hand supports HAND_RP_HAND_6DOF (0)");
     }
     return std::make_shared<LHandProDriver>(interface, model, canfd_node_id);
 }
