@@ -4,6 +4,8 @@
 控制库，通过外部配置的 SocketCAN CAN-FD 接口进行通信。库提供统一的
 `HandDriver` 工厂接口、运动控制和反馈读取能力。
 
+已安装 ARM64 软件包的硬件验收流程见 [VALIDATION.md](VALIDATION.md)。
+
 ## 项目用途
 
 使用本库可以在机器人应用中创建 RP_Hand 驱动、发送关节运动目标并读取
