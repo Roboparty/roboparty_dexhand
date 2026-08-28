@@ -14,6 +14,7 @@ PYBIND11_MODULE(dexhand_py, module) {
       .value("CANFD", HandCommType::CANFD)
       .export_values();
   py::enum_<HandModel>(module, "HandModel")
+      .value("RP_HAND_6DOF", HAND_RP_HAND_6DOF)
       .value("LHANDPRO_6DOF", HAND_LHANDPRO_6DOF)
       .value("LHANDPRO_16DOF", HAND_LHANDPRO_16DOF)
       .export_values();
@@ -22,7 +23,7 @@ PYBIND11_MODULE(dexhand_py, module) {
       .def_static("create_hand", &HandDriver::create_hand,
                   py::arg("hand_type"), py::arg("interface_type"),
                   py::arg("interface"),
-                  py::arg("hand_model") = HAND_LHANDPRO_6DOF,
+                  py::arg("hand_model") = HAND_RP_HAND_6DOF,
                   py::arg("canfd_node_id") = 1)
       .def("init_hand", &HandDriver::init_hand,
            py::arg("enable_motors") = true,
