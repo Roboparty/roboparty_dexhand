@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 foreach(required IN ITEMS
-        BUILD_DIR SOURCE_DIR PYTHON_EXECUTABLE CHECK_SCRIPT)
+        BUILD_DIR SOURCE_DIR PYTHON_EXECUTABLE CHECK_SCRIPT PACKAGE_VERSION)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "${required} is required")
   endif()
@@ -127,6 +127,7 @@ execute_process(
     "-DSOURCE_DIR=${SOURCE_DIR_REAL}"
     "-DPREFIX=${PREFIX}"
     "-DPYTHON_EXECUTABLE=${PYTHON_EXECUTABLE_ABS}"
+    "-DPACKAGE_VERSION=${PACKAGE_VERSION}"
     -P "${CHECK_SCRIPT_ABS}"
   RESULT_VARIABLE check_rc
   OUTPUT_VARIABLE check_out

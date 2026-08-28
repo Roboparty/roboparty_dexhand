@@ -3,7 +3,8 @@
 
 cmake_minimum_required(VERSION 3.15)
 
-foreach(required IN ITEMS BUILD_DIR SOURCE_DIR PREFIX PYTHON_EXECUTABLE)
+foreach(required IN ITEMS BUILD_DIR SOURCE_DIR PREFIX PYTHON_EXECUTABLE
+        PACKAGE_VERSION)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "${required} is required")
   endif()
@@ -221,7 +222,7 @@ endif()
 set(CONSUMER_BUILD "${SCRATCH_ROOT}/consumer")
 set(VERSION_SOURCE "${SCRATCH_ROOT}/version-source")
 set(VERSION_REJECT_BUILD "${SCRATCH_ROOT}/version-0.2")
-set(VERSION_ACCEPT_BUILD "${SCRATCH_ROOT}/version-0.3")
+set(VERSION_ACCEPT_BUILD "${SCRATCH_ROOT}/version-accept")
 
 execute_process(COMMAND "${CMAKE_COMMAND}" --install "${BUILD_DIR_REAL}"
                 --prefix "${PREFIX_REAL}" RESULT_VARIABLE install_rc)
@@ -475,12 +476,12 @@ execute_process(
     -B "${VERSION_ACCEPT_BUILD}"
     "-DCMAKE_PREFIX_PATH=${RELOCATED}"
     "-Droboparty_dexhand_DIR=${RELOCATED_PACKAGE_DIR}"
-    "-DREQUESTED_VERSION=0.3"
+    "-DREQUESTED_VERSION=${PACKAGE_VERSION}"
   RESULT_VARIABLE version_accept_rc OUTPUT_VARIABLE version_accept_out
   ERROR_VARIABLE version_accept_err)
 if(NOT version_accept_rc EQUAL 0)
   message(FATAL_ERROR
-    "requested 0.3 failed:\n${version_accept_out}\n${version_accept_err}")
+    "requested ${PACKAGE_VERSION} failed:\n${version_accept_out}\n${version_accept_err}")
 endif()
 
 execute_process(

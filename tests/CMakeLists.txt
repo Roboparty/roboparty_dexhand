@@ -70,6 +70,7 @@ add_test(
     -DBUILD_DIR=${PROJECT_BINARY_DIR}
     -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DPYTHON_EXECUTABLE=${Python3_EXECUTABLE}
+    -DPACKAGE_VERSION=${PROJECT_VERSION}
     -DCHECK_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/check_install_export.cmake
     -P ${CMAKE_CURRENT_SOURCE_DIR}/run_install_export_test.cmake)
 set_tests_properties(install_export PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
