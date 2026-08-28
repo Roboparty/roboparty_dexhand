@@ -25,6 +25,7 @@ enum class HandCommType { CANFD = 0 };
 enum HandModel {
     HAND_RP_HAND_6DOF = 0,
     HAND_LHANDPRO_6DOF = HAND_RP_HAND_6DOF,
+    /// Not supported in this deployment; retained for vendor compatibility.
     HAND_LHANDPRO_16DOF = 1,
 };
 

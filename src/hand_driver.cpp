@@ -46,7 +46,7 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
     if (hand_type != "RP_Hand" && hand_type != "LHandPro") {
         throw std::invalid_argument(
             "Unsupported hand_type: " + hand_type +
-            "; supported hand_type is RP_Hand");
+            "; supported hand_type is RP_Hand (legacy alias: LHandPro)");
     }
     if (interface_type != "canfd") {
         throw std::invalid_argument("Unsupported interface_type: " +
