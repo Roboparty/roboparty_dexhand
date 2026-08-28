@@ -18,8 +18,10 @@
 - 一个进程使用一个活动的厂商 SDK 实例。
 
 本部署只支持 RP_Hand 6DOF。唯一公开支持的模型值为
-`RP_HAND_6DOF=0`。RP_Hand 品牌发布前版本中的标识符仍保持源码兼容，
-但不作为本手册的公共接口展示。
+`RP_HAND_6DOF=0`。为保持 pybind 兼容性，RP_Hand 品牌发布前的枚举表示
+仍被保留；同一个数值别名的 `.name`、`str()` 和 `repr()` 可能显示品牌发布
+前的规范标识符。这不表示安装了过时的软件包；普通代码应使用
+`HandModel.RP_HAND_6DOF`，需要数值时使用 `.value`。
 
 ## 安装
 
@@ -255,7 +257,7 @@ Python 方法使用 `hand.method()`。
   `canfd_node_id`；本部署使用 `"RP_Hand"`、`"canfd"` 和
   C++ 模型常量 `HAND_RP_HAND_6DOF`；Python 使用
   `HandModel.RP_HAND_6DOF`。
-- 模型值按语言区分：Python 使用 `HandCommType.CANFD` 和
+- 枚举名称按语言区分：Python 使用 `HandCommType.CANFD` 和
   `HandModel.RP_HAND_6DOF`；C++ 使用 `HandCommType::CANFD` 和
   `HAND_RP_HAND_6DOF`。RP_Hand 品牌发布前版本中的标识符仍保持源码兼容，
   但新代码应使用上述公共名称。

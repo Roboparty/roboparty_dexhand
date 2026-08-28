@@ -8,6 +8,6 @@ Build-Depends: debhelper-compat (= 12), cmake, pkg-config,
 Package: roboparty-dexhand
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, python3, roboparty-base (>= 1.0.0)
-Description: RoboParty dexterous hand driver
- LHandPro dexterous hand driver with Linux CAN-FD support.
+Description: RP_Hand dexterous hand driver
+ RP_Hand dexterous hand driver for Linux CAN-FD with C++ and Python factory APIs.
  Provides shared libraries, headers and Python bindings.
