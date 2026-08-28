@@ -1,207 +1,175 @@
-# RP_Hand 6DOF ARM64 软件包硬件验收
+# RP_Hand 新板部署与验收 SOP
 
-本文用于已安装的 ARM64 `roboparty-dexhand` 软件包的现场验收。所有命令均
-连接到真实硬件；执行初始化或运动命令前必须取得运动授权。
+适用于已经安装 `roboparty-dexhand`、CAN-FD 接口已经由系统配置完成的
+RP_Hand 6DOF。本文从反馈周期固化开始，不负责配置 CAN 接口。
 
-## 安全前提
+开始前确认：
 
-- 已取得本次真实硬件运动的授权，且现场操作员全程在场；
-- 手周围工作空间已清空，人员、工具和障碍物均不在运动范围内；
-- 手本体供电、CAN-FD 接线和总线终端电阻均已按现场方案正确连接；
-- 本文的免回零运动要求手已处于已知的参考/零位状态。参考状态未知时，
-  不得继续执行免回零运动。
+- 手已上电，接头、供电和终端电阻正常；
+- 当前没有其他灵巧手控制进程；
+- 已取得真实硬件运动授权，手周围无人且没有障碍物；
+- 下文的 `canX` 是占位符，必须替换为手实际连接的 `can0`、`can1`、
+  `can2` 或 `can3`。
 
-CAN-FD 接口由系统或部署脚本在库外准备，本库不配置接口状态、速率、接线或
-终端。先在目标设备的 shell 中执行：
+## 第 3 步：反馈周期一次性固化
 
-```bash
-source /opt/roboparty/setup.bash
-export CAN_INTERFACE=can3
-export NODE_ID=1
-ip -details -statistics link show "$CAN_INTERFACE"
-```
+这一步将完整反馈调整为 `50 Hz`。两个反馈帧类型各发送 `50` 帧/秒，
+总线上合计约 `100` 帧/秒。仅新手、换手、恢复出厂或配置未知时需要执行，
+日常启动不需要重复。
 
-仅将 `CAN_INTERFACE` 的值改为实际接口 `can0`、`can1`、`can2` 或 `can3` 中
-的一个，并按现场分配修改 `NODE_ID`（有效范围为 `1..127`）。这是本文唯一的
-接口和 node ID 赋值处；完成后保持同一个 shell 执行全部验收步骤。若关闭或更换
-shell，必须重新执行本准备块，不能依赖默认值或先前 shell 的变量。输出必须显示
-接口为 `UP`、名义速率 `1M`、数据速率 `5M`，且启用 FD；不满足时由系统或部署
-脚本修正后再继续。
+### 3.1 写入并保存
 
-## 反馈周期
-
-在没有其他手控制进程运行时，应用并保存 20 ms 反馈周期：
-
-```bash
-(
-  : "${CAN_INTERFACE:?先执行准备步骤}"
-  : "${NODE_ID:?先执行准备步骤}"
-  roboparty-dexhand-config feedback-period apply --interface "$CAN_INTERFACE" --node-id "$NODE_ID" --milliseconds 20 --save
-)
-```
-
-若输出为 `result=already-compliant`，当前六个轴已经符合要求，CLI 不会重复写入
-或保存，可以跳过闪存写入。无论成功结果是否为 `already-compliant`，都进入以下
-明确的电源边界：**只对 RP_Hand 手本体断电再上电，不要用控制板或机器人主板
-重启代替。**
-
-手本体重新上电后，在同一个 shell 中执行以下命令块确认持久化配置；如果该 shell
-已关闭，先重新执行本文的准备块：
-
-```bash
-(
-  : "${CAN_INTERFACE:?先执行准备步骤}"
-  : "${NODE_ID:?先执行准备步骤}"
-  roboparty-dexhand-config feedback-period show --interface "$CAN_INTERFACE" --node-id "$NODE_ID"
-)
-```
-
-`show` 输出的六个轴 raw value 必须全部为 `200`；任何一个轴不是 `200` 都不能
-进入运动验收。
-
-## Python API 识别
-
-在当前 shell 中确认已安装 Python API 的公开模型数值：
+将下面两处 `canX` 替换为实际接口后执行：
 
 ```bash
 source /opt/roboparty/setup.bash
-python3 -c 'from dexhand_py import HandModel; print(HandModel.RP_HAND_6DOF.value)'
+roboparty-dexhand-config feedback-period apply \
+  --interface canX --node-id 1 --milliseconds 20 --save
 ```
 
-输出必须恰好为 `0`。不要打印枚举对象或名称，只使用上述 `.value` 数值检查。
+正常结果：
 
-## 受控运动
+- `result=saved`：六轴参数已经写入并保存；
+- `result=already-compliant`：六轴本来就是 `200`，未重复写入；
+- `result=read-failed`、`result=save-failed` 或其他失败结果：转到
+  “异常处置 A”。
 
-再次目视确认手正处于已知的参考/零位状态，工作空间仍已清空，并且操作员已取得
-运动授权。`init_hand(True, False, 0.0)` 会在返回前启用电机并启用免回零运动，
-因此必须在初始化前完成确认。下面命令块在独立子 shell 中运行，会显示当前接口
-和 node ID，并从终端要求操作员精确输入 `MOVE`；其他任何输入均会中止，且不会
-创建或初始化驱动。若关闭了准备步骤所在的 shell，先重新执行准备块：
+### 3.2 手本体断电重启
+
+无论结果是 `saved` 还是 `already-compliant`，都只给 **RP_Hand 手本体**
+断电再上电，不要用重启开发板代替。重新上电后等待约 5 秒。
+
+反馈周期由手在上电时加载；`init_hand()` 不会写入或修改这个持久化参数。
+
+### 3.3 读回确认
 
 ```bash
-(
-  : "${CAN_INTERFACE:?先执行准备步骤}"
-  : "${NODE_ID:?先执行准备步骤}"
-  printf 'CAN_INTERFACE=%s NODE_ID=%s\n' "$CAN_INTERFACE" "$NODE_ID"
-  ip -details -statistics link show "$CAN_INTERFACE" || exit 1
-  if ! read -r -p '已确认参考/零位和工作空间；输入 MOVE 继续: ' confirmation </dev/tty; then
-    printf '未读取到 MOVE 确认，已中止。\n' >&2
-    exit 1
-  fi
-  if [[ "$confirmation" != "MOVE" ]]; then
-    printf '确认不是 MOVE，已中止。\n' >&2
-    exit 1
-  fi
-  python3 - <<'PY'
-import os
-import sys
+roboparty-dexhand-config feedback-period show --interface canX --node-id 1
+```
+
+判据：输出包含 `result=shown`，并且六个轴的 raw value 全部为 `200`。
+任一轴不是 `200`，都不能进入运动验收。
+
+## 第 4 步：环境与功能验收
+
+### 4.1 Python API 冒烟测试
+
+```bash
+source /opt/roboparty/setup.bash
+python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.RP_HAND_6DOF.value)'
+```
+
+判据：输出 `0`，且没有 `ImportError`。
+
+### 4.2 六轴运动、位置跟踪与帧率
+
+下面命令会初始化、使能并正常回零，然后让六个轴先运动到 `1200`，读取位置，
+再回到 `0` 并再次读取位置。执行前将代码中的 `canX` 替换为实际接口。
+
+真实硬件会运动。执行前确认工作空间安全并准备好随时切断手本体电源。
+脚本读取的 `rx_packets` 是整个 CAN 接口的总帧率；只有总线上没有机械臂等
+其他设备流量时，才能用它估算灵巧手的约 `100 fps`。共享总线场景以第 3 步
+六轴 raw value 全部为 `200` 作为反馈周期判据。
+
+```bash
+source /opt/roboparty/setup.bash
+python3 - <<'PY'
 import time
 
 from dexhand_py import HandDriver, HandModel
 
 
-def print_positions(hand, label):
-    positions = [hand.get_now_position(joint) for joint in range(1, 7)]
-    values = " ".join(
-        f"joint{joint}={position}"
-        for joint, position in enumerate(positions, start=1)
-    )
-    print(f"{label}: {values}")
+CAN_INTERFACE = "canX"
+NODE_ID = 1
 
 
-can_interface = os.environ["CAN_INTERFACE"]
+def positions(hand):
+    return [hand.get_now_position(joint) for joint in range(1, 7)]
+
+
+hand = HandDriver.create_hand(
+    "RP_Hand", "canfd", CAN_INTERFACE, HandModel.RP_HAND_6DOF, NODE_ID
+)
+
 try:
-    node_id = int(os.environ["NODE_ID"])
-except ValueError as error:
-    raise RuntimeError("NODE_ID must be an integer in 1..127") from error
-if not 1 <= node_id <= 127:
-    raise RuntimeError("NODE_ID must be in 1..127")
-
-hand = None
-initialized = False
-bypass_enabled = False
-primary_error = None
-try:
-    hand = HandDriver.create_hand(
-        "RP_Hand", "canfd", can_interface, HandModel.RP_HAND_6DOF, node_id
-    )
-    if hand is None:
-        raise RuntimeError("create_hand returned no driver")
-    if not hand.init_hand(True, False, 0.0):
-        raise RuntimeError("init_hand failed")
-    initialized = True
-    bypass_enabled = True
+    if not hand.init_hand(True, True, 5.0):
+        raise RuntimeError("init_hand failed; motion is forbidden")
 
     hand.check_health()
     total, active = hand.get_dof()
     if active != 6:
         raise RuntimeError(f"expected active DOF 6, got {active} (total={total})")
+
     alarms = [hand.get_now_alarm(joint) for joint in range(1, 7)]
     if any(alarm != 0 for alarm in alarms):
         raise RuntimeError(f"joint alarms must all be zero: {alarms}")
 
-    for joint in range(1, 7):
-        hand.set_target_position(joint, 5000)
-        hand.set_position_velocity(joint, 3000)
-    hand.move_motors(0)
+    rx_path = f"/sys/class/net/{CAN_INTERFACE}/statistics/rx_packets"
+    with open(rx_path, encoding="ascii") as stream:
+        before = int(stream.read())
     time.sleep(3.0)
-    print_positions(hand, "target5000")
+    with open(rx_path, encoding="ascii") as stream:
+        after = int(stream.read())
+    print(f"feedback rate: {(after - before) // 3} fps")
+
+    for joint in range(1, 7):
+        hand.set_target_position(joint, 1200)
+        hand.set_position_velocity(joint, 2000)
+    hand.move_motors(0)
+    time.sleep(1.5)
+    print("target 1200:", positions(hand))
 
     for joint in range(1, 7):
         hand.set_target_position(joint, 0)
-        hand.set_position_velocity(joint, 3000)
+        hand.set_position_velocity(joint, 2000)
     hand.move_motors(0)
-    time.sleep(3.0)
-    print_positions(hand, "target0")
-except BaseException as error:
-    primary_error = error
-    raise
+    time.sleep(1.5)
+    print("target 0:", positions(hand))
 finally:
-    cleanup_failures = []
-    if hand is not None:
-        if initialized:
-            try:
-                hand.stop_motors(0)
-            except BaseException as error:
-                cleanup_failures.append(("stop_motors", error))
-        if bypass_enabled:
-            try:
-                hand.set_move_no_home(0)
-            except BaseException as error:
-                cleanup_failures.append(("set_move_no_home(0)", error))
-        try:
-            hand.deinit_hand()
-        except BaseException as error:
-            cleanup_failures.append(("deinit_hand", error))
-    if cleanup_failures:
-        print("严重：清理失败，手可能仍处于不安全状态：", file=sys.stderr)
-        for operation, error in cleanup_failures:
-            print(f"  {operation}: {error!r}", file=sys.stderr)
-        print("请立即移除 RP_Hand 手本体电源，且不要继续测试。", file=sys.stderr)
-    if primary_error is None and cleanup_failures:
-        details = "; ".join(
-            f"{operation}: {error!r}" for operation, error in cleanup_failures
-        )
-        raise RuntimeError(f"cleanup failed: {details}")
+    hand.deinit_hand()
 PY
-)
 ```
 
-初始化成功后，脚本将 `bypass_enabled` 记录为真，以反映初始化已启用的免回零状态。
-在健康检查通过、活动 DOF 为 `6` 且关节 `1..6` 报警全为 `0` 前，脚本不会发送
-任何目标位置或目标速度命令。`total` DOF 可能为 `11`，验收以活动 DOF 为准。清理
-阶段会在已初始化时尝试 `stop_motors(0)`，在已启用免回零时恢复
-`set_move_no_home(0)`，并且只调用一次 `deinit_hand()`；所有清理失败都会逐项输出
-到 `stderr`，且不会覆盖先前发生的主错误。出现“严重：清理失败”警告时，必须立即
-移除 RP_Hand 手本体电源，并且不要继续测试。
+判据：
 
-## 验收清单
+- 总线没有其他流量时，`feedback rate` 约为 `100 fps`，现场可将
+  `80..120 fps` 视为正常波动；共享总线不使用该项判定；
+- `target 1200` 输出六个有效位置，且能够跟随目标方向运动；
+- `target 0` 输出六个接近零位的位置；
+- 程序正常退出，没有异常。
 
-- 所选接口显示为 `UP`，并具备 `1M` 名义速率、`5M` 数据速率和 FD；
-- `feedback-period apply` 与重新上电后的 `show` 均成功；
-- `show` 的六个 raw value 全部为 `200`；
-- Python 模型数值输出恰好为 `0`；
-- `target5000` 和 `target0` 各输出六个位置，且位置接近相应目标，按硬件验收
-  容差判定，不在本文另行虚构固定阈值；
-- 脚本清理并退出，无未处理错误，也没有“严重：清理失败”警告；若出现该警告，立即
-  移除 RP_Hand 手本体电源且不要继续测试。
+全部满足即表示 RP_Hand 已可正常使用。
+
+## 异常处置
+
+### A. `apply` / `show` 无应答或失败
+
+按顺序检查：
+
+1. 确认已经把所有 `canX` 替换为实际接口名；
+2. 重新插紧手的末端接头，确认手本体供电和指示灯正常；
+3. 确认 node ID 为 `1`，并停止其他灵巧手控制进程；
+4. 查看接口收发与错误计数：
+
+   ```bash
+   ip -details -statistics link show canX
+   ```
+
+5. 若接口正常但仍无应答，将供电、接线、终端电阻和 CAN 适配器状态交给
+   硬件或嵌入式人员继续排查。
+
+`candump` 中看到自己发送的帧可能只是本地回显，不能单独证明物理设备已经应答。
+
+### B. 帧率约 `2000 fps`
+
+1. 再次运行 `feedback-period show`，确认六轴 raw value 是否全部为 `200`；
+2. 若不是，重新执行第 3 步；
+3. 若已经全部为 `200`，确认参数保存后确实给手本体断电重启过；
+4. 仍不正常时联系固件或厂商支持人员。
+
+### C. 位置全为 `0` 或不跟随
+
+1. 复核 `create_hand()` 使用的接口名和 node ID；
+2. 检查六轴报警：`get_now_alarm(1..6)`；
+3. `init_hand()` 返回 `False` 时禁止继续发送运动命令，先按异常处置 A 排查；
+4. 确认没有其他进程同时控制同一只手。
