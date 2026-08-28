@@ -40,7 +40,7 @@
 ```
 
 文件名中的版本字段由实际构建版本决定，例如当前仓库版本是
-`roboparty-dexhand_0.3.0_arm64.deb`；这里的版本字段就是通常所说的
+`roboparty-dexhand_0.3.0-1_arm64.deb`；这里的版本字段就是通常所说的
 `<version>`。安装后可使用已安装的 `roboparty-dexhand-config` 命令。
 Debian 打包配置的安装前缀是 `/opt/roboparty`，并依赖
 `roboparty-base (>= 1.0.0)`；运行 Python 前请先加载 RoboParty 基础环境。
@@ -106,9 +106,12 @@ roboparty-dexhand-config feedback-period apply --interface can0 --node-id 1 --mi
 roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
 ```
 
-查询结果中六个轴的 raw value 都必须是 `200`。`20 ms` 表示两个反馈类型
-各自以 `50 Hz` 发送，因此合计约为 `100` 帧/秒。该配置由 CLI 持久化，
-正常的 `init_hand()` 永远不会写入或修改持久化反馈周期参数。
+查询结果中六个轴的 raw value 都必须是 `200`。如果有轴需要改变，
+`apply --save` 会写入六个目标值并保存；如果六个轴已经都是 `200`，CLI
+会报告 `result=already-compliant`，不会重复写入或保存。无论哪种结果，
+都要给灵巧手本体断电再上电，然后运行上面的 `show` 进行确认。`20 ms`
+表示两个反馈类型各自以 `50 Hz` 发送，因此合计约为 `100` 帧/秒。正常的
+`init_hand()` 永远不会写入或修改持久化反馈周期参数。
 
 ## Python 使用
 
