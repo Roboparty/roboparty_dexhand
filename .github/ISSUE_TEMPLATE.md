@@ -13,7 +13,7 @@ labels: triage
 
 - 架构 Arch: [amd64 / arm64]
 - 系统 OS: [RobopiOS 1.0.6 / RobopiOS 1.2.7 / Ubuntu 22.04 / Ubuntu 24.04]
-- 包名和版本 Package & version: <!-- roboparty_dexhand 0.3.0 -->
+- 包名和版本 Package & version: <!-- roboparty_dexhand 0.4.0 -->
 
 ## 现象 / What happened
 

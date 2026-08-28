@@ -1,3 +1,11 @@
+roboparty-dexhand (0.4.0-1) stable; urgency=medium
+
+  * Brand the public API as RP_Hand with legacy LHandPro aliases.
+  * Add the RP_Hand hardware validation guide (VALIDATION.md).
+  * Trim the public tree to release essentials.
+
+ -- RoboParty <2321901849@qq.com>  Fri, 28 Aug 2026 22:18:35 +0800
+
 roboparty-dexhand (0.3.0-1) stable; urgency=medium
 
   * Add verified LHandPro feedback-period provisioning.

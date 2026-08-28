@@ -44,7 +44,7 @@
 ```
 
 文件名中的版本字段由实际构建版本决定，例如当前仓库版本是
-`roboparty-dexhand_0.3.0-1_arm64.deb`；这里的版本字段就是通常所说的
+`roboparty-dexhand_0.4.0-1_arm64.deb`；这里的版本字段就是通常所说的
 `<version>`。安装后可使用已安装的 `roboparty-dexhand-config` 命令。
 Debian 打包配置的安装前缀是 `/opt/roboparty`，并依赖
 `roboparty-base (>= 1.0.0)`；运行 Python 前请先加载 RoboParty 基础环境。
