@@ -94,6 +94,7 @@ python3 -c 'from dexhand_py import HandModel; print(HandModel.RP_HAND_6DOF.value
   fi
   python3 - <<'PY'
 import os
+import sys
 import time
 
 from dexhand_py import HandDriver, HandModel
@@ -156,26 +157,32 @@ except BaseException as error:
     primary_error = error
     raise
 finally:
-    cleanup_error = None
+    cleanup_failures = []
     if hand is not None:
         if initialized:
             try:
                 hand.stop_motors(0)
             except BaseException as error:
-                cleanup_error = error
+                cleanup_failures.append(("stop_motors", error))
         if bypass_enabled:
             try:
                 hand.set_move_no_home(0)
             except BaseException as error:
-                if cleanup_error is None:
-                    cleanup_error = error
+                cleanup_failures.append(("set_move_no_home(0)", error))
         try:
             hand.deinit_hand()
         except BaseException as error:
-            if cleanup_error is None:
-                cleanup_error = error
-    if primary_error is None and cleanup_error is not None:
-        raise cleanup_error
+            cleanup_failures.append(("deinit_hand", error))
+    if cleanup_failures:
+        print("严重：清理失败，手可能仍处于不安全状态：", file=sys.stderr)
+        for operation, error in cleanup_failures:
+            print(f"  {operation}: {error!r}", file=sys.stderr)
+        print("请立即移除 RP_Hand 手本体电源，且不要继续测试。", file=sys.stderr)
+    if primary_error is None and cleanup_failures:
+        details = "; ".join(
+            f"{operation}: {error!r}" for operation, error in cleanup_failures
+        )
+        raise RuntimeError(f"cleanup failed: {details}")
 PY
 )
 ```
@@ -184,8 +191,9 @@ PY
 在健康检查通过、活动 DOF 为 `6` 且关节 `1..6` 报警全为 `0` 前，脚本不会发送
 任何目标位置或目标速度命令。`total` DOF 可能为 `11`，验收以活动 DOF 为准。清理
 阶段会在已初始化时尝试 `stop_motors(0)`，在已启用免回零时恢复
-`set_move_no_home(0)`，并且只调用一次 `deinit_hand()`；清理失败不会覆盖先前发生
-的主错误。
+`set_move_no_home(0)`，并且只调用一次 `deinit_hand()`；所有清理失败都会逐项输出
+到 `stderr`，且不会覆盖先前发生的主错误。出现“严重：清理失败”警告时，必须立即
+移除 RP_Hand 手本体电源，并且不要继续测试。
 
 ## 验收清单
 
@@ -195,4 +203,5 @@ PY
 - Python 模型数值输出恰好为 `0`；
 - `target5000` 和 `target0` 各输出六个位置，且位置接近相应目标，按硬件验收
   容差判定，不在本文另行虚构固定阈值；
-- 脚本清理并退出，无未处理错误。
+- 脚本清理并退出，无未处理错误，也没有“严重：清理失败”警告；若出现该警告，立即
+  移除 RP_Hand 手本体电源且不要继续测试。
