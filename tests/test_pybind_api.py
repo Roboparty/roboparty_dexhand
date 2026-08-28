@@ -238,6 +238,7 @@ class ManualHardwareHelperTest(unittest.TestCase):
                 self.assertIs(factory_calls[0]['hand_model'], model)
                 self.assertEqual(factory_calls[0]['hand_type'], 'RP_Hand')
                 self.assertEqual(factory_calls[0]['interface_type'], 'canfd')
+                self.assertEqual(factory_calls[0]['interface'], 'can0')
                 self.assertEqual(factory_calls[0]['canfd_node_id'], 1)
 
 
