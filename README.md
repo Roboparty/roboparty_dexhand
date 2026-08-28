@@ -27,9 +27,16 @@
 的命令会安全地解析一个匹配当前目录的包文件，再交给 `apt`：
 
 ```bash
-deb_path="$(find . -maxdepth 1 -type f -name 'roboparty-dexhand_*_arm64.deb' -print -quit)"
-test -n "$deb_path" || { echo "ARM64 package not found" >&2; exit 1; }
-sudo apt install "$deb_path"
+(
+  shopt -s nullglob
+  deb_candidates=(./roboparty-dexhand_*_arm64.deb)
+  if (( ${#deb_candidates[@]} != 1 )); then
+    printf 'expected exactly one ARM64 package, found %d\n' \
+      "${#deb_candidates[@]}" >&2
+    exit 1
+  fi
+  sudo apt install "${deb_candidates[0]}"
+)
 ```
 
 文件名中的版本字段由实际构建版本决定，例如当前仓库版本是
@@ -40,12 +47,29 @@ Debian 打包配置的安装前缀是 `/opt/roboparty`，并依赖
 如果当前 shell 没有该环境提供的路径设置，可显式执行：
 
 ```bash
-export PATH="/opt/roboparty/bin:$PATH"
-python_site="$(find /opt/roboparty/lib -mindepth 2 -maxdepth 2 \
-  -type d -name site-packages -path '/opt/roboparty/lib/python*/site-packages' \
-  -print -quit)"
-test -n "$python_site" || { echo "dexhand_py site-packages not found" >&2; exit 1; }
-export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
+setup_dexhand_debian() {
+  local install_prefix="/opt/roboparty"
+  local module module_dir
+  local -a modules=()
+
+  while IFS= read -r -d '' module; do
+    modules+=("$module")
+  done < <(find "$install_prefix" -type f -name 'dexhand_py*.so' -print0)
+  if (( ${#modules[@]} != 1 )); then
+    printf 'expected exactly one dexhand_py module, found %d\n' \
+      "${#modules[@]}" >&2
+    return 1
+  fi
+
+  module_dir="$(dirname -- "${modules[0]}")"
+  export PATH="$install_prefix/bin:$PATH"
+  export CMAKE_PREFIX_PATH="$install_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export PYTHONPATH="$module_dir${PYTHONPATH:+:$PYTHONPATH}"
+}
+if setup_dexhand_debian; then
+  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+fi
+unset -f setup_dexhand_debian
 ```
 
 ## Linux CAN-FD 设置
@@ -183,8 +207,10 @@ python3 right_hand_control.py --interface can1 --node-id 2
 
 ## C++ 使用
 
-最小生命周期示例只使用公共头文件中的接口，并在正常路径和异常路径都
-释放驱动：
+最小生命周期示例只使用公共头文件中的接口。它会初始化（包括正常回零）、
+检查状态并释放驱动，不设置目标位置，也不调用 `move_motors()`。真实硬件
+会启用并回零；运行前确认工作空间已清空。对于参考/零位未知的手，使用
+这里的正常回零流程，不要照搬 Python 示例中的 no-home 方式：
 
 ```cpp
 #include <hand_driver.hpp>
@@ -192,23 +218,26 @@ python3 right_hand_control.py --interface can1 --node-id 2
 int main() {
     auto hand = HandDriver::create_hand("LHandPro", "canfd", "can0", HAND_LHANDPRO_6DOF, 1);
 
+    int result = 1;
     try {
-        if (!hand->init_hand(true, false, 0.0)) {
-            hand->deinit_hand();
-            return 1;
+        if (hand->init_hand(true, true, 5.0)) {
+            hand->check_health();
+            int total = 0;
+            int active = 0;
+            hand->get_dof(total, active);
+            bool alarms_clear = true;
+            for (int joint = 1; joint <= 6; ++joint) {
+                if (hand->get_now_alarm(joint) != 0) alarms_clear = false;
+            }
+            result = (active == 6 && alarms_clear) ? 0 : 1;
         }
-
-        hand->set_move_no_home(1);
-        hand->set_target_position(1, 1200);
-        hand->set_position_velocity(1, 2000);
-        hand->move_motors(1);
-
-        hand->deinit_hand();
-        return 0;
     } catch (...) {
         hand->deinit_hand();
         throw;
     }
+
+    hand->deinit_hand();
+    return result;
 }
 ```
 
@@ -272,19 +301,34 @@ cmake --install build --prefix "$PWD/install"
 
 安装后，C++ 使用 `include/hand_driver.hpp`，Python 扩展位于前缀下的
 `lib/pythonX.Y/site-packages`（`X.Y` 由构建时 Python 版本决定）。使用下列
-命令让当前 shell 同时找到 C++ package config、CLI 和 Python 模块，不依赖
-手写 Python 版本号：
+函数让当前交互 shell 同时找到 C++ package config、CLI 和 Python 模块；函数
+要求前缀下恰好有一个 `dexhand_py*.so`，成功后环境变量会保留在当前 shell，
+且不会手写 Python 版本号：
 
 ```bash
-install_prefix="$PWD/install"
-export PATH="$install_prefix/bin:$PATH"
-export CMAKE_PREFIX_PATH="$install_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
-python_site="$(find "$install_prefix/lib" -mindepth 2 -maxdepth 2 \
-  -type d -name site-packages -path "$install_prefix/lib/python*/site-packages" \
-  -print -quit)"
-test -n "$python_site" || { echo "dexhand_py site-packages not found" >&2; exit 1; }
-export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
-python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+setup_dexhand_install() {
+  local install_prefix="$PWD/install"
+  local module module_dir
+  local -a modules=()
+
+  while IFS= read -r -d '' module; do
+    modules+=("$module")
+  done < <(find "$install_prefix" -type f -name 'dexhand_py*.so' -print0)
+  if (( ${#modules[@]} != 1 )); then
+    printf 'expected exactly one dexhand_py module, found %d\n' \
+      "${#modules[@]}" >&2
+    return 1
+  fi
+
+  module_dir="$(dirname -- "${modules[0]}")"
+  export PATH="$install_prefix/bin:$PATH"
+  export CMAKE_PREFIX_PATH="$install_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export PYTHONPATH="$module_dir${PYTHONPATH:+:$PYTHONPATH}"
+}
+if setup_dexhand_install; then
+  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+fi
+unset -f setup_dexhand_install
 ```
 
 应用仍须在库外准备好实际的 SocketCAN 接口。
