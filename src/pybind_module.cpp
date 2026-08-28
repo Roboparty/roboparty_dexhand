@@ -14,8 +14,8 @@ PYBIND11_MODULE(dexhand_py, module) {
       .value("CANFD", HandCommType::CANFD)
       .export_values();
   py::enum_<HandModel>(module, "HandModel")
-      .value("RP_HAND_6DOF", HAND_RP_HAND_6DOF)
       .value("LHANDPRO_6DOF", HAND_LHANDPRO_6DOF)
+      .value("RP_HAND_6DOF", HAND_RP_HAND_6DOF)
       .value("LHANDPRO_16DOF", HAND_LHANDPRO_16DOF)
       .export_values();
 

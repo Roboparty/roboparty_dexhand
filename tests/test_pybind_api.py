@@ -16,12 +16,18 @@ class DexhandApiTest(unittest.TestCase):
         self.assertEqual(int(dexhand_py.HandCommType.CANFD.value), 0)
         self.assertFalse(hasattr(dexhand_py.HandCommType, 'ETHERCAT'))
         self.assertFalse(hasattr(dexhand_py.HandCommType, 'RS485'))
-        self.assertEqual(int(dexhand_py.HandModel.RP_HAND_6DOF.value), 0)
-        self.assertEqual(int(dexhand_py.HandModel.LHANDPRO_6DOF.value), 0)
+        self.assertTrue(hasattr(dexhand_py.HandModel, 'RP_HAND_6DOF'))
+        preferred_model = dexhand_py.HandModel.RP_HAND_6DOF
+        legacy_model = dexhand_py.HandModel.LHANDPRO_6DOF
+        self.assertEqual(int(preferred_model.value), 0)
+        self.assertEqual(int(legacy_model.value), 0)
         self.assertEqual(
-            dexhand_py.HandModel.RP_HAND_6DOF,
-            dexhand_py.HandModel.LHANDPRO_6DOF,
+            preferred_model,
+            legacy_model,
         )
+        self.assertEqual(legacy_model.name, 'LHANDPRO_6DOF')
+        self.assertEqual(str(legacy_model), 'HandModel.LHANDPRO_6DOF')
+        self.assertEqual(repr(legacy_model), '<HandModel.LHANDPRO_6DOF: 0>')
         self.assertEqual(int(dexhand_py.HandModel.LHANDPRO_16DOF.value), 1)
         self.assertFalse(hasattr(dexhand_py.HandModel, 'RP_HAND_16DOF'))
 
