@@ -118,7 +118,9 @@ void check_invalid(const std::string& hand_type,
 }
 
 int main() {
+  CHECK_EQ(HAND_RP_HAND_6DOF, 0);
   CHECK_EQ(HAND_LHANDPRO_6DOF, 0);
+  CHECK_EQ(HAND_LHANDPRO_6DOF, HAND_RP_HAND_6DOF);
   CHECK_EQ(HAND_LHANDPRO_16DOF, 1);
 
   using Factory = std::shared_ptr<HandDriver> (*)(
@@ -130,6 +132,7 @@ int main() {
   check_concurrent_first_factory_creation();
   check_external_logger_reuse();
   check_drop_recreates_registered_logger();
+  CHECK(HandDriver::create_hand("RP_Hand", "canfd", "can0") != nullptr);
   CHECK(HandDriver::create_hand("LHandPro", "canfd", "can0") != nullptr);
   check_invalid("Unknown", "canfd", "can0", 0, 1, "Unknown");
   check_invalid("LHandPro", "ethercanfd", "can0", 0, 1, "ethercanfd");

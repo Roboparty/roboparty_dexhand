@@ -15,13 +15,16 @@
 enum class HandCommType { CANFD = 0 };
 
 /**
- * @brief Dexterous hand models (extensible for future vendors).
+ * @brief Public dexterous hand models.
  *
+ * RP_Hand is the supported public product and its 6DOF model is numeric 0.
  * Values are kept as plain ints so that YAML/python can pass them without
- * referencing vendor-specific headers.
+ * referencing private vendor-specific headers. The LHandPro 6DOF name is
+ * retained as a legacy alias for compatibility.
  */
 enum HandModel {
-    HAND_LHANDPRO_6DOF = 0,
+    HAND_RP_HAND_6DOF = 0,
+    HAND_LHANDPRO_6DOF = HAND_RP_HAND_6DOF,
     HAND_LHANDPRO_16DOF = 1,
 };
 
@@ -42,7 +45,8 @@ class HandDriver {
 
     /**
      * @brief Create a supported dexterous-hand driver.
-     * @param hand_type Exact vendor name, currently `LHandPro`.
+     * @param hand_type Public product name `RP_Hand` or legacy name
+     *                  `LHandPro`.
      * @param interface_type Exact transport name, currently `canfd`.
      * @param interface Non-empty Linux SocketCAN interface such as `can0`.
      * @param hand_model Stable public HandModel numeric value.
@@ -54,7 +58,7 @@ class HandDriver {
         const std::string& hand_type,
         const std::string& interface_type,
         const std::string& interface,
-        int hand_model = HAND_LHANDPRO_6DOF,
+        int hand_model = HAND_RP_HAND_6DOF,
         int canfd_node_id = 1);
 
     // ===== Lifecycle =====

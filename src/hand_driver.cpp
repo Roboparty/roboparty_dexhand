@@ -43,7 +43,7 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
     const std::string& interface,
     int hand_model,
     int canfd_node_id) {
-    if (hand_type != "LHandPro") {
+    if (hand_type != "RP_Hand" && hand_type != "LHandPro") {
         throw std::invalid_argument("Unsupported hand_type: " + hand_type);
     }
     if (interface_type != "canfd") {
@@ -61,7 +61,7 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
     using roboparty::dexhand::detail::LHandProModel;
     LHandProModel model;
     switch (hand_model) {
-        case HAND_LHANDPRO_6DOF:
+        case HAND_RP_HAND_6DOF:
             model = LHandProModel::Dof6S;
             break;
         case HAND_LHANDPRO_16DOF:
