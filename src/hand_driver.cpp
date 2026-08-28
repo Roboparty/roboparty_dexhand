@@ -59,6 +59,11 @@ std::shared_ptr<HandDriver> HandDriver::create_hand(
         throw std::invalid_argument("canfd_node_id must be in [1, 127], got " +
                                     std::to_string(canfd_node_id));
     }
+    if (hand_type == "RP_Hand" && hand_model != HAND_RP_HAND_6DOF) {
+        throw std::invalid_argument(
+            "Unsupported hand_model: " + std::to_string(hand_model) +
+            "; RP_Hand supports HAND_RP_HAND_6DOF (0)");
+    }
 
     using roboparty::dexhand::detail::LHandProModel;
     LHandProModel model;

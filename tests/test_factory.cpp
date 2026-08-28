@@ -139,6 +139,8 @@ int main() {
   check_drop_recreates_registered_logger();
   CHECK(HandDriver::create_hand("RP_Hand", "canfd", "can0",
                                 HAND_RP_HAND_6DOF, 1) != nullptr);
+  CHECK(HandDriver::create_hand("LHandPro", "canfd", "can0",
+                                HAND_LHANDPRO_16DOF, 1) != nullptr);
   CHECK(HandDriver::create_hand("LHandPro", "canfd", "can0") != nullptr);
   check_invalid("Unknown", "canfd", "can0", 0, 1, "Unknown",
                 "supported hand_type is RP_Hand");
@@ -146,6 +148,8 @@ int main() {
   check_invalid("LHandPro", "canfd", "", 0, 1, "empty");
   check_invalid("LHandPro", "canfd", "can0", -1, 1, "-1");
   check_invalid("LHandPro", "canfd", "can0", 2, 1, "2",
+                "RP_Hand supports HAND_RP_HAND_6DOF (0)");
+  check_invalid("RP_Hand", "canfd", "can0", 1, 1, "1",
                 "RP_Hand supports HAND_RP_HAND_6DOF (0)");
   check_invalid("LHandPro", "canfd", "can0", 0, 0, "0");
   check_invalid("LHandPro", "canfd", "can0", 0, 128, "128");
