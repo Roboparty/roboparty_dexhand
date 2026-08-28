@@ -1,25 +1,25 @@
-# roboparty_dexhand
+# RP_Hand 6DOF
 
-`roboparty_dexhand` 是面向 Linux 的 LHandPro 6DOF S 灵巧手 C++/Python
+`roboparty_dexhand` 是面向 Linux 的 RP_Hand 6DOF 灵巧手 C++/Python
 控制库，通过外部配置的 SocketCAN CAN-FD 接口进行通信。库提供统一的
 `HandDriver` 工厂接口、运动控制和反馈读取能力。
 
 ## 项目用途
 
-使用本库可以在机器人应用中创建 LHandPro 驱动、发送关节运动目标并读取
+使用本库可以在机器人应用中创建 RP_Hand 驱动、发送关节运动目标并读取
 灵巧手反馈。日常使用顺序是先在系统中配置 CAN-FD，再按需完成一次反馈
 周期配置，然后初始化驱动、控制关节，最后显式释放驱动资源。
 
 ## 支持范围
 
 - Linux x86-64 与 AArch64；
-- LHandPro 6DOF S，CAN-FD，CANopen node ID 为 `1..127`；
+- RP_Hand 6DOF，CAN-FD，CANopen node ID 为 `1..127`；
 - Python 模块 `dexhand_py` 与 C++ 头文件 `include/hand_driver.hpp`；
 - 一个进程使用一个活动的厂商 SDK 实例。
 
-本部署只支持 LHandPro 6DOF S。公共模型值
-`LHANDPRO_6DOF` 对应该型号；普通厂商 6DOF 型号和当前 16DOF 型号不在
-本部署的支持范围内。
+本部署只支持 RP_Hand 6DOF。唯一公开支持的模型值为
+`RP_HAND_6DOF=0`。RP_Hand 品牌发布前版本中的标识符仍保持源码兼容，
+但不作为本手册的公共接口展示。
 
 ## 安装
 
@@ -67,7 +67,7 @@ setup_dexhand_debian() {
   export PYTHONPATH="$module_dir${PYTHONPATH:+:$PYTHONPATH}"
 }
 if setup_dexhand_debian; then
-  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.RP_HAND_6DOF.value)'
 fi
 unset -f setup_dexhand_debian
 ```
@@ -143,7 +143,7 @@ def read_positions(hand, label):
 
 
 hand = HandDriver.create_hand(
-    "LHandPro", "canfd", CAN_INTERFACE, HandModel.LHANDPRO_6DOF, 1
+    "RP_Hand", "canfd", CAN_INTERFACE, HandModel.RP_HAND_6DOF, 1
 )
 initialized = False
 try:
@@ -219,7 +219,7 @@ python3 right_hand_control.py --interface can1 --node-id 2
 #include <hand_driver.hpp>
 
 int main() {
-    auto hand = HandDriver::create_hand("LHandPro", "canfd", "can0", HAND_LHANDPRO_6DOF, 1);
+    auto hand = HandDriver::create_hand("RP_Hand", "canfd", "can0", HAND_RP_HAND_6DOF, 1);
 
     int result = 1;
     try {
@@ -252,13 +252,13 @@ Python 方法使用 `hand.method()`。
 - 创建与生命周期：`create_hand()`、`init_hand(enable_motors, home_motors,
   home_wait_time)`、`deinit_hand()`。工厂参数依次为
   `hand_type`、`interface_type`、`interface`、`hand_model`、
-  `canfd_node_id`；本部署使用 `"LHandPro"`、`"canfd"` 和
-  C++ 模型常量 `HAND_LHANDPRO_6DOF`；Python 使用
-  `HandModel.LHANDPRO_6DOF`。
-- 枚举名称按语言区分：Python 使用 `HandCommType.CANFD` 和
-  `HandModel.LHANDPRO_6DOF`；C++ 使用 `HandCommType::CANFD` 和
-  `HAND_LHANDPRO_6DOF`。`HandModel.LHANDPRO_16DOF` 虽由 Python 绑定导出，
-  但不受本部署支持。
+  `canfd_node_id`；本部署使用 `"RP_Hand"`、`"canfd"` 和
+  C++ 模型常量 `HAND_RP_HAND_6DOF`；Python 使用
+  `HandModel.RP_HAND_6DOF`。
+- 模型值按语言区分：Python 使用 `HandCommType.CANFD` 和
+  `HandModel.RP_HAND_6DOF`；C++ 使用 `HandCommType::CANFD` 和
+  `HAND_RP_HAND_6DOF`。RP_Hand 品牌发布前版本中的标识符仍保持源码兼容，
+  但新代码应使用上述公共名称。
 - 运动执行：`move_motors(finger_id=0)`、`stop_motors(finger_id=0)`、
   `home_motors(finger_id=0)` 的默认 `finger_id` 是 `0`，表示广播到全部
   关节。`set_enable(finger_id, enable)` 必须显式传入 `finger_id`，但传入
@@ -294,7 +294,7 @@ Python 方法使用 `hand.method()`。
 ## 从源码构建
 
 需要 CMake 3.15 或更新版本，以及 Python 3、pybind11、spdlog 和 fmt。仓库
-已包含对应架构的 LHandPro SDK 文件。配置、编译和安装：
+已包含对应架构的底层 SDK 文件。配置、编译和安装：
 
 ```bash
 cmake -S . -B build -DPython3_EXECUTABLE=/usr/bin/python3
@@ -329,7 +329,7 @@ setup_dexhand_install() {
   export PYTHONPATH="$module_dir${PYTHONPATH:+:$PYTHONPATH}"
 }
 if setup_dexhand_install; then
-  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.RP_HAND_6DOF.value)'
 fi
 unset -f setup_dexhand_install
 ```
