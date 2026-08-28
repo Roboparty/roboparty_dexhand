@@ -1,98 +1,300 @@
 # roboparty_dexhand
 
-Factory-style C++/Python control library for LHandPro hands over Linux CAN-FD.
-The library owns a private SocketCAN socket; motors may use another socket on
-the same physical CAN interface. No motors source or private target is linked.
+`roboparty_dexhand` 是面向 Linux 的 LHandPro 6DOF S 灵巧手 C++/Python
+控制库，通过外部配置的 SocketCAN CAN-FD 接口进行通信。库提供统一的
+`HandDriver` 工厂接口、运动控制和反馈读取能力。
 
-## Supported Platforms
+## 项目用途
 
-- Linux x86-64 (development)
-- Linux AArch64/ARM64 (Orange Pi and RDK deployment)
-- One active LHandPro SDK instance per process
+使用本库可以在机器人应用中创建 LHandPro 驱动、发送关节运动目标并读取
+灵巧手反馈。日常使用顺序是先在系统中配置 CAN-FD，再按需完成一次反馈
+周期配置，然后初始化驱动、控制关节，最后显式释放驱动资源。
 
-The AArch64/ARM64 target and physical hardware path have now been exercised
-for the production source commit `db2da9fb90f407bdd5e3bbd3de691e775d27abd3`.
-The project owner has authorized redistribution of the two pinned SDK
-artifacts. The project accepts the exact-hash empirical callback-quiescence
-evidence described below; it does not present that evidence as a broader vendor
-API guarantee.
+## 支持范围
 
-## CAN Setup
+- Linux x86-64 与 AArch64；
+- LHandPro 6DOF S，CAN-FD，CANopen node ID 为 `1..127`；
+- Python 模块 `dexhand_py` 与 C++ 头文件 `include/hand_driver.hpp`；
+- 一个进程使用一个活动的厂商 SDK 实例。
 
-Configure bitrate and link state outside this library, for example with the
-deployment service responsible for `can0`. The factory does not accept bitrate
-arguments and never changes the network interface.
+本部署只支持 LHandPro 6DOF S。公共模型值
+`LHANDPRO_6DOF` 对应该型号；普通厂商 6DOF 型号和当前 16DOF 型号不在
+本部署的支持范围内。
 
-The project requires CMake 3.15 or newer.
+## 安装
 
-## Feedback-Period Provisioning
+在 Debian 系统上安装 ARM64 软件包。先将目标 `.deb` 放在当前目录；下面
+的命令会安全地解析一个匹配当前目录的包文件，再交给 `apt`：
 
-This is a mandatory manufacturing/deployment prerequisite, not optional tuning.
-For every new hand, replacement hand, factory-reset hand, or device with an
-unknown configuration, complete this gate before the first normal
-`HandDriver::init_hand()` or robot startup:
+```bash
+(
+  shopt -s nullglob
+  deb_candidates=(./roboparty-dexhand_*_arm64.deb)
+  if (( ${#deb_candidates[@]} != 1 )); then
+    printf 'expected exactly one ARM64 package, found %d\n' \
+      "${#deb_candidates[@]}" >&2
+    exit 1
+  fi
+  sudo apt install "${deb_candidates[0]}"
+)
+```
 
-1. Stop every other hand-control process.
-2. Run `feedback-period apply` with `--milliseconds 20 --save` as shown below.
-3. Power-cycle the hand itself; restarting only the host is not sufficient.
-4. Run `feedback-period show` and require all six axes to report raw value `200`.
+文件名中的版本字段由实际构建版本决定，例如当前仓库版本是
+`roboparty-dexhand_0.3.0-1_arm64.deb`；这里的版本字段就是通常所说的
+`<version>`。安装后可使用已安装的 `roboparty-dexhand-config` 命令。
+Debian 打包配置的安装前缀是 `/opt/roboparty`，并依赖
+`roboparty-base (>= 1.0.0)`；运行 Python 前请先加载 RoboParty 基础环境。
+如果当前 shell 没有该环境提供的路径设置，可显式执行：
 
-If any step fails, do not start normal hand control. The runtime multiplier
-`0x01` produces 50 Hz only when the stored base period is 20 ms; an
-unprovisioned or unknown base period can produce unexpectedly high feedback
-rates.
+```bash
+setup_dexhand_debian() {
+  local install_prefix="/opt/roboparty"
+  local module module_dir
+  local -a modules=()
 
-The provisioning session does not enable, home, or move the hand, but it does
-initialize communication and may emit transient runtime-configuration traffic.
-It is not a zero-CAN-traffic operation. Apply and persist the required base
-period with:
+  while IFS= read -r -d '' module; do
+    modules+=("$module")
+  done < <(find "$install_prefix" -type f -name 'dexhand_py*.so' -print0)
+  if (( ${#modules[@]} != 1 )); then
+    printf 'expected exactly one dexhand_py module, found %d\n' \
+      "${#modules[@]}" >&2
+    return 1
+  fi
+
+  module_dir="$(dirname -- "${modules[0]}")"
+  export PATH="$install_prefix/bin:$PATH"
+  export CMAKE_PREFIX_PATH="$install_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export PYTHONPATH="$module_dir${PYTHONPATH:+:$PYTHONPATH}"
+}
+if setup_dexhand_debian; then
+  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+fi
+unset -f setup_dexhand_debian
+```
+
+## Linux CAN-FD 设置
+
+CAN-FD 接口由系统或部署脚本在库外配置。下面以 `can0` 为例，设置名义
+速率 1 Mbps、数据速率 5 Mbps、采样点和同步跳转宽度后启动接口：
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can \
+  bitrate 1000000 sample-point 0.8 sjw 4 \
+  dbitrate 5000000 dsample-point 0.75 dsjw 2 fd on
+sudo ip link set can0 txqueuelen 10000
+sudo ip link set can0 up
+ip -details -statistics link show can0
+```
+
+将命令中的 `can0` 替换为实际连接灵巧手的物理接口。库只使用已存在的
+SocketCAN 接口，永远不会替应用配置速率、采样点、队列长度或接口状态。
+
+## 首次配置反馈频率
+
+新手、替换手、恢复出厂设置的手，或当前配置未知的手，需要完成一次
+反馈周期配置；普通每次启动不需要重复执行。操作前先停止其他手控制进程，
+然后执行：
 
 ```bash
 roboparty-dexhand-config feedback-period apply --interface can0 --node-id 1 --milliseconds 20 --save
 ```
 
-After power-cycling the hand itself, verify all six stored axis values with:
+只给灵巧手本体断电再上电，然后执行查询：
 
 ```bash
 roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
 ```
 
-The six SDO objects use subindex `0x14`; their stored value `200` is the 20 ms
-base TPDO period in 0.1 ms units. Separately, after each successful
-`initial_ex`, the driver sends runtime configuration payload
-`00 04 50 01 5A 01` on CAN ID `0x500 + node_id`. Each `0x01` is a multiplier
-that requests the corresponding feedback type every one base period. It is not
-a duration: multiplier `0x14` would produce `20 * 20 ms = 400 ms`, not 20 ms.
+查询结果中六个轴的 raw value 都必须是 `200`。如果有轴需要改变，
+`apply --save` 会写入六个目标值并保存；如果六个轴已经都是 `200`，CLI
+会报告 `result=already-compliant`，不会重复写入或保存。无论哪种结果，
+都要给灵巧手本体断电再上电，然后运行上面的 `show` 进行确认。`20 ms`
+表示两个反馈类型各自以 `50 Hz` 发送，因此合计约为 `100` 帧/秒。正常的
+`init_hand()` 永远不会写入或修改持久化反馈周期参数。
 
-```text
-20 ms = 50 emissions/second for frame type 0x50
-20 ms = 50 emissions/second for frame type 0x5A
-observed aggregate = approximately 100 CAN-FD frames/second
+## Python 使用
+
+下面示例使用已安装的模块。它会将六个关节移动到有限的目标位置，读取
+全部位置，再回到零位并再次读取。示例显式跳过回零，只适用于已经知道
+参考/零位且工作空间已清空的手。新手或参考状态未知时，不要绕过回零，
+请改用正常回零流程（例如 `init_hand(True, True, 5.0)`）。这不是所有启动
+场景下都最安全的通用配置。真实硬件会产生运动；运行前确认手的周围没有
+人员或障碍物，并准备好立即断电或停止运动。
+
+```python
+import time
+
+from dexhand_py import HandDriver, HandModel
+
+
+CAN_INTERFACE = "can0"
+TARGET_POSITION = 1200
+TARGET_VELOCITY = 2000
+
+
+def read_positions(hand, label):
+    positions = [hand.get_now_position(joint) for joint in range(1, 7)]
+    values = " ".join(
+        f"joint{joint}={position}"
+        for joint, position in enumerate(positions, start=1)
+    )
+    print(f"{label}: {values}")
+
+
+hand = HandDriver.create_hand(
+    "LHandPro", "canfd", CAN_INTERFACE, HandModel.LHANDPRO_6DOF, 1
+)
+initialized = False
+try:
+    if not hand.init_hand(True, False, 0.0):
+        raise RuntimeError("init_hand failed")
+    initialized = True
+
+    hand.check_health()
+    total, active = hand.get_dof()
+    if active != 6:
+        raise RuntimeError(f"unexpected active DOF: {active} (total={total})")
+    alarms = [hand.get_now_alarm(joint) for joint in range(1, 7)]
+    if any(alarm != 0 for alarm in alarms):
+        raise RuntimeError(f"nonzero joint alarms: {alarms}")
+
+    hand.set_move_no_home(1)
+    for joint in range(1, 7):
+        hand.set_target_position(joint, TARGET_POSITION)
+        hand.set_position_velocity(joint, TARGET_VELOCITY)
+    hand.move_motors(0)
+    time.sleep(1.0)
+    read_positions(hand, "target")
+
+    for joint in range(1, 7):
+        hand.set_target_position(joint, 0)
+        hand.set_position_velocity(joint, TARGET_VELOCITY)
+    hand.move_motors(0)
+    time.sleep(1.0)
+    read_positions(hand, "zero")
+finally:
+    if initialized:
+        try:
+            hand.set_move_no_home(0)
+        finally:
+            hand.deinit_hand()
+    else:
+        hand.deinit_hand()
 ```
 
-These are distinct frame types, not duplicate frames. The protocol documents
-`0x5A` as axis status/status2, while the supplied protocol export does not
-define `0x50`.
+## 选择 CAN 接口
 
-This gate is owned by the `roboparty-dexhand-config` CLI and the manufacturing
-or deployment process. It does not automatically modify `roboparty_deploy`, and
-normal `HandDriver::init_hand()` never writes persistent feedback parameters.
+`interface` 字符串决定 Linux 将数据发送到哪个 SocketCAN 接口。使用
+`can0`、`can1`、`can2` 或 `can3` 时，只需把工厂参数或上面示例中的
+`CAN_INTERFACE` 改成对应名称；库不会自动探测或选择端口。端口必须已经
+连接到目标灵巧手并完成 CAN-FD 配置。
 
-The vendor SDO set/save functions only confirm that a request was sent. The
-provisioning command waits for each exact device acknowledgement before sending
-the next request and fails on an abort or a 100 ms timeout. A fixed delay is not
-used as proof: an Orange Pi trace showed that even 20 ms pacing still produced
-one vendor decoder code 3 for every valid write acknowledgement. The driver now
-uses the raw `0x60` acknowledgement as authoritative while still passing it to
-the vendor decoder to clear pending internal state.
+## 双手使用
 
-The pinned AArch64 SDK also emits a compatibility probe before its real save
-request. Its exact response payload is `00 10 10 00 20 00 00 00`, followed
-about 5 ms later by the real `0x60/0x1010:01` save acknowledgement. The probe is
-ignored as a decoder fault only while a save is pending and never completes the
-save wait. Any payload or context mismatch remains fail-closed.
+支持的双手部署方式是每只手使用一个 OS 进程。厂商 SDK 每个进程只支持
+一个活动实例，接收回调也是进程级资源；每个进程应传入自己负责的接口和
+node ID。例如，应用脚本自行提供这两个参数时可以这样启动：
 
-## Build
+```bash
+# 左手进程：物理接口 can0，node ID 1
+python3 left_hand_control.py --interface can0 --node-id 1
+
+# 右手进程：物理接口 can1，node ID 2
+python3 right_hand_control.py --interface can1 --node-id 2
+```
+
+两个进程各自调用 `HandDriver.create_hand()` 并传入分配好的接口和 node ID。
+`roboparty_deploy` 不会替应用自动选择 `can0`/`can1`，接口分配应由部署
+配置和应用参数明确完成。
+
+## C++ 使用
+
+最小生命周期示例只使用公共头文件中的接口。它会初始化（包括正常回零）、
+检查状态并释放驱动，不设置目标位置，也不调用 `move_motors()`。真实硬件
+会启用并回零；运行前确认工作空间已清空。对于参考/零位未知的手，使用
+这里的正常回零流程，不要照搬 Python 示例中的 no-home 方式：
+
+```cpp
+#include <hand_driver.hpp>
+
+int main() {
+    auto hand = HandDriver::create_hand("LHandPro", "canfd", "can0", HAND_LHANDPRO_6DOF, 1);
+
+    int result = 1;
+    try {
+        if (hand->init_hand(true, true, 5.0)) {
+            hand->check_health();
+            int total = 0;
+            int active = 0;
+            hand->get_dof(total, active);
+            bool alarms_clear = true;
+            for (int joint = 1; joint <= 6; ++joint) {
+                if (hand->get_now_alarm(joint) != 0) alarms_clear = false;
+            }
+            result = (active == 6 && alarms_clear) ? 0 : 1;
+        }
+    } catch (...) {
+        hand->deinit_hand();
+        throw;
+    }
+
+    hand->deinit_hand();
+    return result;
+}
+```
+
+## 主要 API
+
+以下是 `HandDriver` 的公共 Python/C++ API。C++ 方法使用 `hand->method()`，
+Python 方法使用 `hand.method()`。
+
+- 创建与生命周期：`create_hand()`、`init_hand(enable_motors, home_motors,
+  home_wait_time)`、`deinit_hand()`。工厂参数依次为
+  `hand_type`、`interface_type`、`interface`、`hand_model`、
+  `canfd_node_id`；本部署使用 `"LHandPro"`、`"canfd"` 和
+  C++ 模型常量 `HAND_LHANDPRO_6DOF`；Python 使用
+  `HandModel.LHANDPRO_6DOF`。
+- 枚举名称按语言区分：Python 使用 `HandCommType.CANFD` 和
+  `HandModel.LHANDPRO_6DOF`；C++ 使用 `HandCommType::CANFD` 和
+  `HAND_LHANDPRO_6DOF`。`HandModel.LHANDPRO_16DOF` 虽由 Python 绑定导出，
+  但不受本部署支持。
+- 运动执行：`move_motors(finger_id=0)`、`stop_motors(finger_id=0)`、
+  `home_motors(finger_id=0)` 的默认 `finger_id` 是 `0`，表示广播到全部
+  关节。`set_enable(finger_id, enable)` 必须显式传入 `finger_id`，但传入
+  `0` 仍表示广播；`set_move_no_home(enable)` 没有 `finger_id`，只接受
+  `1`（允许未完成回零时运动）或 `0`（要求先完成回零）。
+- 目标参数：`set_target_position(finger_id, position)`（编码器计数）、
+  `set_target_angle(finger_id, angle)`（角度）、
+  `set_position_velocity(finger_id, velocity)`（计数/秒）、
+  `set_max_current(finger_id, current)`（mA）。这些方法需要明确的
+  `finger_id`，没有默认值；按公共/厂商约定传入 `0` 表示广播到全部关节。
+  本手册示例仍显式使用关节 `1..6`，以便逐关节检查和控制。
+- 反馈与状态：`get_now_position(finger_id)`、`get_now_angle(finger_id)`、
+  `get_now_status(finger_id)`、`get_now_current(finger_id)`、
+  `get_now_alarm(finger_id)`、`clear_alarm(finger_id)`。`clear_alarm(0)`
+  清除全部关节报警；其他读取方法按指定关节返回缓存值。
+- 设备信息与健康：Python 中 `total, active = hand.get_dof()` 返回总关节数
+  和活动关节数；C++ 中使用 `int total, active; hand->get_dof(total, active);`。
+  `get_can_name()` 返回接口名，`check_health()` 在驱动故障时抛出异常。
+
+## 必须遵守的运行注意事项
+
+- 启动控制程序前，先在库外配置并拉起目标 SocketCAN CAN-FD 接口；node ID
+  必须与实际灵巧手一致，并避免同一总线上出现冲突的 node ID。
+- 首次或配置未知的手必须先完成 20 ms 反馈周期配置并确认六个 raw value
+  都为 `200`；配置命令执行期间不要运行其他手控制进程。
+- `init_hand()` 返回 `false` 或抛出异常时，不要继续发送运动命令。运动前
+  根据实际机构确认目标位置、速度、负载和安全边界。
+- 每个成功创建的驱动都必须显式调用 `deinit_hand()`；不要把 Python 对象
+  销毁或 C++ 智能指针析构当作清理替代方案。
+- 双手使用时保持一手一进程，并在每个进程中明确传入自己的 interface 和
+  node ID。
+
+## 从源码构建
+
+需要 CMake 3.15 或更新版本，以及 Python 3、pybind11、spdlog 和 fmt。仓库
+已包含对应架构的 LHandPro SDK 文件。配置、编译和安装：
 
 ```bash
 cmake -S . -B build -DPython3_EXECUTABLE=/usr/bin/python3
@@ -100,155 +302,42 @@ cmake --build build --parallel
 cmake --install build --prefix "$PWD/install"
 ```
 
-## C++
-
-```cpp
-#include <hand_driver.hpp>
-
-auto hand = HandDriver::create_hand("LHandPro", "canfd", "can0",
-                                    HAND_LHANDPRO_6DOF, 1);
-```
-
-## Python
-
-```python
-from dexhand_py import HandDriver, HandModel
-
-hand = HandDriver.create_hand(
-    hand_type="LHandPro", interface_type="canfd", interface="can0",
-    hand_model=HandModel.LHANDPRO_6DOF, canfd_node_id=1)
-try:
-    ...
-finally:
-    hand.deinit_hand()
-```
-
-## Migration From 0.1.x
-
-Version 0.2.0 removes `canfd_nom_baudrate` and `canfd_dat_baudrate`; configure
-the Linux CAN interface in deployment tooling. It also removes the unimplemented
-`ETHERCAT` and `RS485` enum exports. Public hand-model numeric values remain
-unchanged: public value 0 now denotes the supported LHandPro 6DOF S model, and
-public value 1 continues to denote the existing 16DOF model. The ordinary vendor
-6DOF model is outside this deployment's support contract. Although the public
-API and numeric values are unchanged, this meaning is deliberately incompatible
-for users of that ordinary 6DOF hardware.
-
-## Testing
-
-Automatic lifecycle and transport tests use fakes and never enable, home, or
-move a physical hand. The vendor ABI smoke test exercises only
-create/model/destroy and does not initialize or communicate with a hand.
-`scripts/test_dexhand.py --confirm-motion` is a manual hardware test only.
-
-## ROS/Ament Build
+安装后，C++ 使用 `include/hand_driver.hpp`，Python 扩展位于前缀下的
+`lib/pythonX.Y/site-packages`（`X.Y` 由构建时 Python 版本决定）。使用下列
+函数让当前交互 shell 同时找到 C++ package config、CLI 和 Python 模块；函数
+要求前缀下恰好有一个 `dexhand_py*.so`，成功后环境变量会保留在当前 shell，
+且不会手写 Python 版本号：
 
 ```bash
-source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-select roboparty_dexhand \
-  --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
-colcon test --packages-select roboparty_dexhand
-colcon test-result --verbose
+setup_dexhand_install() {
+  local install_prefix="$PWD/install"
+  local module module_dir
+  local -a modules=()
+
+  while IFS= read -r -d '' module; do
+    modules+=("$module")
+  done < <(find "$install_prefix" -type f -name 'dexhand_py*.so' -print0)
+  if (( ${#modules[@]} != 1 )); then
+    printf 'expected exactly one dexhand_py module, found %d\n' \
+      "${#modules[@]}" >&2
+    return 1
+  fi
+
+  module_dir="$(dirname -- "${modules[0]}")"
+  export PATH="$install_prefix/bin:$PATH"
+  export CMAKE_PREFIX_PATH="$install_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export PYTHONPATH="$module_dir${PYTHONPATH:+:$PYTHONPATH}"
+}
+if setup_dexhand_install; then
+  python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+fi
+unset -f setup_dexhand_install
 ```
 
-## Installed CMake Target
+应用仍须在库外准备好实际的 SocketCAN 接口。
 
-Consumers use `find_package(roboparty_dexhand CONFIG REQUIRED)` and link only
-`roboparty_dexhand::dexhand`. Private SDK, driver, and transport targets and
-headers are not installed. `libdexhand.so` finds `libLHandProLib.so` beside it
-through `$ORIGIN`; the Python extension finds the configured install library
-directory through `$ORIGIN/../..`, so consumers do not need `LD_LIBRARY_PATH`.
-The release gate verifies prefix-only discovery for the default install layout.
-Custom install library directories such as `lib64` are not supported or verified
-because their prefix search behavior depends on the host CMake platform policy.
+## License
 
-## vcan Release Test
-
-Configure with `-DDEXHAND_ENABLE_VCAN_TESTS=ON` only after creating and raising
-`vcan-dexhand0`. The `vcan_two_socket` test is a required release gate and
-proves two independent sockets, exact filters, no own-message delivery, and
-bounded shutdown.
-
-## ARM64 Release Gate
-
-The repository carries an AArch64 SDK artifact. The Orange Pi validation for
-the production commit above completed a native Debug/Werror build, exactly
-8/8 CTests, install/export relocation, AArch64 artifact and RPATH checks, and
-installed Python construction checks. x86 ELF inspection is not a substitute;
-the board evidence is retained at
-`/home/orangepi/roboparty_dexhand_can0_full_20260824/evidence`.
-
-The same board then completed the bounded physical can0 test with CAN-FD node
-ID 1 and the public 6DOF model: three 0-to-5000 and 5000-to-0 cycles, a final
-open command, four cleanup steps, and a unique `phase_complete` event. The
-validated vendor DOF pair was `(11, 6)`. The command returned zero; postflight
-left can0 `ERROR-ACTIVE` at 1 Mbit/s nominal and 5 Mbit/s data rate with zero
-bus, protocol, RX, TX, and dropped-frame errors and no active receiver.
-
-Feedback-period write/save and runtime-rate evidence are recorded separately so
-their source revisions are not conflated. At commit
-`806f31de6386eed93206b6966b41afc0cf4f574c`, the physical no-motion write path
-changed all six axes from 201 to 200, received the exact acknowledgement for
-each write, and confirmed every value by post-write readback. The capture also
-contains the real save request and its exact acknowledgement. The installed CLI
-reported `result=saved` and exited zero; the capture contains zero motion
-frames. The complete save capture has SHA-256
-`4985359581d52589a4fc58b30b2baa0f0d99c5ac0edbf219a0c277df094973c2`.
-
-Runtime-fix commit `03938ca7437120ab6917187b06d60ce70b45c5ec` is the
-direct child of that save-path commit. Its only production-code change is the
-runtime feedback constant/name, accompanied by tests and documentation; the SDO
-write, acknowledgement, save, and CLI persistence paths are unchanged. The
-save-path evidence from its direct parent therefore remains the applicable
-physical evidence for those paths.
-
-The runtime-fix source completed a native AArch64 Orange Pi Debug/Werror build
-and all 10/10 CTests. After a hand-only power-cycle, the installed `show` command
-reported all six values as 200, printed `result=shown`, and exited zero. Its
-capture contains one vendor `initial_ex` configuration frame followed by three
-driver frames with exact payload `00 04 50 01 5A 01`, and zero frames with the
-old `00 04 50 14 5A 14` payload. After the CLI exited, a separate five-second
-capture counted `type50=250`, `type5A=250`, and `total=500`.
-
-Throughout that runtime validation, can1 remained `ERROR-ACTIVE` at 1 Mbit/s
-nominal and 5 Mbit/s data rate. Pre/post deltas were zero for bus errors,
-arbitration loss, warning, error-passive, bus-off, RX errors, TX errors, drops,
-and backlog. Evidence is retained at
-`/home/orangepi/roboparty_dexhand-feedback-6044ad5/evidence`; its recorded
-SHA-256 prefixes are `ac84891d...` for the final show capture, `a1ba99ce...` for
-the rate capture, `c1563f58...` for the output, and `9a271f2a...` for the return
-code record.
-
-## Runtime Safety Constraints
-
-The driver uses the spdlog logger named `dexhand` from worker threads. If an
-application externally pre-registers that logger, all attached sinks must be
-thread-safe `_mt` sinks. SocketCAN worker and process-global callback-boundary
-diagnostics use only that named logger, remain silent when it is absent, and
-swallow logging exceptions at `noexcept` boundaries.
-
-The vendor DOF probe reports `(total, active)` as `(11, 6)` for the 6DOF S model
-and `(21, 16)` for the 16-DOF model. Initialization accepts only the exact pair
-for the selected model, and `get_dof()` returns that validated snapshot.
-
-Python users must explicitly call `deinit_hand()` before releasing the final
-hand object reference. The current pybind11 2.11 binding has no
-release-GIL-before-C++-destructor policy, so object destruction is not a
-substitute for explicit shutdown.
-
-Vendor callback cleanup depends on the bundled SDK's `stop_monitor quiescence`
-contract: `lhandprolib_stop_monitor()` must return only after callbacks have
-quiesced. Any SDK upgrade requires renewed physical-hardware and vendor
-validation of that shutdown guarantee before release. The pinned binary has
-project evidence from 498 complete 60-second lifecycles with zero late
-callbacks in the callback counters, followed by an independent 10-second
-diagnostic with 84 lifecycles, 21,434 successful decodes, and zero late
-callbacks. The first run also recorded 101 decode failures; the follow-up did
-not reproduce them, so that residual remains documented.
-
-## Vendor License Boundary
-
-RoboParty-authored source is GPL-3.0. The project owner's redistribution
-authorization for the exact vendor artifacts is recorded in
-`thirdparty/README.md`; it does not relicense those artifacts or imply a
-vendor API guarantee.
+RoboParty 编写的源代码采用 GPL-3.0。仓库内捆绑的厂商 SDK 头文件和二进制
+文件保留其自身的许可与再分发边界；相关说明请参阅
+[`thirdparty/README.md`](thirdparty/README.md)。
