@@ -23,15 +23,30 @@
 
 ## 安装
 
-在 Debian 系统上安装 ARM64 软件包：
+在 Debian 系统上安装 ARM64 软件包。先将目标 `.deb` 放在当前目录；下面
+的命令会安全地解析一个匹配当前目录的包文件，再交给 `apt`：
 
 ```bash
-sudo apt install ./roboparty-dexhand_<version>_arm64.deb
+deb_path="$(find . -maxdepth 1 -type f -name 'roboparty-dexhand_*_arm64.deb' -print -quit)"
+test -n "$deb_path" || { echo "ARM64 package not found" >&2; exit 1; }
+sudo apt install "$deb_path"
 ```
 
-将 `<version>` 替换为实际软件包文件名中的版本号，例如软件包文件为
-`roboparty-dexhand_0.3.0_arm64.deb` 时使用 `0.3.0`。安装后可直接使用
-已安装的 `dexhand_py` Python 模块和 `roboparty-dexhand-config` 命令。
+文件名中的版本字段由实际构建版本决定，例如当前仓库版本是
+`roboparty-dexhand_0.3.0_arm64.deb`；这里的版本字段就是通常所说的
+`<version>`。安装后可使用已安装的 `roboparty-dexhand-config` 命令。
+Debian 打包配置的安装前缀是 `/opt/roboparty`，并依赖
+`roboparty-base (>= 1.0.0)`；运行 Python 前请先加载 RoboParty 基础环境。
+如果当前 shell 没有该环境提供的路径设置，可显式执行：
+
+```bash
+export PATH="/opt/roboparty/bin:$PATH"
+python_site="$(find /opt/roboparty/lib -mindepth 2 -maxdepth 2 \
+  -type d -name site-packages -path '/opt/roboparty/lib/python*/site-packages' \
+  -print -quit)"
+test -n "$python_site" || { echo "dexhand_py site-packages not found" >&2; exit 1; }
+export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
+```
 
 ## Linux CAN-FD 设置
 
@@ -74,8 +89,11 @@ roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
 ## Python 使用
 
 下面示例使用已安装的模块。它会将六个关节移动到有限的目标位置，读取
-全部位置，再回到零位并再次读取。真实硬件会产生运动；运行前确认手的
-周围没有人员或障碍物，并准备好立即断电或停止运动。
+全部位置，再回到零位并再次读取。示例显式跳过回零，只适用于已经知道
+参考/零位且工作空间已清空的手。新手或参考状态未知时，不要绕过回零，
+请改用正常回零流程（例如 `init_hand(True, True, 5.0)`）。这不是所有启动
+场景下都最安全的通用配置。真实硬件会产生运动；运行前确认手的周围没有
+人员或障碍物，并准备好立即断电或停止运动。
 
 ```python
 import time
@@ -100,9 +118,19 @@ def read_positions(hand, label):
 hand = HandDriver.create_hand(
     "LHandPro", "canfd", CAN_INTERFACE, HandModel.LHANDPRO_6DOF, 1
 )
+initialized = False
 try:
     if not hand.init_hand(True, False, 0.0):
         raise RuntimeError("init_hand failed")
+    initialized = True
+
+    hand.check_health()
+    total, active = hand.get_dof()
+    if active != 6:
+        raise RuntimeError(f"unexpected active DOF: {active} (total={total})")
+    alarms = [hand.get_now_alarm(joint) for joint in range(1, 7)]
+    if any(alarm != 0 for alarm in alarms):
+        raise RuntimeError(f"nonzero joint alarms: {alarms}")
 
     hand.set_move_no_home(1)
     for joint in range(1, 7):
@@ -119,7 +147,13 @@ try:
     time.sleep(1.0)
     read_positions(hand, "zero")
 finally:
-    hand.deinit_hand()
+    if initialized:
+        try:
+            hand.set_move_no_home(0)
+        finally:
+            hand.deinit_hand()
+    else:
+        hand.deinit_hand()
 ```
 
 ## 选择 CAN 接口
@@ -202,12 +236,14 @@ Python 方法使用 `hand.method()`。
   `set_target_angle(finger_id, angle)`（角度）、
   `set_position_velocity(finger_id, velocity)`（计数/秒）、
   `set_max_current(finger_id, current)`（mA）。这些方法需要明确的
-  `finger_id`，不使用 `0` 广播约定。
+  `finger_id`，没有默认值；按公共/厂商约定传入 `0` 表示广播到全部关节。
+  本手册示例仍显式使用关节 `1..6`，以便逐关节检查和控制。
 - 反馈与状态：`get_now_position(finger_id)`、`get_now_angle(finger_id)`、
   `get_now_status(finger_id)`、`get_now_current(finger_id)`、
   `get_now_alarm(finger_id)`、`clear_alarm(finger_id)`。`clear_alarm(0)`
   清除全部关节报警；其他读取方法按指定关节返回缓存值。
-- 设备信息与健康：`get_dof()` 返回 `(total, active)`，
+- 设备信息与健康：Python 中 `total, active = hand.get_dof()` 返回总关节数
+  和活动关节数；C++ 中使用 `int total, active; hand->get_dof(total, active);`。
   `get_can_name()` 返回接口名，`check_health()` 在驱动故障时抛出异常。
 
 ## 必须遵守的运行注意事项
@@ -234,8 +270,24 @@ cmake --build build --parallel
 cmake --install build --prefix "$PWD/install"
 ```
 
-安装后，C++ 使用 `include/hand_driver.hpp`，Python 使用已安装的
-`dexhand_py` 模块。应用仍须在库外准备好实际的 SocketCAN 接口。
+安装后，C++ 使用 `include/hand_driver.hpp`，Python 扩展位于前缀下的
+`lib/pythonX.Y/site-packages`（`X.Y` 由构建时 Python 版本决定）。使用下列
+命令让当前 shell 同时找到 C++ package config、CLI 和 Python 模块，不依赖
+手写 Python 版本号：
+
+```bash
+install_prefix="$PWD/install"
+export PATH="$install_prefix/bin:$PATH"
+export CMAKE_PREFIX_PATH="$install_prefix${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+python_site="$(find "$install_prefix/lib" -mindepth 2 -maxdepth 2 \
+  -type d -name site-packages -path "$install_prefix/lib/python*/site-packages" \
+  -print -quit)"
+test -n "$python_site" || { echo "dexhand_py site-packages not found" >&2; exit 1; }
+export PYTHONPATH="$python_site${PYTHONPATH:+:$PYTHONPATH}"
+python3 -c 'from dexhand_py import HandDriver, HandModel; print(HandModel.LHANDPRO_6DOF)'
+```
+
+应用仍须在库外准备好实际的 SocketCAN 接口。
 
 ## License
 
