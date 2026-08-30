@@ -606,7 +606,22 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
   std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
   const auto current = state_.load(std::memory_order_acquire);
   if (current == DriverState::Ready) {
-    return session_purpose_.load(std::memory_order_acquire) == purpose;
+    const bool same_purpose =
+        session_purpose_.load(std::memory_order_acquire) == purpose;
+    const bool same_args = session_enable_motors_ == enable_motors &&
+                           session_home_motors_ == home_motors;
+    if (same_purpose && same_args) return true;
+    // An already-initialized driver keeps its session: re-running init with
+    // different arguments would silently report success while ignoring the
+    // new enable/home values. Fail explicitly instead; callers must
+    // deinit_hand() first (repeating an identical call stays idempotent).
+    try {
+      logger_->error(
+          "init_hand on an initialized driver with different arguments is "
+          "rejected; deinit_hand() before re-initializing");
+    } catch (...) {
+    }
+    return false;
   }
   if (current != DriverState::Created) return false;
   if (!std::isfinite(home_wait_time) || home_wait_time < 0.0F) {
@@ -620,6 +635,8 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
   session_generation_.fetch_add(1, std::memory_order_acq_rel);
   sdo_ack_tracker_->start_session();
   session_purpose_.store(purpose, std::memory_order_release);
+  session_enable_motors_ = enable_motors;
+  session_home_motors_ = home_motors;
   safety_cleanup_required_ = purpose == SessionPurpose::Motion;
 
   {

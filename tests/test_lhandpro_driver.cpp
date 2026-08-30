@@ -557,6 +557,29 @@ void check_failure_rollback_and_retry() {
   }
 }
 
+void check_init_hand_rejects_conflicting_reinit() {
+  Fixture fixture;
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+
+  // Identical repeat stays idempotent.
+  CHECK(fixture.driver->init_hand(false, false, 0.0F));
+
+  // A Ready session keeps its enable/home arguments: a conflicting init
+  // must fail explicitly instead of returning success while silently
+  // ignoring the new arguments.
+  CHECK(!fixture.driver->init_hand(true, false, 0.0F));
+  CHECK(!fixture.driver->init_hand(false, true, 0.0F));
+  CHECK(!fixture.driver->init_hand(true, true, 5.0F));
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+
+  // deinit + re-init with new arguments remains the supported path.
+  fixture.driver->deinit_hand();
+  CHECK(fixture.driver->init_hand(true, true, 0.0F));
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+  fixture.driver->deinit_hand();
+}
+
 void check_models_and_initializing_callbacks() {
   Fixture six(LHandProModel::Dof6S);
   six.sdk->during_initial_ex = [&] {
@@ -610,9 +633,20 @@ void check_models_and_initializing_callbacks() {
 
   const int create_calls = six.sdk->count("create");
   const int open_calls = six.transport->open_calls.load();
-  CHECK(six.driver->init_hand(true, true, 0.0F));
+  // Re-initializing a Ready driver with different arguments is rejected
+  // (the session keeps its enable/home parameters); deinit + init is the
+  // supported path and starts a fresh session.
+  CHECK(!six.driver->init_hand(true, true, 0.0F));
   CHECK_EQ(six.sdk->count("create"), create_calls);
   CHECK_EQ(six.transport->open_calls.load(), open_calls);
+  six.driver->deinit_hand();
+  // get_dof cache assertions above poisoned the fake; restore it because
+  // the fresh session re-reads DOF from the SDK.
+  six.sdk->total_dof = 11;
+  six.sdk->active_dof = 6;
+  CHECK(six.driver->init_hand(true, true, 0.0F));
+  CHECK_EQ(six.sdk->count("create"), create_calls + 1);
+  CHECK_EQ(six.transport->open_calls.load(), open_calls + 1);
 
   auto callback = six.sdk->tx_callback;
   CHECK(callback != nullptr);
@@ -2812,6 +2846,7 @@ int main() {
   check_concurrent_dof_snapshot();
   check_constructor_and_home_wait_validation();
   check_failure_rollback_and_retry();
+  check_init_hand_rejects_conflicting_reinit();
   check_models_and_initializing_callbacks();
   check_runtime_feedback_uses_unit_multiplier_after_every_initial_ex();
   check_runtime_feedback_transmit_failure_aborts_initialization();

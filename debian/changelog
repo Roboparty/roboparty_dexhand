@@ -1,3 +1,10 @@
+roboparty-dexhand (0.4.1-1) stable; urgency=medium
+
+  * Reject init_hand on an initialized driver when arguments differ from
+    the active session instead of silently reporting success.
+
+ -- RoboParty <2321901849@qq.com>  Sat, 30 Aug 2026 12:00:00 +0800
+
 roboparty-dexhand (0.4.0-1) stable; urgency=medium
 
   * Brand the public API as RP_Hand with legacy LHandPro aliases.

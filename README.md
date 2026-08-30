@@ -44,7 +44,7 @@
 ```
 
 文件名中的版本字段由实际构建版本决定，例如当前仓库版本是
-`roboparty-dexhand_0.4.0-1_arm64.deb`；这里的版本字段就是通常所说的
+`roboparty-dexhand_0.4.1-1_arm64.deb`；这里的版本字段就是通常所说的
 `<version>`。安装后可使用已安装的 `roboparty-dexhand-config` 命令。
 Debian 打包配置的安装前缀是 `/opt/roboparty`，并依赖
 `roboparty-base (>= 1.0.0)`；运行 Python 前请先加载 RoboParty 基础环境。
@@ -258,7 +258,10 @@ Python 方法使用 `hand.method()`。
   `hand_type`、`interface_type`、`interface`、`hand_model`、
   `canfd_node_id`；本部署使用 `"RP_Hand"`、`"canfd"` 和
   C++ 模型常量 `HAND_RP_HAND_6DOF`；Python 使用
-  `HandModel.RP_HAND_6DOF`。
+  `HandModel.RP_HAND_6DOF`。注意：对已初始化的驱动，重复
+  `init_hand()` 仅在参数完全一致时幂等返回 `true`；参数不同
+  （例如先以 `enable_motors=false` 初始化、再请求 `true`）会返回
+  `false`，此时应先 `deinit_hand()` 再重新初始化。
 - 枚举名称按语言区分：Python 使用 `HandCommType.CANFD` 和
   `HandModel.RP_HAND_6DOF`；C++ 使用 `HandCommType::CANFD` 和
   `HAND_RP_HAND_6DOF`。RP_Hand 品牌发布前版本中的标识符仍保持源码兼容，

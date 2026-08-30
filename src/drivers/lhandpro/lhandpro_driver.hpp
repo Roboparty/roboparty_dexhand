@@ -181,6 +181,11 @@ class LHandProDriver final : public HandDriver {
   bool initial_ex_attempted_{false};
   bool safety_cleanup_attempted_{false};
   std::atomic<SessionPurpose> session_purpose_{SessionPurpose::Motion};
+  // Parameters of the running session; guarded by lifecycle_mutex_. Used to
+  // reject init_hand calls whose arguments differ from the active session
+  // instead of silently reporting success (params would be ignored).
+  bool session_enable_motors_{false};
+  bool session_home_motors_{false};
   std::atomic<std::uint64_t> session_generation_{0};
   bool safety_cleanup_required_{false};
   std::shared_ptr<roboparty::dexhand::detail::TxContext> tx_context_;
