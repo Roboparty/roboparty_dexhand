@@ -1,3 +1,12 @@
+roboparty-dexhand (0.4.2-1) stable; urgency=medium
+
+  * Confirm homing with fresh position and status feedback instead of treating
+    the vendor command return as proof of completion.
+  * Return as soon as all six axes are stopped, alarm-free, and within 400
+    counts of zero; fail safely on alarm or timeout.
+
+ -- RoboParty <2321901849@qq.com>  Fri, 04 Sep 2026 19:30:00 +0800
+
 roboparty-dexhand (0.4.1-1) stable; urgency=medium
 
   * Reject init_hand on an initialized driver when arguments differ from

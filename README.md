@@ -126,6 +126,12 @@ roboparty-dexhand-config feedback-period show --interface can0 --node-id 1
 场景下都最安全的通用配置。真实硬件会产生运动；运行前确认手的周围没有
 人员或障碍物，并准备好立即断电或停止运动。
 
+`home_wait_time=5.0` 是最大超时，不是固定等待。驱动收到回零后的新鲜
+`0x50` 位置反馈和 `0x5A` 状态反馈后，会检查六轴均已停止、无报警且接近
+零位，并立即返回；超时则初始化失败并禁用电机。仅软件进程重启、手本体
+没有掉电且零位可信时，可用 `init_hand(True, False, 0.0)` 快速恢复，不应
+重复执行回零。
+
 ```python
 import time
 
@@ -262,6 +268,8 @@ Python 方法使用 `hand.method()`。
   `init_hand()` 仅在参数完全一致时幂等返回 `true`；参数不同
   （例如先以 `enable_motors=false` 初始化、再请求 `true`）会返回
   `false`，此时应先 `deinit_hand()` 再重新初始化。
+  `home_wait_time` 是回零确认的最大超时；满足反馈条件会提前返回，传入
+  `0.0` 则保留不等待、不验证回零结果的兼容行为。
 - 枚举名称按语言区分：Python 使用 `HandCommType.CANFD` 和
   `HandModel.RP_HAND_6DOF`；C++ 使用 `HandCommType::CANFD` 和
   `HAND_RP_HAND_6DOF`。RP_Hand 品牌发布前版本中的标识符仍保持源码兼容，

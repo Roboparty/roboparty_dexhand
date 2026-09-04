@@ -70,7 +70,10 @@ class HandDriver {
      *
      * @param enable_motors   Send enable broadcast after init.
      * @param home_motors     Send homing command after enable.
-     * @param home_wait_time  Seconds to wait for homing to complete.
+     * @param home_wait_time  Maximum seconds to wait for fresh feedback that
+     *                        confirms homing. Returns as soon as all active
+     *                        joints are stopped, near zero, and alarm-free.
+     *                        Zero preserves the unchecked, non-waiting mode.
      * @return true on success.
      */
     virtual bool init_hand(bool enable_motors = true,

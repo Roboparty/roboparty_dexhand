@@ -235,11 +235,17 @@ constexpr int kValidationFailure = -2;
 constexpr int kTransactionCancelled = -3;
 constexpr int kSdoAckTimeout = -4;
 constexpr int kSdoAbort = -5;
+constexpr int kHomeTimeout = -6;
+constexpr int kHomeAlarm = -7;
 constexpr int kCanFdMode = 1;
 constexpr int kVendorModel6DofS = 1;
 constexpr int kVendorModel16Dof = 2;
 constexpr int kRealtimeFeedbackConfigAttempts = 3;
 constexpr auto kRealtimeFeedbackTargetPeriod = std::chrono::milliseconds(20);
+constexpr auto kEnableBeforeHomeDelay = std::chrono::seconds(1);
+constexpr auto kHomePollPeriod = std::chrono::milliseconds(20);
+constexpr int kStoppedStatus = 0;
+constexpr int kHomePositionTolerance = 400;
 constexpr auto kSdoAckTimeoutPeriod = std::chrono::milliseconds(100);
 constexpr unsigned int kSaveSdoIndex = 0x1010U;
 constexpr unsigned char kSaveSdoSubindex = 0x01U;
@@ -744,6 +750,18 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
         const int code = sdk_->decode_canfd(frame.id, frame.data.data(),
                                             static_cast<int>(frame.len));
         const bool failed = !sdk_ok_(code, "decode_canfd");
+        if (!failed && !frame.extended && frame.len > 0U &&
+            frame.id ==
+                static_cast<std::uint32_t>(0x480 + canfd_node_id_)) {
+          const auto type = static_cast<std::uint8_t>(frame.data[0] & 0x7FU);
+          if (type == 0x50U) {
+            position_feedback_generation_.fetch_add(1,
+                                                    std::memory_order_acq_rel);
+          } else if (type == 0x5AU) {
+            status_feedback_generation_.fetch_add(1,
+                                                  std::memory_order_acq_rel);
+          }
+        }
         finish_rx_callback_(failed, code);
       } catch (...) {
         sdk_ok_(kSdkException, "decode_canfd");
@@ -865,15 +883,94 @@ bool LHandProDriver::init_session_(SessionPurpose purpose, bool enable_motors,
                 [this] { return sdk_->set_enable(0, true); }, "set_enable")) {
           return fail();
         }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        // The firmware accepts immediate no-home motion, but can drop a
+        // homing command sent directly after enable. Delay only when homing
+        // follows so warm software restarts stay fast.
+        if (home_motors) std::this_thread::sleep_for(kEnableBeforeHomeDelay);
       }
       if (home_motors) {
+        const auto position_generation_before_home =
+            position_feedback_generation_.load(std::memory_order_acquire);
+        const auto status_generation_before_home =
+            status_feedback_generation_.load(std::memory_order_acquire);
         if (!run_admitted_init_command(
                 [this] { return sdk_->home_motors(0); }, "home_motors")) {
           return fail();
         }
-        std::this_thread::sleep_for(
-            std::chrono::duration<float>(home_wait_time));
+        if (home_wait_time > 0.0F) {
+          const auto deadline = std::chrono::steady_clock::now() +
+                                std::chrono::duration<float>(home_wait_time);
+          bool homed = false;
+          while (std::chrono::steady_clock::now() < deadline) {
+            bool alarmed = false;
+            bool all_stopped = true;
+            bool all_near_zero = true;
+            bool polling_healthy = true;
+            {
+              std::unique_lock<std::mutex> admission_lock(
+                  rx_init_admission_mutex_);
+              rx_init_admission_cv_.wait(admission_lock, [this] {
+                return pending_rx_callbacks_.load(std::memory_order_acquire) ==
+                           0 &&
+                       active_rx_callbacks_.load(std::memory_order_acquire) ==
+                           0;
+              });
+              polling_healthy = initialization_healthy_();
+              if (polling_healthy) {
+                for (int id = 1; id <= expected_dof.active; ++id) {
+                  int status = 0;
+                  int alarm = 0;
+                  int position = 0;
+                  if (!run_init_sdk_call(
+                          [this, id, &status] {
+                            return sdk_->get_now_status(id, status);
+                          },
+                          "get_now_status") ||
+                      !run_init_sdk_call(
+                          [this, id, &alarm] {
+                            return sdk_->get_now_alarm(id, alarm);
+                          },
+                          "get_now_alarm") ||
+                      !run_init_sdk_call(
+                          [this, id, &position] {
+                            return sdk_->get_now_position(id, position);
+                          },
+                          "get_now_position")) {
+                    polling_healthy = false;
+                    break;
+                  }
+                  alarmed = alarmed || alarm != 0;
+                  all_stopped = all_stopped && status == kStoppedStatus;
+                  all_near_zero = all_near_zero &&
+                                  std::abs(position) <= kHomePositionTolerance;
+                }
+              }
+
+              const bool fresh_position =
+                  position_feedback_generation_.load(
+                      std::memory_order_acquire) >
+                  position_generation_before_home;
+              const bool fresh_status =
+                  status_feedback_generation_.load(std::memory_order_acquire) >
+                  status_generation_before_home;
+              homed = fresh_position && fresh_status && all_stopped &&
+                      all_near_zero && !alarmed;
+            }
+            if (!polling_healthy) return fail();
+            if (alarmed) {
+              record_fault_("home_motors_alarm", kHomeAlarm,
+                            FaultSource::Sync);
+              return fail();
+            }
+            if (homed) break;
+            std::this_thread::sleep_for(kHomePollPeriod);
+          }
+          if (!homed) {
+            record_fault_("home_motors_timeout", kHomeTimeout,
+                          FaultSource::Sync);
+            return fail();
+          }
+        }
       }
       if (!run_admitted_init_command(
               [this] { return sdk_->set_move_no_home(1); },

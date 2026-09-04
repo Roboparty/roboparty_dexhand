@@ -10,6 +10,7 @@
 #include <functional>
 #include <initializer_list>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -286,7 +287,7 @@ class FakeLHandProSdk final : public LHandProSdk {
   }
 
   int get_now_position(int, int& value) noexcept override {
-    value = int_feedback;
+    value = position_feedback.value_or(int_feedback);
     return result_("get_now_position");
   }
 
@@ -318,6 +319,7 @@ class FakeLHandProSdk final : public LHandProSdk {
   bool last_enable{false};
   int last_move_no_home{-1};
   int int_feedback{123};
+  std::optional<int> position_feedback;
   float angle_feedback{12.5F};
 
  private:

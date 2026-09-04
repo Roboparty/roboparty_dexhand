@@ -249,6 +249,14 @@ CanFdFrame sdo_response(std::uint8_t command, unsigned int index,
   return frame;
 }
 
+CanFdFrame realtime_feedback(std::uint8_t type, int node_id = 1) {
+  CanFdFrame frame;
+  frame.id = static_cast<std::uint32_t>(0x480 + node_id);
+  frame.len = 2;
+  frame.data[0] = type;
+  return frame;
+}
+
 CanFdFrame save_compatibility_probe_response(int node_id = 1) {
   auto frame = sdo_response(0x00U, 0x1010U, 0x00U, node_id);
   frame.data[4] = 0x20U;
@@ -501,6 +509,60 @@ void check_constructor_and_home_wait_validation() {
   }
   CHECK(fixture.driver->init_hand(false, false, 0.0F));
   fixture.driver->deinit_hand();
+}
+
+void check_home_wait_returns_on_fresh_completed_feedback() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->int_feedback = 0;
+  fixture.sdk->position_feedback = 350;
+
+  auto feedback = std::async(std::launch::async, [&] {
+    CHECK(wait_until([&] { return fixture.sdk->count("home_motors") == 1; }));
+    std::this_thread::sleep_for(40ms);
+    fixture.transport->deliver(realtime_feedback(0xD0U));
+    fixture.transport->deliver(realtime_feedback(0xDAU));
+  });
+
+  const auto started = std::chrono::steady_clock::now();
+  CHECK(fixture.driver->init_hand(false, true, 0.5F));
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  CHECK(elapsed < 400ms);
+  feedback.get();
+  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Ready);
+  fixture.driver->deinit_hand();
+}
+
+void check_home_wait_rejects_position_outside_tolerance() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->int_feedback = 0;
+  fixture.sdk->position_feedback = 401;
+
+  auto feedback = std::async(std::launch::async, [&] {
+    CHECK(wait_until([&] { return fixture.sdk->count("home_motors") == 1; }));
+    fixture.transport->deliver(realtime_feedback(0xD0U));
+    fixture.transport->deliver(realtime_feedback(0xDAU));
+  });
+
+  CHECK(!fixture.driver->init_hand(false, true, 0.08F));
+  feedback.get();
+  CHECK(fixture.released_once());
+  const auto error = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(error, "home_motors_timeout", -6, "sync");
+}
+
+void check_home_wait_rejects_stale_zero_feedback() {
+  Fixture fixture(LHandProModel::Dof6S);
+  fixture.sdk->int_feedback = 0;
+
+  const auto started = std::chrono::steady_clock::now();
+  CHECK(!fixture.driver->init_hand(false, true, 0.06F));
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  CHECK(elapsed >= 50ms);
+  CHECK(fixture.released_once());
+  const auto error = expect_exception<std::runtime_error>(
+      [&] { fixture.driver->check_health(); });
+  check_fault_message(error, "home_motors_timeout", -6, "sync");
 }
 
 void check_failure_rollback_and_retry() {
@@ -1040,7 +1102,10 @@ void check_async_fault_precedes_final_ready_transition() {
   release_home_promise.set_value();
   CHECK(receive.wait_for(2s) == std::future_status::ready);
   receive.get();
-  CHECK_EQ(fixture.driver->state_for_test(), DriverState::Faulted);
+  CHECK(wait_until([&] {
+    const auto state = fixture.driver->state_for_test();
+    return state == DriverState::Faulted || state == DriverState::Created;
+  }));
   const auto root = expect_exception<std::runtime_error>(
       [&] { fixture.driver->check_health(); });
   check_fault_message(root, "decode_canfd", 7, "async");
@@ -2845,6 +2910,9 @@ void check_async_fault_before_apply_save_rolls_back() {
 int main() {
   check_concurrent_dof_snapshot();
   check_constructor_and_home_wait_validation();
+  check_home_wait_returns_on_fresh_completed_feedback();
+  check_home_wait_rejects_position_outside_tolerance();
+  check_home_wait_rejects_stale_zero_feedback();
   check_failure_rollback_and_retry();
   check_init_hand_rejects_conflicting_reinit();
   check_models_and_initializing_callbacks();

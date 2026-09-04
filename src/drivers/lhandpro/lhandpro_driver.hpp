@@ -162,6 +162,8 @@ class LHandProDriver final : public HandDriver {
   std::condition_variable rx_init_admission_cv_;
   std::atomic<unsigned int> pending_rx_callbacks_{0};
   std::atomic<unsigned int> active_rx_callbacks_{0};
+  std::atomic<std::uint64_t> position_feedback_generation_{0};
+  std::atomic<std::uint64_t> status_feedback_generation_{0};
   std::function<void()> ready_transition_hook_for_test_;
   std::function<void()> rx_registered_hook_for_test_;
   std::function<void()> rx_entry_attempt_hook_for_test_;
