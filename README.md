@@ -1,8 +1,10 @@
 # roboparty_dexhand_sdk
 
-Linux SocketCAN CAN FD 下的 DH116S 六轴 C++17 SDK，面向 ARM64 板部署。底层使用厂家 **2026-09-21 LHandProLib**。本版只有 C++，不依赖 Python 或 ROS。
+Linux SocketCAN CAN FD 下的 DH116S 六轴 C++17 / Python SDK，面向 ARM64 板部署。底层使用厂家 **2026-09-21 LHandProLib**。纯 C++ 构建不依赖 Python 或 ROS。
 
 提供连接、使能、失能、回零、停止、单轴/六轴位置、速度、电流上限、力矩到位行为和状态读取，以及双手四指波浪 demo。公共接口以 [头文件](include/dh116s/hand.hpp) 和 [第一版接口说明](docs/v1_api_summary.md) 为准，失败返回 `false` 并向 stderr 写日志。
+
+Python 通过 pybind11 复用同一 C++ 驱动，安装和使用见下方第 7 节；接口与线程约定见 [Python SDK 对接说明](docs/python_sdk_plan.md)。
 
 ## 1. 复制到 ARM 板
 
@@ -207,3 +209,78 @@ ctest --test-dir build --output-on-failure
 | stop/disable not confirmed | 查看实际轴状态与供电，不能凭函数调用认定已停机 |
 
 设计历史保留在 `docs/`；`cpp_v1_implementation_plan.md` 内存在旧伪代码，当前实际接口以头文件和本文为准。
+
+## 7. Python SDK 与 demo
+
+### 系统 Python 本机编译（无需 pip 或虚拟环境）
+
+在目标板上准备系统依赖后，直接用 CMake 编译：
+
+```bash
+sudo apt-get install build-essential cmake python3-dev pybind11-dev
+cd ~/roboparty_dexhand_sdk
+bash build_python.sh
+source setup_python.sh
+/usr/bin/python3 -m unittest discover -s tests -p 'test_python_*.py' -v
+```
+
+编译脚本固定使用 `/usr/bin/python3`，输出到 `build-python-system/`，完整包安装在项目内 `install/python/`，不修改系统 Python 目录。`setup_python.sh` 设置当前 Bash 的 `PYTHONPATH`，无需设置 `LD_LIBRARY_PATH`；新终端需要重新 source。源码更新后重新执行编译脚本即可。
+
+启动双手波浪（会使能、回零并运动，运行前清空运动空间）：
+
+```bash
+# 配置环境后直接执行系统 Python。
+cd ~/roboparty_dexhand_sdk
+source setup_python.sh
+/usr/bin/python3 examples/wave_demo.py
+```
+
+### pip 安装（可选）
+
+支持 Linux x86_64 / ARM64、Python >= 3.9。在目标机器安装，需要 C++17 编译器、CMake 和 Python 开发文件：
+
+```bash
+sudo apt-get install build-essential cmake python3-dev python3-venv
+cd ~/roboparty_dexhand_sdk
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+python -m unittest discover -s tests -p 'test_python_*.py' -v
+```
+
+pip 自动安装构建依赖 `scikit-build-core` 和 `pybind11`；离线环境需提前准备依赖。wheel 内包含 `_core` 扩展、类型提示及 `lib/libLHandProLib.so`，通过 `$ORIGIN/lib` RPATH 优先加载随包厂家库，无需设置 `LD_LIBRARY_PATH`。wheel 按 CPU 架构和 Python ABI 分别构建，不承诺跨系统版本兼容。
+
+如果 Conda 环境导入时报 `GLIBCXX_3.4.30 not found`，说明其 C++ 运行库与系统编译器不兼容。可使用 `/usr/bin/python3 -m venv .venv` 创建系统 Python 环境，或更新 Conda 的 C++ 运行库；重新设置厂家库路径无法解决此问题。
+
+完成第 3 节 CAN 配置后再运行下面的运动示例。
+
+初次阅读 SDK 建议从 [wave_demo.py](examples/wave_demo.py) 开始。这个约 70 行的双手波浪示例带中文注释，直接用 `handleft`、`handright` 演示连接、参数设置、使能、回零和位置下发。四指以相反方向形成波浪，拇指保持零位，结束后停止、失能并断开。修改 `connect()` 中的接口/节点，以及文件顶部的 `AMPLITUDE`、`PERIOD`、`CYCLES` 即可调整设备和波浪动作。
+
+```bash
+# 会使能、回零并运动双手，运行前清空运动空间。
+python examples/wave_demo.py
+```
+
+Python demo 采用同步调用，`home()` 等阻塞调用期间 Ctrl+C 可能延迟处理；只检查命令返回值，不检测实时反馈或确认到位。不接受命令行参数，包括旧版的 `--dry-run` 和 `--connect-only`，传入参数时直接退出。需要完整反馈监测、连接检查和中断处理时参见第 4 节的 C++ demo。
+
+Python demo 与 C++ 默认波浪参数一致：速度 20000、限流 400、幅值 6000、周期 3 秒、运行 10 个周期（30 秒），首尾采用 2 秒余弦渐变，目标取整方式也保持一致。修改文件顶部的 `SPEED`、`CURRENT`、`AMPLITUDE`、`PERIOD`、`CYCLES` 可调整参数。仅检查连接而不运动可使用下面的 SDK 片段：
+
+```python
+from roboparty_dexhand_sdk import Hand
+
+hand = Hand()
+try:
+    if not hand.connect("can0", 1, retry_count=3):
+        raise RuntimeError("connect failed")
+    state = hand.get_state()
+    if state.feedback_valid:
+        print(state.positions, state.fault_codes)
+finally:
+    hand.disconnect()  # 此例只检查连接，没有使能或运动。
+```
+
+`Hand` 方法名、单位及 bool 返回值与 C++ 一致；`set_positions()` 接受六个整数的 list/tuple。类型错误抛 `TypeError`，长度错误或超出 C++ int 表示范围抛 `ValueError`；拒绝 float、bool 充当整数。可表示但超出设备参数范围的值由 C++ 校验并返回 `False`。状态字段只读，六轴字段为独立 tuple 快照，必须检查 `feedback_valid`。
+
+底层调用和对象析构等待会释放 GIL，但主线程直接调用阻塞方法时，Python 信号处理仍可能延迟到方法返回。Python demo 在单个应用线程顺序调用双手接口，捕获 Ctrl+C 后退出码为 130，并在 finally 中停止、失能和断开双手。停止失败仍尝试失能；无法确认停止/失能时报告失败。没有 SIGTERM 处理。自定义运动程序也应显式执行清理，不能依赖析构停机。
+
+无硬件测试覆盖参数转换、离线返回、快照、双手波形、调用失败和模拟 KeyboardInterrupt 后的清理。已在 ARM64 板使用系统 Python 3.12.3 完成本机编译、包内厂家库加载验证和 10 项无硬件测试；真实回零取消与物理停机仍需实机验证。

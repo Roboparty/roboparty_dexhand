@@ -1,0 +1,21 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "roboparty-dexhand-sdk"
+version = "0.1.0"
+description = "Python bindings for the DH116S six-axis dexterous hand SDK"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = ["Operating System :: POSIX :: Linux", "Programming Language :: Python :: 3"]
+
+[tool.scikit-build]
+wheel.packages = ["python/roboparty_dexhand_sdk"]
+install.components = ["python"]
+
+[tool.scikit-build.cmake.define]
+ROBOPARTY_BUILD_PYTHON = "ON"
+DH116S_BUILD_DEMO = "OFF"
+DH116S_BUILD_SMOKE = "OFF"
+BUILD_SHARED_LIBS = "OFF"
