@@ -1,0 +1,25 @@
+# CMake and native build output
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/install/
+/CMakeUserPresets.json
+/compile_commands.json
+*.o
+*.obj
+
+# Runtime and local environment
+*.log
+.env
+.env.*
+!.env.example
+/.vscode/
+/.idea/
+
+# Future Python bindings
+__pycache__/
+*.py[cod]
+.venv/
+/dist/
+*.egg-info/
