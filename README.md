@@ -6,6 +6,8 @@ Linux SocketCAN CAN FD 下的 DH116S 六轴 C++17 / Python SDK，面向 ARM64 �
 
 Python 通过 pybind11 复用同一 C++ 驱动，安装和使用见下方第 7 节；接口与线程约定见 [Python SDK 对接说明](docs/python_sdk_plan.md)。
 
+ROS 2 Jazzy 的 C++ 驱动、Python launch 和控制示例位于 [ros2/](ros2/README.md)，复用本 SDK，无需安装 Python bindings。
+
 ## 1. 复制到 ARM 板
 
 复制整个 `roboparty_dexhand_sdk/` 源码目录即可，不需要复制本机生成的 `build/`。项目已包含厂家头文件及 ARM64、x86_64 动态库，无需另建厂家 SDK 目录：
