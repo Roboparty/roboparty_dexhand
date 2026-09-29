@@ -51,13 +51,13 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("feedback_valid", &dh116s::HandState::feedback_valid);
 
     auto hand = py::class_<PythonHand>(m, "Hand").def(py::init<>());
-    hand.def("connect", [](PythonHand& self, py::object name, py::object node, py::object retries) {
+    hand.def("connect", [](PythonHand& self, py::object name, py::object node) {
         if (!py::isinstance<py::str>(name)) throw py::type_error("can_name must be str");
         const auto can = name.cast<std::string>();
-        const int id = integer(node), count = integer(retries);
+        const int id = integer(node);
         py::gil_scoped_release release;
-        return self.hand->connect(can, id, count);
-    }, py::arg("can_name"), py::arg("node_id"), py::arg("retry_count") = 30);
+        return self.hand->connect(can, id);
+    }, py::arg("can_name"), py::arg("node_id"));
     hand.def("set_positions", [](PythonHand& self, py::object values) {
         if (!py::isinstance<py::list>(values) && !py::isinstance<py::tuple>(values))
             throw py::type_error("values must be a list or tuple of six integers");

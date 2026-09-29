@@ -1,6 +1,10 @@
 #include <dh116s/hand.hpp>
 #include "../src/feedback_format.hpp"
 #include <iostream>
+#include <type_traits>
+
+static_assert(std::is_same_v<decltype(&dh116s::Hand::connect),
+    bool (dh116s::Hand::*)(const std::string&, int)>);
 
 int main() {
     dh116s::Hand hand;
@@ -18,7 +22,6 @@ int main() {
     expect(!hand.is_connected() && !hand.get_state().feedback_valid, "initial state invalid");
     expect(!hand.connect("", 1), "empty interface rejected");
     expect(!hand.connect("can0", 0), "invalid node rejected");
-    expect(!hand.connect("can0", 1, 0), "invalid retry count rejected");
     expect(!hand.set_position(0, 0), "broadcast not public");
     expect(!hand.set_positions({0, 0, 0, 0, 0, 10001}), "position range");
     expect(!hand.set_speed(0) && !hand.set_current_limit(3001), "parameter ranges");
@@ -27,7 +30,7 @@ int main() {
     hand.disconnect();
     // A deliberately overlong name cannot refer to a Linux network interface.
     for (int attempt = 0; attempt < 2; ++attempt) {
-        expect(!hand.connect("dh116s_nonexistent_interface", 1, 1), "failed connect releases worker/owner");
+        expect(!hand.connect("dh116s_nonexistent_interface", 1), "failed connect releases worker/owner");
         expect(!hand.is_connected() && !hand.get_state().feedback_valid, "failed connection state");
         hand.disconnect();
     }

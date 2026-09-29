@@ -1,5 +1,7 @@
 # DH116S C++ SDK 第一版实现方案（设计历史）
 
+当前接口更新：`connect(can_name, node_id)` 不再公开重试参数；连接两阶段各固定最多尝试 30 次（含首次）。下文 `retry_count` 和三参数调用仅保留为历史设计。
+
 2026-09-29：C++ 初版已实现，部署和当前行为见 [README](../README.md)。本文保留原设计，其中数组返回值、异常、getter 等遗留伪代码不作为当前接口承诺；实际公共接口以 `include/dh116s/hand.hpp` 和 `v1_api_summary.md` 为准。
 
 本文只描述第一版公共接口的内部实现方案、厂家 SDK 映射、线程组织和验收方法。公共接口的作用、字段和返回值以 [第一版接口说明](v1_api_summary.md) 为准；本文件不再重新定义用户侧语义。仅做设计，不表示已经实现、编译或实机验证。
@@ -26,9 +28,9 @@
 | --- | --- | --- |
 | `connect(can, node_id, retry_count = 30)` | `set_send_canfd_callback_ex()`、`initial(LCN_CANFD, node_id)`、`get_hand_type()`、`get_dof()`、SDO 读写 | SocketCAN 打开/收发；分阶段有限重试；六轴 20 ms 周期配置；上报帧配置；实测 50 Hz |
 | `disconnect()` | `close()` | 无参数、无连接重试；取消待执行请求和操作等待，协调当前调用结束，回收线程和 socket；不自动停止或失能 |
-| `enable()` | `set_control_mode(0, LCM_POSITION)`、`set_move_no_home(0)`、`set_enable(0, 1)` | 内部等待新的状态反馈；六轴全部确认使能才返回 `true`，否则 `false` |
+| `enable()` | `set_control_mode(0, LCM_POSITION)`、`set_enable(0, 1)` | 内部等待新的状态反馈；六轴全部确认使能才返回 `true`，否则 `false` |
 | `disable()` | `set_enable(0, 0)` | 取消待发运动和旧操作；六轴全部确认失能才返回 `true`，否则 `false` |
-| `home()` | `home_motors(0)`；必要时 `home_motors(id)`；完成后 `set_control_mode(0, LCM_POSITION)` | 固定每轴最多 30 次按轴补发；跟踪本次回零状态，处理超时和中断；成功返回六轴完成数组 |
+| `home()` | 首次及重试均使用 `home_motors(0)`；完成后 `set_control_mode(0, LCM_POSITION)` | 固定最多 30 次整手尝试；跟踪本次回零状态，处理超时和中断；成功返回 true |
 | `set_positions(q)` | 六次 `set_target_position(id, q)`，一次 `move_motors(0)` | 薄封装，按顺序直调厂家接口；不做设备状态检查、不等待、不重试、不保证执行成功 |
 | `set_position(id, q)` | `set_target_position(id, q)`、`move_motors(id)` | 只检查 ID/位置输入，直接调用单轴厂家接口；不检查返回、不等待、不保证执行 |
 | `set_speed(v)` / `get_speed()` | `set_position_velocity(0, v)`、`apply_motion_params()`、`get_position_velocity(id, &v)` | 设置最多重试 30 次；读取厂家缓存数组，不是设备 ACK |
@@ -221,7 +223,6 @@ enable():
         return [true, true, true, true, true, true]
     on worker:
         check vendor.set_control_mode(0, LCM_POSITION); failure => return false
-        check vendor.set_move_no_home(0); failure => return false
         operation_baseline = state sequence
         for attempt in 1..30:
             if cancelled by stop/disable/disconnect: return false
@@ -322,7 +323,7 @@ on each fresh status while HomingOperation is active:
         attempt stop; return false  // 记录回零超时和停止结果
 ```
 
-逻辑沿用 `arm_sdk_minimal`：首次广播后，每隔约 1 秒只补发尚未观察到回零运行的轴；已经观察到开始运行的轴不再重发，避免重启正在进行的回零。每轴最多 30 次，包含广播的一次；六轴都完成才返回六个 true。已有 `homed=1` 不能直接代表本次调用完成。
+首次广播后，只要仍有轴未观察到回零运行，就约每秒通过 `home_motors(0)` 整手补发；不进行单轴补发，可能重新触发其他轴。整手最多尝试 30 次，包含首次广播；六轴都观察到启动后只等待完成，六轴都完成才返回 true。已有 `homed=1` 不能直接代表本次调用完成。
 
 上述“先观察回零运行，再观察完成”是保守确认方式：回零很快或反馈丢失时可能漏掉运行阶段，届时可能触发不必要补发或最终失败，需要实机验证。整个操作还需要内部总超时；`arm_sdk_minimal` 当前使用 80 秒，第一版可先沿用，最终以实测调整。超时、反馈中断或达到单轴次数上限时，尝试 `stop()` 并返回 `false`，不把部分完成当成成功。
 

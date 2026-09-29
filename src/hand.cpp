@@ -35,7 +35,7 @@ bool fail(const std::string& message) {
 }
 struct Snapshot {
     HandState state;
-    std::array<bool, 6> stopped{}, homing{}, observed_home{};
+    std::array<bool, 6> stopped{}, homing{}, observed_home{}, emergency_stopped{};
     std::array<Clock::time_point, 2> last{};
     std::array<std::uint64_t, 2> sequence{};
 };
@@ -79,11 +79,11 @@ struct Hand::Impl {
         feedback_cv.wait_for(lock, duration, [&] { return cancelled(token); });
         return !cancelled(token);
     }
-    Snapshot snapshot() const {
+    Snapshot snapshot(bool initializing = false) const {
         std::lock_guard<std::mutex> lock(feedback_mutex);
         auto result = feedback;
         const auto now = Clock::now();
-        result.state.feedback_valid = connected && !rx_failed && result.sequence[0] && result.sequence[1]
+        result.state.feedback_valid = (connected || initializing) && !rx_failed && result.sequence[0] && result.sequence[1]
             && now - result.last[0] < 100ms && now - result.last[1] < 100ms;
         return result;
     }
@@ -243,6 +243,7 @@ struct Hand::Impl {
                         feedback.state.fault_codes[j] = frame.data[3 + 2*j] & 0xf;
                         feedback.stopped[j] = (status & 4) && running != 1 && running != 7;
                         feedback.homing[j] = running == 7;
+                        feedback.emergency_stopped[j] = running == 6;
                         if (track_home && running == 7) feedback.observed_home[j] = true;
                     }
                 }
@@ -315,7 +316,8 @@ struct Hand::Impl {
         }
         return true;
     }
-    bool open_device(int retries, std::uint64_t token) {
+    bool open_device(std::uint64_t token) {
+        constexpr int retries = 30;
         bool initialized = false;
         for (int attempt = 1; attempt <= retries && !cancelled(token); ++attempt) {
             {
@@ -349,6 +351,7 @@ struct Hand::Impl {
         if (initialized) {
             for (int attempt = 1; attempt <= retries && !cancelled(token); ++attempt) {
                 if (configure_feedback(token)) {
+                    if (!recover_stop(token)) break;
                     connected = true;
                     if (!cancelled(token)) return true;
                     connected = false;
@@ -363,8 +366,8 @@ struct Hand::Impl {
         cleanup();
         return fail("connect failed/cancelled; local resources released");
     }
-    bool connect(const std::string& name, int id, int retries) {
-        if (name.empty() || id < 1 || id > 127 || retries < 1) return fail("invalid connect arguments");
+    bool connect(const std::string& name, int id) {
+        if (name.empty() || id < 1 || id > 127) return fail("invalid connect arguments");
         std::future<bool> result;
         std::uint64_t connect_token = 0;
         {
@@ -385,7 +388,7 @@ struct Hand::Impl {
             job->token = ++generation;
             connect_token = job->token;
             job->urgent = false;
-            job->call = [this, retries](auto token) { return open_device(retries, token); };
+            job->call = [this](auto token) { return open_device(token); };
             result = job->result.get_future();
             queue.push_back(job);
             try { worker = std::thread([this] { run(); }); }
@@ -409,10 +412,10 @@ struct Hand::Impl {
     // Waits run on the control worker, but priority submissions invalidate token
     // and wake this condition variable immediately, before their own job runs.
     bool confirm(std::uint64_t token, std::uint64_t baseline,
-                 const std::function<bool(const Snapshot&)>& predicate) {
+                 const std::function<bool(const Snapshot&)>& predicate, bool initializing = false) {
         const auto deadline = Clock::now() + 500ms;
         while (!cancelled(token) && Clock::now() < deadline) {
-            auto value = snapshot();
+            auto value = snapshot(initializing);
             if (value.state.feedback_valid && value.sequence[1] > baseline && predicate(value)) return true;
             if (rx_failed) return false;
             std::unique_lock<std::mutex> lock(feedback_mutex);
@@ -421,6 +424,53 @@ struct Hand::Impl {
             });
         }
         return false;
+    }
+    bool recover_stop(std::uint64_t token) {
+        auto any = [](const auto& values) {
+            return std::any_of(values.begin(), values.end(), [](auto value) { return bool(value); });
+        };
+        auto value = snapshot(true);
+        if (cancelled(token) || !healthy(value)) return false;
+        if (!any(value.emergency_stopped)) return true;
+
+        // Releasing a latched stop must not resume an enabled axis or old target.
+        bool disabled = !any(value.state.enabled) && all(value.stopped);
+        for (int attempt = 1; !disabled && attempt <= 30 && !cancelled(token); ++attempt) {
+            value = snapshot(true);
+            if (!healthy(value)) return false;
+            const auto baseline = value.sequence[1];
+            const bool sent = command("disable before stop recovery", [&] { return vendor->set_enable(0, 0); });
+            disabled = sent && confirm(token, baseline, [&](const Snapshot& s) {
+                return !any(s.state.enabled) && all(s.stopped);
+            }, true);
+        }
+        if (!disabled) return fail("connect: disable before stop recovery not confirmed/cancelled");
+
+        // The vendor public API exposes stop, but not revoke. Protocol 0x01
+        // requires a control edge: idle (0), then revoke emergency stop (8).
+        std::array<unsigned char, 14> frame{0x01, 6};
+        for (int j = 0; j < 6; ++j) frame[2 + 2*j] = 0x20;
+        for (int attempt = 1; attempt <= 30 && !cancelled(token); ++attempt) {
+            value = snapshot(true);
+            if (!healthy(value) || any(value.state.enabled) || !all(value.stopped))
+                return fail("connect: stop recovery requires disabled, stationary axes");
+            for (int j = 0; j < 6; ++j) frame[3 + 2*j] = 0;
+            const bool idle_sent = transport.send(0x500 + node, frame.data(), frame.size(), 0);
+            if (!pause(token, 20ms)) return false;
+            value = snapshot(true);
+            if (!healthy(value) || any(value.state.enabled) || !all(value.stopped)) return false;
+            const auto baseline = value.sequence[1];
+            for (int j = 0; j < 6; ++j) frame[3 + 2*j] = 8;
+            const bool sent = idle_sent && !cancelled(token)
+                && transport.send(0x500 + node, frame.data(), frame.size(), 0);
+            if (sent && confirm(token, baseline, [&](const Snapshot& s) {
+                return !any(s.emergency_stopped) && !any(s.state.enabled)
+                    && all(s.stopped) && !any(s.state.fault_codes);
+            }, true)) return true;
+            fail(interface + " node=" + std::to_string(node)
+                + " stop recovery attempt=" + std::to_string(attempt));
+        }
+        return fail("connect: stop recovery not confirmed/cancelled");
     }
     // mode: 0=enable, 1=disable, 2=stop.
     bool action(int mode, std::uint64_t token) {
@@ -434,8 +484,7 @@ struct Hand::Impl {
         if (value.state.feedback_valid && matches(value)) return true;
         if (mode == 0) {
             if (!all(value.stopped)) return fail("enable requires stationary axes before changing mode");
-            if (!command("set_control_mode", [&] { return vendor->set_control_mode(0, lhplib::LCM_POSITION); })
-                || !command("set_move_no_home", [&] { return vendor->set_move_no_home(0); })) return false;
+            if (!command("set_control_mode", [&] { return vendor->set_control_mode(0, lhplib::LCM_POSITION); })) return false;
         }
         for (int attempt = 1; attempt <= 30 && !cancelled(token); ++attempt) {
             const auto baseline = snapshot().sequence[1];
@@ -448,8 +497,6 @@ struct Hand::Impl {
         return fail(std::string(mode == 0 ? "enable" : mode == 1 ? "disable" : "stop") + " not confirmed/cancelled");
     }
     bool home(std::uint64_t token) {
-        auto value = snapshot();
-        if (!healthy(value) || !all(value.state.enabled) || !all(value.stopped)) return fail("home requires enabled, stationary axes");
         {
             std::lock_guard<std::mutex> lock(feedback_mutex);
             feedback.observed_home.fill(false);
@@ -459,27 +506,24 @@ struct Hand::Impl {
             Impl* self;
             ~TrackingGuard() { std::lock_guard<std::mutex> lock(self->feedback_mutex); self->track_home = false; }
         } guard{this};
-        if (!command("set_move_no_home", [&] { return vendor->set_move_no_home(0); })) return false;
         if (cancelled(token)) return false;
-        // A send failure can still be partial: keep observing before retrying axes.
+        // A send failure can still be partial: keep observing before retrying.
         command("home_motors", [&] { return vendor->home_motors(0); });
-        std::array<int, 6> attempts{1, 1, 1, 1, 1, 1};
+        int attempts = 1;
         const auto deadline = Clock::now() + 60s;
         auto retry_at = Clock::now() + 1s;
         while (!cancelled(token) && Clock::now() < deadline) {
-            value = snapshot();
+            const auto value = snapshot();
             if (!healthy(value) || !all(value.state.enabled)) return false;
             if (all(value.observed_home) && all(value.state.homed) && all(value.stopped)) {
                 return !cancelled(token) && command("restore position mode", [&] { return vendor->set_control_mode(0, lhplib::LCM_POSITION); });
             }
-            if (Clock::now() >= retry_at) {
-                for (int j = 0; j < 6; ++j) {
-                    if (cancelled(token)) return false;
-                    if (snapshot().observed_home[j]) continue;
-                    if (attempts[j] >= 30) return fail("home start not observed for axis=" + std::to_string(j + 1));
-                    ++attempts[j];
-                    command("home axis", [&] { return vendor->home_motors(j + 1); });
-                }
+            if (Clock::now() >= retry_at && !all(value.observed_home)) {
+                if (cancelled(token)) return false;
+                if (all(snapshot().observed_home)) continue;
+                if (attempts >= 30) return fail("home start not observed for all axes after 30 whole-hand attempts");
+                ++attempts;
+                command("home_motors retry", [&] { return vendor->home_motors(0); });
                 retry_at = Clock::now() + 1s;
             }
             pause(token, 10ms);
@@ -509,7 +553,7 @@ struct Hand::Impl {
 
 Hand::Hand() : impl_(std::make_unique<Impl>()) {}
 Hand::~Hand() = default;
-bool Hand::connect(const std::string& name, int id, int retries) { return impl_->connect(name, id, retries); }
+bool Hand::connect(const std::string& name, int id) { return impl_->connect(name, id); }
 void Hand::disconnect() { impl_->disconnect(); }
 bool Hand::is_connected() const { return impl_->connected && !impl_->closing; }
 HandState Hand::get_state() const { return impl_->snapshot().state; }

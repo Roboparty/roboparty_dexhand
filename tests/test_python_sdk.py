@@ -1,4 +1,6 @@
 """Hardware-free checks against the installed Python package."""
+import subprocess
+import sys
 import unittest
 
 from roboparty_dexhand_sdk import Hand
@@ -15,7 +17,7 @@ class BindingTests(unittest.TestCase):
         self.assertFalse(self.hand.is_connected())
         for name in ("enable", "disable", "stop", "home"):
             self.assertFalse(getattr(self.hand, name)())
-        for args in (("", 1), ("can0", 0), ("can0", 1, 0)):
+        for args in (("", 1), ("can0", 0)):
             self.assertFalse(self.hand.connect(*args))
         self.assertFalse(self.hand.set_positions([0] * 6))
         self.assertFalse(self.hand.set_positions((0,) * 6))
@@ -28,7 +30,6 @@ class BindingTests(unittest.TestCase):
 
     def test_conversion(self):
         calls = [lambda v: self.hand.connect("can0", v),
-                 lambda v: self.hand.connect("can0", 1, v),
                  lambda v: self.hand.set_position(v, 0),
                  lambda v: self.hand.set_position(1, v),
                  self.hand.set_speed, self.hand.set_current_limit,
@@ -57,11 +58,24 @@ class BindingTests(unittest.TestCase):
 
     def test_failed_connection_releases_workers(self):
         # Longer than Linux IFNAMSIZ, so this cannot address a real CAN device.
-        for _ in range(2):
-            self.assertFalse(self.hand.connect("sdk_test_interface_name_too_long", 1, 1))
-            self.assertFalse(self.hand.is_connected())
-            self.assertFalse(self.hand.get_state().feedback_valid)
-            self.hand.disconnect()
+        result = subprocess.run([sys.executable, "-c", """
+from roboparty_dexhand_sdk import Hand
+hand = Hand()
+for _ in range(2):
+    assert not hand.connect("sdk_test_interface_name_too_long", 1)
+    assert not hand.is_connected()
+    assert not hand.get_state().feedback_valid
+    hand.disconnect()
+"""], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr.count("connect initialization attempt="), 60)
+        self.assertEqual(result.stderr.count("connect initialization attempt=30\n"), 2)
+
+    def test_retry_parameter_is_not_public(self):
+        with self.assertRaises(TypeError):
+            self.hand.connect("", 1, 30)
+        with self.assertRaises(TypeError):
+            self.hand.connect("", 1, retry_count=30)
 
     def test_snapshot(self):
         state = self.hand.get_state()

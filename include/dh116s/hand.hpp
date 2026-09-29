@@ -27,12 +27,14 @@ public:
     Hand(Hand&&) = delete;
     Hand& operator=(Hand&&) = delete;
 
-    bool connect(const std::string& can_name, int node_id, int retry_count = 30);
+    // Each connection stage makes at most 30 attempts, including the first.
+    // A latched emergency stop is recovered while all axes are disabled.
+    bool connect(const std::string& can_name, int node_id);
     void disconnect();
     bool is_connected() const;
     bool enable();
     bool disable();
-    bool stop();
+    bool stop(); // Disable and reconnect before starting motion again.
     bool home();
     bool set_positions(const std::array<int, 6>& positions);
     bool set_position(int id, int position);

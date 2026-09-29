@@ -22,7 +22,7 @@ struct Options {
     std::array<int, 2> node{1, 1};
     // LHandProLib 20260921 dry-run initialization defaults, verified on both architectures.
     int speed = 20000, current = 400, amplitude = 6000;
-    int period_ms = 3000, cycles = 10, retries = 3;
+    int period_ms = 3000, cycles = 10;
     bool dry_run = false;
     bool connect_only = false;
 };
@@ -33,7 +33,6 @@ const char* help =
     "  --amplitude 6000   Four-finger position range 0..amplitude (1..10000)\n"
     "  --period-ms 3000   Wave period (1000..60000 ms)\n"
     "  --cycles 10       Number of wave cycles (1..100)\n"
-    "  --retries 3       Connection attempts per stage (1..30)\n"
     "  --dry-run         Print targets without opening CAN or waiting\n"
     "  --connect-only    Configure/check feedback, then disconnect without motion\n"
     "  --help            Show this help\n"
@@ -65,7 +64,6 @@ bool parse(int argc, char** argv, Options& options) {
         else if (arg == "--amplitude") ok = number(value, 1, 10000, options.amplitude);
         else if (arg == "--period-ms") ok = number(value, 1000, 60000, options.period_ms);
         else if (arg == "--cycles") ok = number(value, 1, 100, options.cycles);
-        else if (arg == "--retries") ok = number(value, 1, 30, options.retries);
         if (!ok) return false;
     }
     return options.can[0] != options.can[1] || options.node[0] != options.node[1];
@@ -97,9 +95,7 @@ bool cleanup(std::array<dh116s::Hand, 2>& hands) {
     auto close = [](dh116s::Hand& hand) {
         bool ok = true;
         if (hand.is_connected()) {
-            const bool stopped = hand.stop();
-            const bool disabled = hand.disable();
-            ok = stopped && disabled;
+            ok = hand.disable();
         }
         hand.disconnect();
         return ok;
@@ -119,7 +115,7 @@ bool phase(std::array<dh116s::Hand, 2>& hands, const char* name,
         if (interrupted && !cancelled) {
             cancelled = true;
             if (motion_cleanup) {
-                if (!cleanup(hands)) std::cerr << "Stop/disable not confirmed during interruption.\n";
+                if (!cleanup(hands)) std::cerr << "Disable not confirmed during interruption.\n";
             } else {
                 for (auto& hand : hands) hand.disconnect();
             }
@@ -130,7 +126,7 @@ bool phase(std::array<dh116s::Hand, 2>& hands, const char* name,
     return left_ok && right_ok && !interrupted;
 }
 bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
-    if (!phase(hands, "Connect", [&](auto& hand, int side) { return hand.connect(options.can[side], options.node[side], options.retries); }, !options.connect_only)) return false;
+    if (!phase(hands, "Connect", [&](auto& hand, int side) { return hand.connect(options.can[side], options.node[side]); }, !options.connect_only)) return false;
     if (options.connect_only) return hands[0].get_state().feedback_valid && hands[1].get_state().feedback_valid;
     if (!phase(hands, "Set speed/current/torque-reached stop mode", [&](auto& hand, int) {
         return hand.set_speed(options.speed) && hand.set_current_limit(options.current) && hand.set_torque_reached_mode(true);
@@ -138,7 +134,7 @@ bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
     if (!phase(hands, "Enable", [](auto& hand, int) { return hand.enable(); })) return false;
     if (!phase(hands, "Home all six axes", [](auto& hand, int) { return hand.home(); })) return false;
     if (!phase(hands, "Single-axis API: index target 0", [](auto& hand, int) { return hand.set_position(3, 0); })) return false;
-    std::cout << "Wave: axes 3..6, opposite phase directions, 50 Hz targets" << std::endl;
+    std::cout << "Wave: axes 3..6, opposite phase directions, 200 Hz targets" << std::endl;
     const double duration = options.period_ms / 1000.0 * options.cycles;
     const auto start = Clock::now();
     auto next = start;
@@ -155,14 +151,14 @@ bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
                 return false;
             }
             if (!hands[side].set_positions(target(seconds, side, options))) return false;
-            if (count % 50 == 0) {
+            if (count % 200 == 0) {
                 std::cout << (side == 0 ? "left actual:" : "right actual:");
                 print_values(state.positions);
                 std::cout << '\n';
             }
         }
         ++count;
-        next = std::max(next + 20ms, Clock::now());
+        next = std::max(next + 5ms, Clock::now());
         std::this_thread::sleep_until(next);
     }
     if (interrupted) return false;
@@ -190,7 +186,7 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
     if (options.dry_run) {
-        for (int ms = 0; ms <= options.period_ms * options.cycles; ms += 20) {
+        for (int ms = 0; ms <= options.period_ms * options.cycles; ms += 5) {
             const auto left = target(ms / 1000.0, 0, options), right = target(ms / 1000.0, 1, options);
             for (int side = 0; side < 2; ++side) {
                 const auto& q = side ? right : left;
@@ -214,10 +210,10 @@ int main(int argc, char** argv) {
         std::cout << "Disconnect (connection check only; no motion commands)" << std::endl;
         for (auto& hand : hands) hand.disconnect();
     } else {
-        std::cout << "Stop -> disable -> disconnect (both hands)" << std::endl;
+        std::cout << "Disable -> disconnect (both hands)" << std::endl;
         closed = cleanup(hands);
     }
-    if (!closed) std::cerr << "Stop/disable unconfirmed; check hardware and power state.\n";
+    if (!closed) std::cerr << "Disable unconfirmed; check hardware and power state.\n";
     if (interrupted) return 130;
     std::cout << (ok && closed ? "Complete.\n" : "Failed; see preceding logs.\n");
     return ok && closed ? 0 : 1;
