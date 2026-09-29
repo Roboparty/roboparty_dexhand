@@ -85,6 +85,23 @@ std::array<int, 6> target(double seconds, int side, const Options& options) {
 void print_values(const std::array<int, 6>& values) {
     for (int value : values) std::cout << ' ' << value;
 }
+void print_state(const char* side, const dh116s::HandState& state) {
+    std::cout << side << " state positions:";
+    print_values(state.positions);
+    std::cout << " velocities:";
+    print_values(state.velocities);
+    std::cout << " currents:";
+    print_values(state.currents);
+    std::cout << " enabled:";
+    for (bool value : state.enabled) std::cout << ' ' << value;
+    std::cout << " homed:";
+    for (bool value : state.homed) std::cout << ' ' << value;
+    std::cout << " torque_reached:";
+    for (bool value : state.torque_reached) std::cout << ' ' << value;
+    std::cout << " faults:";
+    print_values(state.fault_codes);
+    std::cout << " feedback_valid:" << state.feedback_valid << '\n';
+}
 bool healthy(const dh116s::HandState& state) {
     return state.feedback_valid
         && std::all_of(state.enabled.begin(), state.enabled.end(), [](bool v) { return v; })
@@ -138,7 +155,7 @@ bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
     const double duration = options.period_ms / 1000.0 * options.cycles;
     const auto start = Clock::now();
     auto next = start;
-    int count = 0;
+    auto next_report = start;
     while (!interrupted) {
         const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
         if (seconds >= duration) break;
@@ -151,13 +168,11 @@ bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
                 return false;
             }
             if (!hands[side].set_positions(target(seconds, side, options))) return false;
-            if (count % 200 == 0) {
-                std::cout << (side == 0 ? "left actual:" : "right actual:");
-                print_values(state.positions);
-                std::cout << '\n';
+            if (Clock::now() >= next_report) {
+                print_state(side == 0 ? "left" : "right", state);
+                if (side == 1) next_report += 1s;
             }
         }
-        ++count;
         next = std::max(next + 5ms, Clock::now());
         std::this_thread::sleep_until(next);
     }

@@ -316,6 +316,17 @@ struct Hand::Impl {
         }
         return true;
     }
+    bool configure_move_no_home(std::uint64_t token) {
+        // The vendor API has no getter for this flag; success is SDK-confirmed only.
+        for (int attempt = 1; attempt <= 30 && !cancelled(token) && !rx_failed; ++attempt) {
+            if (command("set_move_no_home(1)", [&] { return vendor->set_move_no_home(1); })) {
+                return !cancelled(token) && !rx_failed;
+            }
+            fail("set_move_no_home(1) attempt=" + std::to_string(attempt));
+            if (attempt < 30 && !rx_failed && !pause(token, 100ms)) break;
+        }
+        return fail("set_move_no_home(1) failed/cancelled");
+    }
     bool open_device(std::uint64_t token) {
         constexpr int retries = 30;
         bool initialized = false;
@@ -351,6 +362,7 @@ struct Hand::Impl {
         if (initialized) {
             for (int attempt = 1; attempt <= retries && !cancelled(token); ++attempt) {
                 if (configure_feedback(token)) {
+                    if (!configure_move_no_home(token)) break;
                     if (!recover_stop(token)) break;
                     connected = true;
                     if (!cancelled(token)) return true;

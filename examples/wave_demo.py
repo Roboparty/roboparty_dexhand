@@ -31,6 +31,13 @@ def checked_state(hand, side):
     return state
 
 
+def print_state(side, state):
+    print(f"{side} 状态：位置={state.positions}, 速度={state.velocities}, "
+          f"电流={getattr(state, 'currents', ())}, 使能={state.enabled}, 回零={state.homed}, "
+          f"力矩到位={getattr(state, 'torque_reached', ())}, 报警={state.fault_codes}, "
+          f"反馈有效={state.feedback_valid}", flush=True)
+
+
 def close_hand(hand, side):
     ok = True
     # 失能失败仍继续断开；未连接的手只断开。
@@ -80,7 +87,7 @@ def main():
 
         print("双手波浪：200 Hz 目标更新", flush=True)
         start = next_tick = time.monotonic()
-        count = 0
+        next_report = start
         while (seconds := time.monotonic() - start) < DURATION:
             if interrupted.is_set():
                 raise KeyboardInterrupt
@@ -88,9 +95,10 @@ def main():
                 state = checked_state(hand, side)
                 if not hand.set_positions(target(seconds, direction)):
                     raise RuntimeError(f"{side}波浪目标下发失败")
-                if count % 200 == 0:
-                    print(f"{side}实际位置：{state.positions}", flush=True)
-            count += 1
+                if time.monotonic() >= next_report:
+                    print_state(side, state)
+                    if side == 1:
+                        next_report += 1.0
             next_tick = max(next_tick + 0.005, time.monotonic())  # 与 C++ 一样扣除下发耗时。
             interrupted.wait(max(0.0, next_tick - time.monotonic()))
 
