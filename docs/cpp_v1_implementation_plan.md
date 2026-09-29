@@ -1,6 +1,8 @@
 # DH116S C++ SDK 第一版实现方案（待审阅）
 
-本文将 [第一版接口总结](v1_api_summary.md) 展开为实现步骤和伪代码。仅做设计，不表示已经实现、编译或实机验证。公共接口范围沿用讨论结果；文中标为“建议”的内部策略和默认行为仍供审阅。
+本文只描述第一版公共接口的内部实现方案、厂家 SDK 映射、线程组织和验收方法。公共接口的作用、字段和返回值以 [第一版接口说明](v1_api_summary.md) 为准；本文件不再重新定义用户侧语义。仅做设计，不表示已经实现、编译或实机验证。
+
+实现层必须遵守两个边界：第一，厂家头文件和原始错误码不能进入公共头文件；第二，内部可以等待反馈或有限重试，但不能改变公共接口的返回值含义。第一版不使用 C++ 异常，失败通过 `bool`、状态字段和日志报告。
 
 ## 1. 范围与依据
 
@@ -22,8 +24,8 @@
 | --- | --- | --- |
 | `connect(can, node_id, retry_count = 30)` | `set_send_canfd_callback_ex()`、`initial(LCN_CANFD, node_id)`、`get_hand_type()`、`get_dof()`、SDO 读写 | SocketCAN 打开/收发；分阶段有限重试；六轴 20 ms 周期配置；上报帧配置；实测 50 Hz |
 | `disconnect()` | `close()` | 无参数、无连接重试；取消待执行请求和操作等待，协调当前调用结束，回收线程和 socket；不自动停止或失能 |
-| `enable()` | `set_control_mode(0, LCM_POSITION)`、`set_move_no_home(0)`、`set_enable(0, 1)` | 固定最多尝试 30 次，返回最后有效的六轴使能数组；未知状态抛异常 |
-| `disable()` | `set_enable(0, 0)` | 取消待发运动和使能重试；固定最多尝试 30 次，返回最后有效的六轴使能数组；未知反馈抛异常 |
+| `enable()` | `set_control_mode(0, LCM_POSITION)`、`set_move_no_home(0)`、`set_enable(0, 1)` | 内部等待新的状态反馈；六轴全部确认使能才返回 `true`，否则 `false` |
+| `disable()` | `set_enable(0, 0)` | 取消待发运动和旧操作；六轴全部确认失能才返回 `true`，否则 `false` |
 | `home()` | `home_motors(0)`；必要时 `home_motors(id)`；完成后 `set_control_mode(0, LCM_POSITION)` | 固定每轴最多 30 次按轴补发；跟踪本次回零状态，处理超时和中断；成功返回六轴完成数组 |
 | `set_positions(q)` | 六次 `set_target_position(id, q)`，一次 `move_motors(0)` | 薄封装，按顺序直调厂家接口；不做设备状态检查、不等待、不重试、不保证执行成功 |
 | `set_position(id, q)` | `set_target_position(id, q)`、`move_motors(id)` | 只检查 ID/位置输入，直接调用单轴厂家接口；不检查返回、不等待、不保证执行 |
@@ -31,7 +33,7 @@
 | `set_current_limit(c)` / `get_current_limit()` | `set_max_current(0, c)`、`apply_motion_params()`、`get_max_current(id, &c)` | 设置最多重试 30 次；读取厂家缓存数组，不是设备 ACK |
 | `set_torque_reached_mode(mode)` / `get_torque_reached_mode()` | `set_safe_current_enable(mode)`、`get_safe_current_enable(&mode)` | 1=安全电流开启/力矩到位停止；0=关闭/力矩到位保持；设置最多重试 30 次 |
 | `get_state()` | 接收时调用 `get_now_position()`、`get_now_position_velocity()`、`get_now_current()` | 接收缓存、状态位解析、新鲜度判断；查询时不发包 |
-| `stop()` | `stop_motors(0)` | 取消待发运动和回零等待；固定最多尝试 30 次，返回最后有效的六轴停止状态；未知反馈抛异常 |
+| `stop()` | `stop_motors(0)` | 取消待发运动和回零等待；六轴都确认停止才返回 `true`，否则 `false` |
 
 说明：`get_hand_type()` / `get_dof()` 仅用于连接内部校验，不重新增加公共 `get_info()` / `get_joint_info()`。SDK 应确认匹配 DH116S、六主动轴后再允许控制。
 
@@ -207,20 +209,20 @@ write_sdo_verified(index, sub, value, deadline):
 
 ## 5. enable()（已确认）
 
-入口无参数，C++ 返回 `std::array<bool, 6>`。固定最多尝试 30 次，包含第一次；不使用 connect 的 retry_count。整手下发、逐轴确认，全部使能立即返回；次数耗尽但反馈有效时，返回最后一份实际状态数组，允许部分为 false。
+入口无参数，C++ 返回 `bool`。内部可以重复发送并等待新的状态反馈，但只有六轴全部确认使能才返回 `true`；未连接、发送失败、反馈无效或未全部使能返回 `false`，不返回部分状态数组。部分轴状态由 `get_state()` 提供。
 
 ```text
 enable():
-    require connected and fresh status; otherwise throw
-    require no homing or conflicting operation; otherwise throw
+    require connected and fresh status; otherwise return false
+    require no homing or conflicting operation; otherwise return false
     if all axes already enabled:
         return [true, true, true, true, true, true]
     on worker:
-        check vendor.set_control_mode(0, LCM_POSITION); failure => throw
-        check vendor.set_move_no_home(0); failure => throw
+        check vendor.set_control_mode(0, LCM_POSITION); failure => return false
+        check vendor.set_move_no_home(0); failure => return false
         operation_baseline = state sequence
         for attempt in 1..30:
-            if cancelled by stop/disable/disconnect: throw cancellation
+            if cancelled by stop/disable/disconnect: return false
             baseline = state sequence
             call vendor.set_enable(0, 1)
             record vendor/send failure if any, then retry within attempt limit
@@ -230,14 +232,14 @@ enable():
             record attempt, latest status and failure reason
         if latest status is newer than operation_baseline and still fresh:
             return latest enabled[6]
-        throw feedback missing/stale or relevant communication error
+        return false  // 记录反馈缺失、过期或通信错误
 ```
 
 数组按固定六通道顺序返回，true 是已使能、false 是未使能，不是成功/失败标志。正常返回 `{true, true, false, true, true, false}` 表示本次重试结束时最后有效反馈中第 3、6 轴仍未使能。返回值只是快照；调用方需自行判断是否全部为 true。
 
 每轮仅依据新反馈确认，不能以旧数组、厂家 setter 返回值或本地目标状态替代设备反馈。等待窗口建议参考现有示例使用 500 ms，收到满足条件的新反馈立即返回；此时长仍作为待实测的内部参数。窗口等待由操作状态机处理，不阻塞控制工作线程接收 stop/disable/disconnect。
 
-未连接、反馈缺失或过期、准备阶段失败、冲突操作及取消等情况抛异常；不返回默认全 false。使能发送失败计入本次尝试并记录原因；若最终仍有有效的新设备反馈，可以按上述规则返回实际状态。厂家错误和底层错误保留在诊断中，不把未确认状态伪装为未使能。
+未连接、反馈缺失或过期、准备阶段失败、冲突操作及取消等情况返回 `false`。使能发送失败计入内部尝试并记录原因；厂家错误和底层错误保留在日志中，不把未确认状态伪装为成功。
 
 `LCM_POSITION` 是我们采用的厂家位置接口模式，不额外向用户开放控制模式切换。协议对底层模式的命名与 SDK 枚举不完全一致，映射交给厂家库，不直接将枚举值写进协议。
 
@@ -247,11 +249,11 @@ enable():
 
 ## 6. disable()（已确认）
 
-入口为 `std::array<bool, 6> disable()`，无参数，固定最多尝试 30 次，包含第一次。计数独立于 connect。返回的是使能状态而不是失能成功标志：false 为已失能，true 为仍使能，全部失能返回六个 false。
+入口为 `bool disable()`，无参数。内部取消旧运动和使能等待；只有六轴都收到新的失能反馈才返回 `true`，否则返回 `false`。部分轴状态由 `get_state()` 提供。
 
 ```text
 disable():
-    require connection/transport exists; otherwise throw
+    require connection/transport exists; otherwise return false
     invalidate queued motion requests, cancel enable retries and homing wait
     block new enable/home/motion requests while disabling
     if fresh feedback already confirms all axes disabled:
@@ -259,7 +261,7 @@ disable():
     on worker, high priority:
         operation_baseline = state sequence
         for attempt in 1..30:
-            if cancelled by disconnect: throw cancellation
+            if cancelled by disconnect: return false
             baseline = state sequence
             call vendor.set_enable(0, 0)
             record vendor/send error if any, then retry within attempt limit
@@ -268,14 +270,14 @@ disable():
                     return enabled[6]  // all false
             record attempt, latest status and failure reason
         if latest status is newer than operation_baseline and still fresh:
-            return latest enabled[6]
-        throw feedback missing/stale or relevant communication error
+            return all latest enabled values are false
+        return false  // 记录反馈缺失、过期或通信错误
     always release disabling-operation guard; retain connection unless disconnect requested
 ```
 
 直接发送失能，不以 stop 成功为先决条件；不先调用 stop 并等待成功。反馈过期时仍允许尝试下发失能，不能先因反馈过期而拒绝发送。底层已失去发送能力时记录通信错误，不把操作报告为已确认成功。每轮等待窗口建议与 enable 一致，初步参考 500 ms，最终值待实测。
 
-正常返回部分 true 表示最后有效反馈中部分轴仍使能，用户可继续 get_state 或采取其他操作；不得把数组正常返回等同于六轴全部失能。未连接、最终反馈缺失或过期、被 disconnect 取消等情况抛异常，不以全 false 表示未知状态。
+`disable()` 的 `true` 只表示六轴全部失能。未连接、最终反馈缺失或过期、被 `disconnect()` 取消等情况返回 `false`，不把未知状态当成成功。
 
 取消旧请求必须在控制工作线程串行化：已经进入的厂家调用返回后再执行失能，失能期间拒绝新的使能或运动请求，避免交错导致刚失能又重新使能。等待期间保持接收线程运行，不阻塞断开取消。重复失能命令是否发包和生效需要验证，不通过使能再失能制造控制边沿。
 
@@ -283,13 +285,13 @@ disable():
 
 ## 7. home()（已确认）
 
-入口暂定为 `std::array<bool, 6> home()`，无参数。固定每轴最多尝试 30 次，包含首次整手触发对应的一次；不接受用户次数参数。整手广播优先，后续只对未观察到进入回零的轴单独补发。
+入口为 `bool home()`，无参数。内部跟踪六轴回零状态；只有六轴都完成本次回零确认才返回 `true`，否则返回 `false`。整手广播优先，后续只对未观察到进入回零的轴单独补发。
 
 ```text
 home():
-    require connected, fresh feedback, all axes enabled; otherwise throw
+    require connected, fresh feedback, all axes enabled; otherwise return false
     reject if another homing operation is active
-    require no ongoing position motion; otherwise ask caller to stop first
+    require no ongoing position motion; otherwise return false
     on worker:
         clear per-axis observed_homing flags for this operation
         record operation generation and state sequence
@@ -311,16 +313,16 @@ on each fresh status while HomingOperation is active:
     every approximately 1 second:
         for each axis not observed_homing:
             if home_attempts[axis] >= 30:
-                throw retry-exhausted error
+                return false  // 记录该轴未进入回零运行
             check vendor.home_motors(axis)
             home_attempts[axis] += 1
     if deadline exceeded or feedback lost:
-        attempt stop; throw original error plus stop confirmation result
+        attempt stop; return false  // 记录回零超时和停止结果
 ```
 
 逻辑沿用 `arm_sdk_minimal`：首次广播后，每隔约 1 秒只补发尚未观察到回零运行的轴；已经观察到开始运行的轴不再重发，避免重启正在进行的回零。每轴最多 30 次，包含广播的一次；六轴都完成才返回六个 true。已有 `homed=1` 不能直接代表本次调用完成。
 
-上述“先观察回零运行，再观察完成”是保守确认方式：回零很快或反馈丢失时可能漏掉运行阶段，届时可能触发不必要补发或最终失败，需要实机验证。整个操作还需要内部总超时；`arm_sdk_minimal` 当前使用 80 秒，第一版可先沿用，最终以实测调整。超时、反馈中断或达到单轴次数上限时，尝试 stop 并抛异常，不返回部分完成数组。
+上述“先观察回零运行，再观察完成”是保守确认方式：回零很快或反馈丢失时可能漏掉运行阶段，届时可能触发不必要补发或最终失败，需要实机验证。整个操作还需要内部总超时；`arm_sdk_minimal` 当前使用 80 秒，第一版可先沿用，最终以实测调整。超时、反馈中断或达到单轴次数上限时，尝试 `stop()` 并返回 `false`，不把部分完成当成成功。
 
 收到显式 `stop()` 时终止回零等待，执行停止；收到 `disable()` 时执行失能；收到 `disconnect()` 时终止等待并断开，仍不暗含停机。取消等待不等于设备已停下。
 
@@ -328,13 +330,13 @@ on each fresh status while HomingOperation is active:
 
 ## 8. set_positions(values)（已确认）
 
-这是第一版最薄的运动接口。公共入口只检查输入是否为六个合法位置值（每个值在 0～10000），然后按固定顺序调用厂家 SDK；不在我们这一层检查连接、使能、回零、反馈新鲜度、到位状态或设备能力，不检查厂家返回结果，不做重试，不等待设备反馈，也不承诺目标一定执行。调用者负责保证调用前置状态，设备是否接受和执行由后续 `get_state()` 判断。
+这是第一版最薄的运动接口。公共入口只检查输入是否为六个合法位置值（每个值在 0～10000），然后按固定顺序调用厂家 SDK；不在我们这一层检查连接、使能、回零、反馈新鲜度、到位状态或设备能力，不做重试，不等待设备反馈，也不承诺目标一定执行。厂家调用或发送失败返回 `false`，调用者负责保证调用前置状态，设备是否接受和执行由后续 `get_state()` 判断。
 
 ```text
 set_positions(q):
     validate q has exactly 6 values
     validate every q[i] is in [0, 10000]
-    invalid input -> throw InvalidArgument
+    invalid input -> return false
 
     on the single vendor-control worker:
         for id in 1..6:
@@ -343,7 +345,7 @@ set_positions(q):
     return immediately
 ```
 
-这里不检查厂家返回码，也不把 CAN 写入结果转换成“已成功运动”。厂家调用返回错误、底层发送失败、设备未使能、未回零或设备拒绝目标，都不由本接口做状态判断；如需诊断，底层日志可以记录原始返回码和发送结果，但不改变接口的“不保证成功”语义。输入数量和位置范围由公共层做最小检查，其他参数和设备限制交由厂家 SDK 处理。
+这里不等待设备反馈，也不把发送成功表述为“已运动到位”。厂家调用返回错误或底层发送失败返回 `false`；设备未使能、未回零、设备拒绝目标或目标未执行由后续 `get_state()` 判断。输入数量和位置范围由公共层做最小检查，其他设备限制交由厂家 SDK 处理。
 
 六个目标按 1～6 依次写入厂家缓存，再调用一次 `move_motors(0)`。本地调用返回只表示这些函数调用已经完成，不表示 CAN 帧已经到达设备、设备已接受目标、六轴已同时启动或已经到位。第一版不内置轨迹和无限周期重发；连续控制由用户循环调用。相同目标是否被厂家抑制、是否重新发送，需要抓帧及实机验证。
 
@@ -356,7 +358,7 @@ set_positions(q):
 ```text
 set_position(id, q):
     validate id in [1, 6], q in [0, 10000]
-    invalid input -> throw InvalidArgument
+    invalid input -> return false
 
     on the single vendor-control worker:
         vendor.set_target_position(id, q)
@@ -364,7 +366,7 @@ set_position(id, q):
     return immediately
 ```
 
-直接用厂家的单轴入口，不先读取其他五轴位置再广播覆盖它们。这里不检查厂家返回码、CAN 写入结果、设备是否使能/回零或目标是否到位；本地返回只表示两个厂家调用已经完成，不保证设备接受或执行。实际结果由后续 `get_state()` 判断，底层日志可记录原始错误但不改变接口语义。
+直接用厂家的单轴入口，不先读取其他五轴位置再广播覆盖它们。厂家调用或发送失败返回 `false`；本地返回 `true` 仍只表示发送流程成功，不保证设备接受或执行。实际结果由后续 `get_state()` 判断。
 
 `id` 只允许 1～6，位置只允许 0～10000；这是公共层唯一的设备相关输入检查。是否影响其他轴依赖厂家 `move_motors(id)` 的单轴语义，SDK 不额外广播或保证其他轴状态。调用仍由同一厂家控制线程串行执行，不建立队列、不重试。
 
@@ -375,7 +377,7 @@ set_position(id, q):
 ```text
 set_speed(v):
     validate v is a legal speed input
-    invalid input -> throw InvalidArgument
+    invalid input -> return false
 
     on the single vendor-control worker:
         for attempt in 1..30:
@@ -387,7 +389,7 @@ set_speed(v):
                 save requested speed
                 return
             wait internal retry interval
-    throw speed-configuration error
+    return false  // 记录速度配置错误
 
 get_speed():
     on the single vendor-control worker:
@@ -409,7 +411,7 @@ get_speed():
 ```text
 set_current_limit(c):
     validate c in [0, 3000]
-    invalid input -> throw InvalidArgument
+    invalid input -> return false
 
     on the single vendor-control worker:
         for attempt in 1..30:
@@ -421,7 +423,7 @@ set_current_limit(c):
                 save requested current limit
                 return
             wait internal retry interval
-    throw current-limit configuration error
+    return false  // 记录电流配置错误
 
 get_current_limit():
     on the single vendor-control worker:
@@ -443,7 +445,7 @@ get_current_limit():
 ```text
 set_torque_reached_mode(mode):
     validate mode in {0, 1}
-    invalid input -> throw InvalidArgument
+    invalid input -> return false
 
     on the single vendor-control worker:
         for attempt in 1..30:
@@ -454,7 +456,7 @@ set_torque_reached_mode(mode):
                 save requested mode
                 return
             wait internal retry interval
-    throw torque-mode configuration error
+    return false  // 记录力矩模式配置错误
 
 get_torque_reached_mode():
     on the single vendor-control worker:
@@ -508,11 +510,11 @@ get_state():
 
 ## 14. stop()（已确认）
 
-入口为 `std::array<bool, 6> stop()`，无参数，固定最多尝试 30 次，包含第一次。返回数组表示停止确认状态：true 表示该轴通过新的状态反馈确认零速且不再运行或回零，false 表示仍未确认停止。
+入口为 `bool stop()`，无参数。只有六轴都通过新的状态反馈确认零速且不再运行或回零才返回 `true`，否则返回 `false`。部分轴状态由 `get_state()` 提供。
 
 ```text
 stop():
-    require transport available; otherwise throw
+    require transport available; otherwise return false
     invalidate pending position requests; cancel active homing wait
     block new ordinary motion while stopping
     if fresh state already confirms all axes stopped:
@@ -528,13 +530,13 @@ stop():
             if all stopped:
                 return stopped[6]
         if latest status is newer than operation_baseline and still fresh:
-            return stopped[6]
-        throw feedback missing/stale or stop-unconfirmed error
+            return all stopped
+        return false  // 记录反馈缺失、过期或停止未确认
 ```
 
 已停止且有新鲜反馈时幂等成功。不能只因为位置到位、力矩到位或某一帧速度为零，就断言停止命令已经生效；每轴还要确认不在正常运行或回零状态。状态确认是可观测结果，不是带事务编号的命令 ACK。重试只重复厂家停止调用和状态观察，不能保证设备一定执行。
 
-反馈过期时仍允许尝试下发停止；次数耗尽但仍有有效反馈时返回最后数组，没有有效反馈或确认失败时抛异常，不能返回全 false 伪装结果。它不主动失能，不关闭连接，也不自动清除故障。停止期间拒绝新的普通运动请求，已进入的厂家调用返回后再串行执行停止。
+反馈过期时仍允许尝试下发停止；没有有效反馈或确认失败时返回 `false`，不能把未知状态伪装成成功。它不主动失能，不关闭连接，也不自动清除故障。停止期间拒绝新的普通运动请求，已进入的厂家调用返回后再串行执行停止。
 
 协议有急停命令 7 和撤销急停命令 8，而 `stop_motors()` 的公开注释未明确其映射及恢复流程。需抓取厂家实际输出，验证下一次 `move_motors()` 是否自动处理恢复。未经验证，不在公共 SDK 中猜测性补发撤销急停。停止后的恢复步骤只能作用于新目标，不能执行停止前滞留的目标。
 
@@ -575,7 +577,7 @@ disconnect():
 
 伪代码中的 `check` 统一转换厂家非零返回码和底层发送错误。建议错误包含操作名、类别、厂家码或 errno；需要时带“命令可能已发送”“停止是否确认”等上下文。
 
-enable、disable 已确定使用六轴使能状态数组加异常，不使用此前讨论的 Result<void>：有效的部分状态正常返回数组，未知反馈或无法正常执行则抛异常。enable 的目标是六个 true，disable 的目标是六个 false。以下错误类别可用于异常和诊断，其他接口返回形式仍按后续逐项讨论确定。
+enable、disable、stop、home 统一返回 `bool`：只有接口要求的设备状态全部确认才返回 `true`，否则返回 `false`；部分状态通过 `get_state()` 读取。第一版不使用 C++ 异常，错误原因通过日志和状态字段诊断。
 
 | 类别 | 示例 |
 | --- | --- |
@@ -595,7 +597,7 @@ connect 已确定采用分阶段有限重试，两个阶段各最多 retry_count
 2. 接收与状态：注入厂家能解析的帧，验证单位、状态位、简易报警码、过期与缺帧。
 3. connect：模拟初始化失败和 SDO 应答，验证默认每阶段最多 30 次、初始化失败重建、第二阶段失败不重置第一阶段、六轴 20 ms 写入、abort/超时、读回不符、分别验收两类 50 Hz 帧及耗尽次数后的清理。
 4. 参数和目标下发：厂家无硬件模式或模拟适配层验证顺序、参数校验、单轴不影响其他轴、部分发送失败。
-5. enable/home/stop/disable：模拟状态变化与操作中断，验证等待新反馈和控制线程不被 home 阻塞；enable、disable 分别验证提前达成目标、固定 30 次、耗尽后部分数组、缺帧/过期抛异常及实际发包与控制边沿行为；disable 额外验证过期仍下发、不依赖 stop 成功、取消旧使能重试和运动请求后不再复发。
+5. enable/home/stop/disable：模拟状态变化与操作中断，验证等待新反馈和控制线程不被 home 阻塞；确认只有目标状态全部满足才返回 `true`，缺帧、过期、取消和发送失败返回 `false`，并检查实际发包与控制边沿行为。
 6. 显式运行实机验收：回零完成判断、停止恢复、两种力矩模式、参数生效和实际频率。
 
 仅验证回调、缓存或编译不能替代实机行为确认。测试程序不要在构建或普通单元测试中自动使能、回零。
