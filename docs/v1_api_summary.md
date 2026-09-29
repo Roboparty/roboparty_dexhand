@@ -49,7 +49,7 @@
 ```cpp
 class Hand {
 public:
-    bool connect(const std::string& can_name, int node_id);
+    bool connect(const std::string& can_name, int node_id, int retry_count = 30);
     void disconnect();
     bool is_connected() const;
 
@@ -69,6 +69,8 @@ public:
 ```
 
 控制接口由同一个调用线程顺序调用。用户不需要管理厂家 SDK、CAN socket 或接收线程。
+
+当前 C++ 实现与 ARM 部署、demo 用法见 [README](../README.md)。普通操作建议由同一个用户线程顺序调用；SDK 内部统一转交专属控制线程。另一用户线程可通过 stop、disable、disconnect 取消操作等待。
 
 ## 4. 连接管理
 

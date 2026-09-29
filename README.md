@@ -1,186 +1,209 @@
-# DH116S SDK
+# roboparty_dexhand_sdk
 
-DH116S 灵巧手的二次开发目录。
+Linux SocketCAN CAN FD 下的 DH116S 六轴 C++17 SDK，面向 ARM64 板部署。底层使用厂家 **2026-09-21 LHandProLib**。本版只有 C++，不依赖 Python 或 ROS。
 
-## 目录
+提供连接、使能、失能、回零、停止、单轴/六轴位置、速度、电流上限、力矩到位行为和状态读取，以及双手四指波浪 demo。公共接口以 [头文件](include/dh116s/hand.hpp) 和 [第一版接口说明](docs/v1_api_summary.md) 为准，失败返回 `false` 并向 stderr 写日志。
 
-- `include/`：面向用户的 C++ 头文件
-- `src/`：C++ 核心实现和厂家 SDK 适配层
-- `python/`：Python 绑定与 Python API
-- `ros2/`：ROS 2 适配包
-- `tests/`：无硬件测试、协议测试和集成测试
-- `docs/`：架构、接口和行为约定
+## 1. 复制到 ARM 板
 
-## 当前范围
+复制整个 `roboparty_dexhand_sdk/` 源码目录即可，不需要复制本机生成的 `build/`。项目已包含厂家头文件及 ARM64、x86_64 动态库，无需另建厂家 SDK 目录：
 
-第一阶段提供连接、使能、回零、行程位置控制、速度与电流设置、力矩到位模式、状态读取和停止。告警随状态返回，暂不提供设备信息查询、通道信息查询和故障清除接口。
-
-当前接口讨论总结见 [`docs/v1_api_summary.md`](docs/v1_api_summary.md)。此前的 [`docs/cpp_api_scope.md`](docs/cpp_api_scope.md) 保留为早期草案，范围冲突时以当前总结为准。
-
-C++ 第一版逐接口实现逻辑、厂家函数映射及伪代码见 [`docs/cpp_v1_implementation_plan.md`](docs/cpp_v1_implementation_plan.md)，当前处于审阅阶段，尚未实现。
-
-## 已确认的接口约定
-
-以下为已讨论确认的设计，不表示接口已经实现。其余接口继续逐项讨论。
-
-### connect(can, node_id, retry_count = 30)
-
-- 只接收 CAN 接口、节点 ID 和重试次数；默认每阶段最多尝试 30 次，包含第一次。
-- 第一阶段建立通信并调用厂家初始化；失败清理本次资源，重建实例后重试。
-- 第二阶段配置六轴反馈周期为 20 ms，配置并分别检查 `0x50`、`0x5A` 两类反馈各自约为 50 Hz；失败保留连接，重试本阶段。
-- 两个阶段分别计数，全部通过才连接成功；任一阶段次数耗尽则清理并返回失败。
-- 不自动使能或回零。主机 CAN FD 接口需事先配置并启用。
-
-### disconnect()
-
-- 无参数，取消待执行请求和操作等待，协调当前厂家调用结束，关闭厂家 SDK、回收线程及 socket。
-- 已完全断开时重复调用直接成功；不使用连接的重试次数，不等待设备应答。
-- 不自动停止或失能。断开后设备可能继续执行最后收到的命令；需要停机时先显式调用 `stop()`、`disable()`。
-
-### enable()
-
-```cpp
-std::array<bool, 6> enable();
+```text
+roboparty_dexhand_sdk/
+  CMakeLists.txt
+  include/ src/ examples/ cmake/ docs/ tests/
+  third_party/lhandpro/
+    include/LHandProLib/
+    aarch64/lib/libLHandProLib.so
+    x86_64/lib/libLHandProLib.so
 ```
 
-- 无参数，内部固定最多尝试 30 次，包含第一次，不受 connect 的 retry_count 影响。
-- 整手调用厂家 `set_enable(0, 1)`，根据新的状态反馈逐轴确认；六轴全部使能即提前返回。
-- 若调用前的新鲜反馈已确认六轴使能，直接返回六个 true。
-- 次数耗尽但有本次操作期间收到、且仍然有效的状态反馈时，返回最后一份六轴使能状态；允许部分为 false。
-- true 表示该轴已使能，false 表示该轴未使能。返回数组不等于六轴全部使能，调用方需要检查数组内容。
-- 未连接、反馈缺失或过期、操作被取消等无法正常给出状态的情况抛异常，不返回虚假的全 false；具体异常类型待实现时统一。
-- 不自动回零、不下发位置目标。未全部使能时不自动失能、清除告警或断开连接。
+CMake 按目标架构自动选择项目内的库。ARM 板 `uname -m` 应为 `aarch64`。32 位 ARM 暂不支持，需要厂家另供匹配库。
 
-数组顺序固定为：拇指侧摆、拇指屈伸、食指屈伸、中指屈伸、无名指屈伸、小指屈伸。例如 `{true, true, false, true, true, false}` 表示最后有效反馈中第 3、6 轴未使能。
+## 2. 板上编译（推荐）
 
-返回值是反馈快照，不保证设备之后一直保持该状态；后续变化通过 `get_state()` 获取。协议要求控制命令变化才生效，重复调用厂家 set_enable 的实际发包及重复触发行为仍需验证，不通过自动失能再使能来制造重试。
+系统依赖：Linux、CMake >= 3.16、支持 C++17 的 GCC/Clang、pthread。厂家库已随项目提供，构建时无需下载依赖。
 
-### disable()
-
-```cpp
-std::array<bool, 6> disable();
+```bash
+sudo apt-get install build-essential cmake iproute2 can-utils
+cd ~/roboparty_dexhand_sdk
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j2
+./build/dh116s_wave_demo --help
+./build/dh116s_wave_demo --dry-run
 ```
 
-- 无参数，内部固定最多尝试 30 次，包含第一次，不受 connect 的 retry_count 影响。
-- 优先取消待执行运动、使能重试和回零等待，避免失能后旧请求再次驱动设备。
-- 整手调用厂家 `set_enable(0, 0)`，等待新的反馈逐轴确认；六轴全部失能即提前返回。
-- 返回的仍是六轴使能状态，顺序与 enable 相同：false 为已失能，true 为仍使能。全部失能返回六个 false。
-- 调用前的新鲜反馈已经确认全部失能时直接返回；次数耗尽且有本次操作期间的新反馈、仍未过期时，返回最后一份数组，允许部分 true。
-- 反馈过期时仍尝试下发失能，不以 stop 成功为前提。最终反馈缺失或过期、未连接、操作被断开取消等情况下抛异常，不用全 false 表示无法确认。
-- 保留连接，不自动清告警，不强制修改回零状态；实际 homed 以设备反馈为准。失能不保证手指张开或机械松脱。
+不再使用 `LHANDPRO_SDK_ROOT`，旧缓存中的该变量也不会参与构建。编译时自动把对应 `.so` 复制到 `build/lib/`，demo 优先通过相对路径加载它，无需设置 `LD_LIBRARY_PATH`，也不依赖 `/opt/roboparty` 或 `~/dh116s_vendor`。移动运行文件时保留整个 `build/`，不能只移动可执行文件。切换 CPU 架构时使用新的构建目录。
 
-例如 `{false, false, true, false, false, true}` 表示最后有效反馈中第 3、6 轴仍使能。重复失能命令的实际发包及触发行为同样需验证，不通过重新使能来制造控制边沿。
+也可以生成单独部署目录，安装会一起带上厂家库：
 
-### home()
-
-```cpp
-std::array<bool, 6> home();
+```bash
+cmake --install build --prefix "$PWD/install"
+./install/bin/dh116s_wave_demo --dry-run
 ```
 
-- 要求已经连接、六轴已使能，且当前没有其他运动；不自动调用 `enable()`。
-- 首次调用厂家 `home_motors(0)`，整手触发六轴回零。
-- 后续每隔约 1 秒检查状态：已经观察到进入“回零运行”的轴不再重发；尚未观察到开始回零的轴，改用 `home_motors(id)` 单轴补发。
-- 每轴最多尝试 30 次，包含首次整手触发对应的一次；整个回零过程还有内部总超时。具体等待间隔和总超时时间以实现配置为准。
-- 六轴都必须先观察到本次回零运行，再观察到已回零、退出回零运行且零速，才返回六个 `true`。
-- 回零完成后恢复厂家位置模式；不把发送位置 `0` 当作回零。
-- 超时、反馈中断或被 `stop()`、`disable()`、`disconnect()` 取消时抛异常，不返回部分完成数组冒充成功。取消等待不代表设备已经停止。
-- 不额外设置厂家回零电流；不自动清除告警。
+如出现 `GLIBC_*` / `GLIBCXX_* not found`，需使用与板子系统兼容的厂家库/工具链；设置搜索路径不能解决 ABI 版本不匹配。
 
-### set_positions(values)
+可选交叉编译（需要自行安装工具链，且 sysroot 与目标板兼容）：
 
-```cpp
-void set_positions(const std::array<int, 6>& values);
+```bash
+cmake -S . -B build-arm64 \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-linux-gnu.cmake \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build-arm64 -j2
 ```
 
-- 按固定六轴顺序直接调用厂家 `set_target_position(id, value)`，然后调用一次 `move_motors(0)`。
-- 只检查输入数量和范围：必须是 6 个值，且每个值在 `0～10000`；不检查设备状态和厂家返回结果。
-- 输入合法后直接调用厂家接口并返回，不保证厂家调用成功、CAN 帧已到达设备、设备接受目标或机械运动已经发生；目标是否执行由后续 `get_state()` 反馈判断。
-- 调用顺序由 SDK 保证，厂家控制接口仍在同一控制线程执行；其他错误交由厂家 SDK 处理。
+## 3. 配置 CAN FD
 
-### set_position(id, value)
+SDK 只绑定已有接口，不修改系统网络配置。先按实际硬件配置波特率、供电、接线和终端电阻，关闭控制同一只手的上位机/其他程序。
 
-```cpp
-void set_position(int id, int value);
+以下仅示例仲裁域 1 Mbps、数据域 5 Mbps，**必须与手和适配器的实际配置一致**；接口名也需替换：
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can0 up
+sudo ip link set can3 down
+sudo ip link set can3 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can3 up
+ip -details -statistics link show can0
+ip -details -statistics link show can3
 ```
 
-- 只检查 `id` 是否在 `1～6`、`value` 是否在 `0～10000`。
-- 输入合法后直接调用厂家 `set_target_position(id, value)` 和 `move_motors(id)`。
-- 不检查连接、使能、回零、其他轴状态、厂家返回值或设备反馈，不重试、不等待到位。
-- 返回只表示本地调用流程结束，不保证设备接受或执行目标；实际结果通过 `get_state()` 查看。
+支持两个独立 CAN 接口各使用节点 1，也支持同一接口的两个不同节点。节点 ID 范围 `1..127`；同一总线的两个设备不能使用相同节点 ID。左右手标签由 demo 参数指定，SDK 不自动识别或交换左右手。
 
-### set_speed(value) / get_speed()
+## 4. 双手四指波浪 demo
 
-```cpp
-void set_speed(int value);
-std::array<int, 6> get_speed();
+不带 `--dry-run` 时会真实使能、回零并运动。回零会运动六轴，包括拇指；波浪阶段只有食指、中指、无名指、小指运动，两个拇指通道的目标固定为 0。初次测试保持手周围无障碍，使用较小行程和合适电流。
+
+```bash
+./build/dh116s_wave_demo --left can0 1 --right can3 1 \
+  --speed 20000 --current 400 --amplitude 6000 \
+  --period-ms 3000 --cycles 10 --retries 3
 ```
 
-- `set_speed()` 给六个轴统一设置位置运动速度，单位为厂家行程当量/秒。
-- 输入合法后最多尝试 30 次；每次调用厂家 `set_position_velocity(0, value)`，再调用 `apply_motion_params()`。
-- 通过六次 `get_position_velocity(id, &value)` 检查厂家 SDK 内部保存的目标速度；六轴一致后返回。
-- 读取到的是厂家缓存的目标速度，不是设备对速度参数的总线确认，也不是当前实际速度。
-- 30 次后仍不能确认厂家缓存一致时抛异常；不保证设备已经应用速度。
-- `get_state()` 中的 `velocities[6]` 才是设备运动时的实际速度反馈。
+同总线示例：`--left can0 1 --right can0 2`。
 
-### set_current_limit(value) / get_current_limit()
+以上也是 demo 默认参数：四指目标范围 0..6000，周期 3 秒，运行 10 个周期，波浪阶段约 30 秒。速度 20000 当量/秒、电流上限 400‰ 来自项目内 LHandProLib 2026-09-21：创建全新实例、设置 DH116S 手型、启用厂家 dry-run 并初始化后，未调用参数 setter，六轴 `get_position_velocity()` 均为 20000，`get_max_current()` 均为 400；已在 x86_64 和 ARM64 上核对一致。它们是厂家 SDK 默认目标缓存，不是设备 EEPROM 出厂配置或实际速度/电流。此核对不发送硬件命令。
 
-```cpp
-void set_current_limit(int value);
-std::array<int, 6> get_current_limit();
+首次接线可以先只检查连接和反馈，不发送使能、回零、运动、停止或失能命令：
+
+```bash
+./build/dh116s_wave_demo --left can0 1 --right can3 1 --connect-only
 ```
 
-- 电流单位为厂家千分比，输入范围为 `0～3000`。
-- `set_current_limit()` 最多尝试 30 次；每次调用厂家 `set_max_current(0, value)`，再调用 `apply_motion_params()`。
-- 通过六次 `get_max_current(id, &value)` 检查厂家 SDK 内部保存的六轴上限是否一致，一致后返回。
-- `get_current_limit()` 读取的是厂家目标电流上限缓存，不是设备实际电流，也不是设备 ACK。
-- 30 次后仍不能确认缓存一致时抛异常；即使设置成功，也不保证设备已经应用该上限。
-- `get_state().currents` 表示设备运行时实际电流，不能与该配置值混淆。
+该模式会配置设备反馈周期并验证两类反馈频率，然后断开。固件可用 8 槽位的 `0x50` 和 31 槽位的 `0x5A` 帧上报；SDK 校验完整长度后读取前六个主动轴，不要求帧槽位数恰好为 6。
 
-### set_torque_reached_mode(mode) / get_torque_reached_mode()
+运行顺序：
 
-```cpp
-void set_torque_reached_mode(int mode);
-int get_torque_reached_mode();
+1. 并行连接两只手，配置六轴 20 ms 反馈，分别检查 `0x50` 和 `0x5A` 频率。
+2. 设置速度、电流上限和力矩到位停止模式。
+3. 使能并检查六轴实际使能反馈。
+4. 整手回零，等待每轴本次进入回零运行并完成，然后恢复位置模式。
+5. 调用一次单轴接口，将食指目标设为 0。
+6. 以约 50 Hz 下发六轴目标，四指相差四分之一周期，左右手的相位传播方向相反；开始和结束使用平滑幅度过渡。
+7. 回到位置 0 并等待位置/速度反馈满足容差，然后停止、失能、断开。
+
+`--amplitude` 是四指目标最大值，范围 `1..10000`；`--period-ms` 是一个往返周期。速度小于波形要求时设备会跟不上目标，demo 不承诺轨迹跟踪精度。每秒打印一次实际位置；反馈过期、失能、失去回零状态或有告警会结束波浪并执行清理。
+
+`Ctrl+C` / `SIGTERM` 触发停止、失能和断开；失能不依赖停止成功。停止/失能未确认时返回失败并记录日志，不能当作设备已经停止。`SIGKILL` 或掉电不能执行软件清理。退出码：`0` 完成，`1` 运行失败，`2` 参数错误，`130` 信号中断。
+
+`--dry-run` 仅生成并检查波形范围、打印目标，不打开 CAN、不访问厂家设备，也不模拟设备反馈。构建过程不会自动运行运动 demo。
+
+## 5. 在自己的 C++ 项目里使用
+
+推荐通过 CMake 子目录引用：
+
+```cmake
+set(DH116S_BUILD_DEMO OFF CACHE BOOL "")
+add_subdirectory(roboparty_dexhand_sdk)
+add_executable(my_hand_app main.cpp)
+target_link_libraries(my_hand_app PRIVATE roboparty::dexhand_sdk)
 ```
 
-- `mode = 1`：安全电流开启，力矩到位停止；这是默认模式。
-- `mode = 0`：安全电流关闭，力矩到位保持。
-- 设置最多尝试 30 次：调用厂家 `set_safe_current_enable(mode)`，再读取厂家状态确认值。
-- 读取返回 `0` 或 `1`，表示厂家报告的配置状态；不是当前力矩到位状态，也不是设备运动确认。
-- 设置成功不代表当前已经触发力矩到位；`get_state().torque_reached` 才表示各轴当前是否触发。
+库产物为 `libroboparty_dexhand_sdk.a`（默认静态库）。DH116S 设备接口仍使用 `dh116s::Hand` 和 `<dh116s/hand.hpp>`；旧 CMake 别名 `dh116s::sdk` 仍可使用。
 
-### get_state()
+最小流程（会驱动设备）：
 
 ```cpp
-struct HandState {
-    std::array<int, 6> positions;
-    std::array<int, 6> velocities;
-    std::array<int, 6> currents;
-    std::array<bool, 6> enabled;
-    std::array<bool, 6> homed;
-    std::array<bool, 6> torque_reached;
-    std::array<int, 6> fault_codes;
-    bool feedback_valid;
-};
+#include <dh116s/hand.hpp>
 
-HandState get_state();
+int main() {
+    dh116s::Hand hand;
+    if (!hand.connect("can0", 1, 3)) return 1;
+    bool ok = hand.set_speed(20000)
+        && hand.set_current_limit(400)
+        && hand.set_torque_reached_mode(true)
+        && hand.enable()
+        && hand.home();
+    if (ok) ok = hand.set_positions({0, 0, 1000, 1000, 1000, 1000});
+    // Submission is not arrival. Add a feedback loop with a deadline here
+    // before proceeding to the next action; see wave_demo.cpp.
+    const auto state = hand.get_state();
+    const bool stopped = hand.stop();
+    const bool disabled = hand.disable();
+    hand.disconnect();
+    return ok && state.feedback_valid && stopped && disabled ? 0 : 1;
+}
 ```
 
-- 只读取接收线程维护的最新反馈缓存，不发送 CAN 查询、不重试、不等待下一帧。
-- `0x50` 更新位置、实际速度和实际电流；`0x5A` 更新使能、回零、力矩到位和简易告警码。
-- `feedback_valid` 表示两类必要反馈都曾正常收到，且最近更新时间没有超过内部过期阈值；它不表示无告警、已到位或运动成功。
-- 反馈过期时仍返回最后缓存，方便查看最后状态，但调用者不能把这些值当成当前设备状态。
-- `fault_codes` 为 `0x5A` 状态2低四位：0 无报警，1～8 为协议定义的简易报警类别，15 为其他报警。
-- 实际运动速度和电流分别是 `velocities`、`currents`，不是 `get_speed()` 和 `get_current_limit()` 返回的配置缓存。
+这个最小片段紧接着停止，完整的运动等待参见 [wave_demo.cpp](examples/wave_demo.cpp)。
 
-### stop()
+### 接口与单位
 
-```cpp
-std::array<bool, 6> stop();
+| 接口 | 含义 |
+| --- | --- |
+| `connect(can, node, retry_count=30)` | 两阶段连接，各最多指定次数；不自动使能/回零 |
+| `disconnect()` | 取消本地操作，回收线程、socket、厂家对象；不自动停止/失能 |
+| `is_connected()` | 本地连接状态，不保证设备在线或反馈新鲜 |
+| `enable()` / `disable()` / `stop()` | 只有六轴满足反馈条件才返回 true；失败/部分完成返回 false |
+| `home()` | 等待本次六轴回零完成，不自动使能 |
+| `set_positions(array<int,6>)` | 六轴绝对目标，范围 0..10000；不等待到位 |
+| `set_position(id, position)` | 单轴绝对目标，ID 1..6 |
+| `set_speed(speed)` | 六轴速度，正整数，厂家行程当量/秒；具体可用上限由厂家库限制 |
+| `set_current_limit(current)` | 六轴电流上限，0..3000，厂家千分比，不是 mA |
+| `set_torque_reached_mode(true/false)` | true=力矩到位停止，false=保持设定电流 |
+| `get_state()` | 立即复制最新缓存，不发查询、不等待下一帧 |
+
+数组固定顺序：**拇指侧摆、拇指屈伸、食指屈伸、中指屈伸、无名指屈伸、小指屈伸**，对应 ID 1..6。位置 0..10000 为厂家行程当量，不是角度。
+
+`HandState` 包含 `positions`、`velocities`、`currents`、`enabled`、`homed`、`torque_reached`、`fault_codes` 六轴数组和 `feedback_valid`。速度、电流为实际反馈；报警为 `0x5A` 状态2低四位。两类反馈都收到且各自年龄小于 100 ms，连接正常、接收未失败时，`feedback_valid` 才为 true。过期时仍保留最后数值；位置与状态来自不同帧，不代表同时采样。
+
+位置接口的 true 只说明厂家调用成功且调用期间发送层未报告失败。速度/电流/力矩模式接口还检查厂家配置缓存一致，但都不表示设备已独立 ACK、到位或参数已实际生效。不提供参数 getter、故障清除、设备查询接口。
+
+### 线程与等待
+
+每个实例独占厂家对象、控制线程、接收线程和 socket。普通控制接口同步返回，不建立运动长队列；普通操作已占用时新普通操作返回 false（Busy）。`get_state()` 可并发读取；另一线程可以调用 `stop()`、`disable()`、`disconnect()` 取消旧等待和待执行操作。新的停止/失能请求会取消较早的操作，因此用户仍应顺序调用 stop、disable。
+
+厂家调用无法强制打断，优先请求在正在执行的厂家调用返回后生效。对象析构前应先结束所有使用该对象的用户线程；Hand 不可复制或移动。同进程拒绝重复控制同一 `(接口名, 节点 ID)`，不跨进程仲裁。
+
+固定内部参数：使能/失能/停止各最多 30 次，每次反馈等待 500 ms；回零未观察到启动的轴每秒补发一次，每轴最多 30 次，整个回零最多 60 秒；参数设置最多 30 次。厂家函数自身耗时可能使实际墙钟时间更长。反馈过期仍允许尝试停止/失能。
+
+连接的第二阶段通过原始 SDO 对六轴周期写入 200（0.1 ms 单位）、匹配写应答、读取并核对，再配置上报倍数 1；每类采样约 1.2 秒、至少 40 帧，验收 40..60 Hz 且间隔小于 100 ms。只改运行配置，不写 EEPROM。失败可能已改变部分设备反馈周期，不会自动回滚。
+
+SDO 无事务序号，超时后等待 500 ms 排空迟到回复；极迟的同索引回复不能从协议上完全区分，因此同时要求读回和实际频率通过。不要让其他程序并行配置同一设备。`stop_monitor()` 后主动反馈解码、重复命令的设备触发行为和 `stop_motors()` 后再次运动的恢复行为均需实机确认，本版不猜测性补发急停撤销命令。
+
+## 6. 简单验证与排查
+
+可选的小型检查，不需要硬件、不执行运动：
+
+```bash
+cmake -S . -B build -DDH116S_BUILD_SMOKE=ON
+cmake --build build -j2
+ctest --test-dir build --output-on-failure
+./build/dh116s_wave_demo --dry-run
 ```
 
-- 取消本地待执行的位置命令和回零等待，调用厂家 `stop_motors(0)` 停止六轴。
-- 固定最多尝试 30 次，等待新的 `0x5A` 状态反馈；各轴确认零速且不再处于运行或回零状态后，对应返回值为 `true`。
-- 六轴全部确认停止时提前返回；次数耗尽但仍有有效反馈时返回最后一次六轴停止状态。
-- 没有有效反馈、操作被断开取消或无法确认停止时抛异常，不返回全 `false` 表示未知状态。
-- 不自动失能、清除告警或断开连接，不保证保持当前位置，也不自动发送急停撤销或恢复命令。
+已在本机 x86_64 和 ARM64 板上完成编译、基本参数/离线生命周期检查和波形 dry-run。板上 can0/can3 节点 1 的实际连接检查已通过，两类反馈均约 50 Hz；**尚未验证真实手部运动**。没有增加大型测试框架。
+
+| 现象 | 检查方向 |
+| --- | --- |
+| CAN open failed | 接口名、UP 状态、FD MTU、适配器驱动与权限 |
+| initial/model check failed | 节点、供电、波特率、接线，以及实际手型是否 DH116S 六轴 |
+| SDO timeout/abort | 日志中的轴索引/应答值，固件周期对象支持，是否有其他控制进程 |
+| feedback frequency failed | 两类实测频率、总线负载、周期配置、主动上报支持 |
+| feedback missing/stale | CAN 错误统计、BUS-OFF、供电/线缆、调度延迟；超过 100 ms 不确认动作成功 |
+| home start not observed | 本次回零运行位未被观察到；不会用旧 homed=true 冒充成功 |
+| stop/disable not confirmed | 查看实际轴状态与供电，不能凭函数调用认定已停机 |
+
+设计历史保留在 `docs/`；`cpp_v1_implementation_plan.md` 内存在旧伪代码，当前实际接口以头文件和本文为准。

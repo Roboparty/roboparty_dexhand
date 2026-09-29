@@ -1,4 +1,6 @@
-# DH116S C++ SDK 第一版实现方案（待审阅）
+# DH116S C++ SDK 第一版实现方案（设计历史）
+
+2026-09-29：C++ 初版已实现，部署和当前行为见 [README](../README.md)。本文保留原设计，其中数组返回值、异常、getter 等遗留伪代码不作为当前接口承诺；实际公共接口以 `include/dh116s/hand.hpp` 和 `v1_api_summary.md` 为准。
 
 本文只描述第一版公共接口的内部实现方案、厂家 SDK 映射、线程组织和验收方法。公共接口的作用、字段和返回值以 [第一版接口说明](v1_api_summary.md) 为准；本文件不再重新定义用户侧语义。仅做设计，不表示已经实现、编译或实机验证。
 
@@ -621,4 +623,4 @@ connect 已确定采用分阶段有限重试，两个阶段各最多 retry_count
 - [上位机手册](<../../DH116S手册整理/03_LHandPro 上位机软件使用说明书.md>)
 - 厂家完整包：工作区 `DH116S手册整理/附件/LHandProLib-API-Linux-{架构}-20260921/`，其中 `share/LHandProLib/examples/CANFD_cpp/main.cpp` 为回调和初始化参考。
 
-以上兄弟目录链接用于当前工作区审阅；独立克隆 `dh116s_sdk` 时，应另行准备厂家包及相关手册。
+以上兄弟目录链接用于当前工作区审阅；当前项目名为 `roboparty_dexhand_sdk`，厂家头文件与动态库已内置于 `third_party/lhandpro/`。
