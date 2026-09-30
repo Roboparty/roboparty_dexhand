@@ -23,6 +23,7 @@ struct Options {
     // LHandProLib 20260921 dry-run initialization defaults, verified on both architectures.
     int speed = 20000, current = 400, amplitude = 6000;
     int period_ms = 3000, cycles = 10;
+    int rate = 200;
     bool dry_run = false;
     bool connect_only = false;
 };
@@ -33,6 +34,7 @@ const char* help =
     "  --amplitude 6000   Four-finger position range 0..amplitude (1..10000)\n"
     "  --period-ms 3000   Wave period (1000..60000 ms)\n"
     "  --cycles 10       Number of wave cycles (1..100)\n"
+    "  --rate 200        Target update rate: 50, 100, 150 or 200 Hz\n"
     "  --dry-run         Print targets without opening CAN or waiting\n"
     "  --connect-only    Configure/check feedback, then disconnect without motion\n"
     "  --help            Show this help\n"
@@ -59,7 +61,9 @@ bool parse(int argc, char** argv, Options& options) {
         if (i + 1 >= argc) return false;
         const char* value = argv[++i];
         bool ok = false;
-        if (arg == "--speed") ok = number(value, 1, 20000, options.speed);
+        if (arg == "--rate") ok = number(value, 50, 200, options.rate)
+            && (options.rate == 50 || options.rate == 100 || options.rate == 150 || options.rate == 200);
+        else if (arg == "--speed") ok = number(value, 1, 20000, options.speed);
         else if (arg == "--current") ok = number(value, 0, 3000, options.current);
         else if (arg == "--amplitude") ok = number(value, 1, 10000, options.amplitude);
         else if (arg == "--period-ms") ok = number(value, 1000, 60000, options.period_ms);
@@ -151,7 +155,7 @@ bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
     if (!phase(hands, "Enable", [](auto& hand, int) { return hand.enable(); })) return false;
     if (!phase(hands, "Home all six axes", [](auto& hand, int) { return hand.home(); })) return false;
     if (!phase(hands, "Single-axis API: index target 0", [](auto& hand, int) { return hand.set_position(3, 0); })) return false;
-    std::cout << "Wave: axes 3..6, opposite phase directions, 200 Hz targets" << std::endl;
+    std::cout << "Wave: axes 3..6, opposite phase directions, " << options.rate << " Hz targets" << std::endl;
     const double duration = options.period_ms / 1000.0 * options.cycles;
     const auto start = Clock::now();
     auto next = start;
@@ -173,7 +177,7 @@ bool run(std::array<dh116s::Hand, 2>& hands, const Options& options) {
                 if (side == 1) next_report += 1s;
             }
         }
-        next = std::max(next + 5ms, Clock::now());
+        next = std::max(next + std::chrono::nanoseconds(1000000000LL / options.rate), Clock::now());
         std::this_thread::sleep_until(next);
     }
     if (interrupted) return false;
@@ -201,15 +205,17 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
     if (options.dry_run) {
-        for (int ms = 0; ms <= options.period_ms * options.cycles; ms += 5) {
-            const auto left = target(ms / 1000.0, 0, options), right = target(ms / 1000.0, 1, options);
+        const int ticks = options.period_ms * options.cycles * options.rate / 1000;
+        for (int tick = 0; tick <= ticks; ++tick) {
+            const double seconds = tick / static_cast<double>(options.rate);
+            const auto left = target(seconds, 0, options), right = target(seconds, 1, options);
             for (int side = 0; side < 2; ++side) {
                 const auto& q = side ? right : left;
                 if (q[0] || q[1]) return 1;
                 for (int v : q) if (v < 0 || v > options.amplitude) return 1;
             }
-            if (ms % 1000 == 0) {
-                std::cout << "t=" << ms << "ms left:"; print_values(left);
+            if (tick % options.rate == 0) {
+                std::cout << "t=" << seconds << "s left:"; print_values(left);
                 std::cout << " right:"; print_values(right); std::cout << '\n';
             }
         }

@@ -8,6 +8,42 @@ Python 通过 pybind11 复用同一 C++ 驱动，安装和使用见下方第 7 �
 
 ROS 2 Jazzy 的 C++ 驱动、Python launch 和控制示例位于 [ros2/](ros2/README.md)，复用本 SDK，无需安装 Python bindings。
 
+## 项目组织与统一构建
+
+一个仓库、一个 C++ 核心：Python 通过 pybind11 调用核心，ROS 节点直接链接核心。底层通信、回零和停止逻辑集中在 C++；ROS 负责 topic/service、阶段和周期调度。
+
+```text
+include/dh116s/        C++ 公共接口
+src/                  C++ SDK 实现
+python/               Python 绑定、包和类型提示
+ros2/                 ROS 2 Jazzy 节点、消息、launch 和 ROS 示例
+examples/wave_demo.cpp C++ 双手 demo
+examples/wave_demo.py  Python 双手 demo
+cmake/                安装导出模板、ARM64 交叉编译工具链
+third_party/          厂家头文件和双架构库
+tests/                可选无硬件检查
+docs/                 接口说明与设计记录
+```
+
+在仓库根目录选择构建内容（不自动运行硬件）：
+
+```bash
+bash build.sh cpp       # C++ SDK + demo
+bash build.sh python    # Python SDK，包含重新编译 C++ 核心
+bash build.sh ros       # ROS 驱动，包含重新编译 C++ 核心，需要 Jazzy
+bash build.sh all       # 依次构建以上三种
+```
+
+| 入口 | 构建目录 | 安装目录 |
+| --- | --- | --- |
+| cpp | build/cpp | install/cpp |
+| python | build/python | install/python |
+| ros | build/ros | install/ros |
+
+源码变更后重复执行即可增量构建。改动核心后建议 `bash build.sh all`，避免不同入口使用旧库。设置 `DEXHAND_BUILD_JOBS=2` 控制并行度，`DEXHAND_PYTHON` 选择 Python（默认 /usr/bin/python3）。Python 需要 python3-dev、pybind11-dev；ROS 需要 /opt/ros/jazzy 和 colcon。
+
+原先独立 ROS 工作区的 colcon 命令仍支持。统一构建后，在新终端加载对应安装目录，避免混用 overlay。
+
 ## 1. 复制到 ARM 板
 
 复制整个 `roboparty_dexhand_sdk/` 源码目录即可，不需要复制本机生成的 `build/`。项目已包含厂家头文件及 ARM64、x86_64 动态库，无需另建厂家 SDK 目录：
@@ -26,24 +62,22 @@ CMake 按目标架构自动选择项目内的库。ARM 板 `uname -m` 应为 `aa
 
 ## 2. 板上编译（推荐）
 
-系统依赖：Linux、CMake >= 3.16、支持 C++17 的 GCC/Clang、pthread。厂家库已随项目提供，构建时无需下载依赖。
+系统依赖：Linux、CMake >= 3.16、支持 C++17 的 GCC/Clang、pthread。
 
 ```bash
 sudo apt-get install build-essential cmake iproute2 can-utils
 cd ~/roboparty_dexhand_sdk
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j2
-./build/dh116s_wave_demo --help
-./build/dh116s_wave_demo --dry-run
+bash build.sh cpp
+./install/cpp/bin/dh116s_wave_demo --help
+./install/cpp/bin/dh116s_wave_demo --dry-run
 ```
 
-不再使用 `LHANDPRO_SDK_ROOT`，旧缓存中的该变量也不会参与构建。编译时自动把对应 `.so` 复制到 `build/lib/`，demo 优先通过相对路径加载它，无需设置 `LD_LIBRARY_PATH`，也不依赖 `/opt/roboparty` 或 `~/dh116s_vendor`。移动运行文件时保留整个 `build/`，不能只移动可执行文件。切换 CPU 架构时使用新的构建目录。
-
-也可以生成单独部署目录，安装会一起带上厂家库：
+安装目录携带厂家库，可整体复制 `install/cpp/`；不能只复制可执行文件。也可继续手动运行 CMake：
 
 ```bash
-cmake --install build --prefix "$PWD/install"
-./install/bin/dh116s_wave_demo --dry-run
+cmake -S . -B build/cpp -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/install/cpp"
+cmake --build build/cpp -j2
+cmake --install build/cpp
 ```
 
 如出现 `GLIBC_*` / `GLIBCXX_* not found`，需使用与板子系统兼容的厂家库/工具链；设置搜索路径不能解决 ABI 版本不匹配。
@@ -81,9 +115,21 @@ ip -details -statistics link show can3
 不带 `--dry-run` 时会真实使能、回零并运动。回零会运动六轴，包括拇指；波浪阶段只有食指、中指、无名指、小指运动，两个拇指通道的目标固定为 0。初次测试保持手周围无障碍，使用较小行程和合适电流。
 
 ```bash
-./build/dh116s_wave_demo --left can0 1 --right can3 1 \
+./install/cpp/bin/dh116s_wave_demo --left can0 1 --right can3 1 \
   --speed 20000 --current 400 --amplitude 6000 \
   --period-ms 3000 --cycles 10
+```
+
+只保留这两个 demo，原 `wave_demo_50hz.*` 已合并。对比下发频率：
+
+```bash
+./install/cpp/bin/dh116s_wave_demo --rate 50
+./install/cpp/bin/dh116s_wave_demo --rate 200
+source setup_python.sh
+python3 examples/wave_demo.py --rate 50
+python3 examples/wave_demo.py --rate 200
+# 无硬件检查，不需要 Python SDK 即可运行
+python3 examples/wave_demo.py --rate 150 --dry-run
 ```
 
 同总线示例：`--left can0 1 --right can0 2`。
@@ -93,7 +139,7 @@ ip -details -statistics link show can3
 首次接线可以先检查连接和反馈，不发送使能、回零或位置运动命令：
 
 ```bash
-./build/dh116s_wave_demo --left can0 1 --right can3 1 --connect-only
+./install/cpp/bin/dh116s_wave_demo --left can0 1 --right can3 1 --connect-only
 ```
 
 该模式会配置设备反馈周期并验证两类反馈频率；发现遗留急停时，会先确认六轴失能、停止，再撤销急停并检查反馈，然后断开。因此 `--connect-only` 不是纯只读操作，可能撤销保持力，应先安置好抓取物。固件可用 8 槽位的 `0x50` 和 31 槽位的 `0x5A` 帧上报；SDK 校验完整长度后读取前六个主动轴，不要求帧槽位数恰好为 6。
@@ -105,7 +151,7 @@ ip -details -statistics link show can3
 3. 使能并检查六轴实际使能反馈。
 4. 整手回零，等待每轴本次进入回零运行并完成，然后恢复位置模式。
 5. 调用一次单轴接口，将食指目标设为 0。
-6. 以约 200 Hz（每 5 ms）下发六轴目标，四指相差四分之一周期，左右手的相位传播方向相反；开始和结束使用平滑幅度过渡。设备反馈仍为约 50 Hz，实际发送频率受调用耗时和系统调度影响。
+6. 按 `--rate` 指定频率（默认 200 Hz，每 5 ms）下发六轴目标，四指相差四分之一周期，左右手的相位传播方向相反；开始和结束使用平滑幅度过渡。设备反馈仍为约 50 Hz，实际发送频率受调用耗时和系统调度影响。
 7. 回到位置 0 并等待位置/速度反馈满足容差，然后失能、断开。
 
 `--amplitude` 是四指目标最大值，范围 `1..10000`；`--period-ms` 是一个往返周期。速度小于波形要求时设备会跟不上目标，demo 不承诺轨迹跟踪精度。每秒打印一次实际位置；反馈过期、失能、失去回零状态或有告警会结束波浪并执行清理。
@@ -116,7 +162,16 @@ ip -details -statistics link show can3
 
 ## 5. 在自己的 C++ 项目里使用
 
-推荐通过 CMake 子目录引用：
+安装后可通过标准 CMake 包引用：
+
+```cmake
+find_package(roboparty_dexhand_sdk CONFIG REQUIRED)
+target_link_libraries(your_app PRIVATE roboparty::dexhand_sdk)
+```
+
+配置你的项目时传入 `-DCMAKE_PREFIX_PATH=/absolute/path/install/cpp`。包会自动引入 Threads 和厂家库；无需手写厂家库路径。构建出的应用若另行安装分发，需要按自己的目录布局配置运行时库搜索路径并携带相应共享库。
+
+也支持直接通过 CMake 子目录引用：
 
 ```cmake
 set(DH116S_BUILD_DEMO OFF CACHE BOOL "")
@@ -200,10 +255,10 @@ SDO 无事务序号，超时后等待 500 ms 排空迟到回复；极迟的同�
 可选的小型检查，不需要硬件、不执行运动：
 
 ```bash
-cmake -S . -B build -DDH116S_BUILD_SMOKE=ON
-cmake --build build -j2
-ctest --test-dir build --output-on-failure
-./build/dh116s_wave_demo --dry-run
+cmake -S . -B build/check -DDH116S_BUILD_SMOKE=ON
+cmake --build build/check -j2
+ctest --test-dir build/check --output-on-failure
+./install/cpp/bin/dh116s_wave_demo --dry-run
 ```
 
 已在本机 x86_64 和 ARM64 板上完成编译、基本参数/离线生命周期检查和波形 dry-run。板上 can0/can3 节点 1 的实际连接检查已通过，两类反馈均约 50 Hz；**尚未验证真实手部运动**。没有增加大型测试框架。
@@ -229,12 +284,12 @@ ctest --test-dir build --output-on-failure
 ```bash
 sudo apt-get install build-essential cmake python3-dev pybind11-dev
 cd ~/roboparty_dexhand_sdk
-bash build_python.sh
+bash build.sh python
 source setup_python.sh
 /usr/bin/python3 -m unittest discover -s tests -p 'test_python_*.py' -v
 ```
 
-编译脚本固定使用 `/usr/bin/python3`，输出到 `build-python-system/`，完整包安装在项目内 `install/python/`，不修改系统 Python 目录。`setup_python.sh` 设置当前 Bash 的 `PYTHONPATH`，无需设置 `LD_LIBRARY_PATH`；新终端需要重新 source。源码更新后重新执行编译脚本即可。
+编译脚本默认使用 `/usr/bin/python3`，输出到 `build/python/`，完整包安装在项目内 `install/python/`，不修改系统 Python 目录。`setup_python.sh` 设置当前 Bash 的 `PYTHONPATH`，无需设置 `LD_LIBRARY_PATH`；新终端需要重新 source。源码更新后重新执行编译脚本即可。
 
 启动双手波浪（会使能、回零并运动，运行前清空运动空间）：
 
@@ -264,16 +319,16 @@ pip 自动安装构建依赖 `scikit-build-core` 和 `pybind11`；离线环境�
 
 完成第 3 节 CAN 配置后再运行下面的运动示例。
 
-初次阅读 SDK 建议从 [wave_demo.py](examples/wave_demo.py) 开始。示例带中文注释，主流程直接用 `handleft`、`handright` 演示双手并行连接、参数设置、使能、回零、食指目标归零、波浪和返回零位。波浪阶段检查反馈并每约一秒打印双手实际位置；结束后并行失能、断开。修改 `connect()` 中的接口/节点，以及文件顶部的 `AMPLITUDE`、`PERIOD`、`CYCLES` 即可调整设备和波浪动作。
+初次阅读 SDK 建议从 [wave_demo.py](examples/wave_demo.py) 开始。示例带中文注释，主流程直接用 `handleft`、`handright` 演示双手并行连接、参数设置、使能、回零、食指目标归零、波浪和返回零位。波浪阶段检查反馈并每约一秒打印双手实际位置；结束后并行失能、断开。通过 `--left can0 1 --right can3 1` 和波浪参数调整，无需修改源码。
 
 ```bash
 # 会使能、回零并运动双手，运行前清空运动空间。
 python examples/wave_demo.py
 ```
 
-Python demo 与 C++ 保持相同的主要运动流程：双手并行执行阻塞阶段，波浪目标按 5 ms（200 Hz）计划时刻下发，扣除调用耗时，不补发错过的周期；反馈无效、失能、未回零或故障时终止，返回零位需满足位置/速度容差及超时要求。Python 不接受命令行参数，包括 `--dry-run` 和 `--connect-only`；只检查连接可使用下方 SDK 片段或第 4 节的 C++ demo。
+Python demo 与 C++ 保持相同的主要运动流程：双手并行执行阻塞阶段，波浪目标按 5 ms（200 Hz）计划时刻下发，扣除调用耗时，不补发错过的周期；反馈无效、失能、未回零或故障时终止，返回零位需满足位置/速度容差及超时要求。Python 和 C++ 都支持 `--rate 50/100/150/200`（默认 200）及 `--dry-run`。`--connect-only` 仅由 C++ 提供。
 
-Python demo 与 C++ 默认波浪参数一致：速度 20000、限流 400、幅值 6000、周期 3 秒、运行 10 个周期（30 秒），首尾采用 2 秒余弦渐变，目标取整方式也保持一致。修改文件顶部的 `SPEED`、`CURRENT`、`AMPLITUDE`、`PERIOD`、`CYCLES` 可调整参数。仅检查连接而不运动可使用下面的 SDK 片段：
+Python demo 与 C++ 默认波浪参数一致：速度 20000、限流 400、幅值 6000、周期 3 秒、运行 10 个周期（30 秒），首尾采用 2 秒余弦渐变，目标取整方式也保持一致。使用 `--speed`、`--current`、`--amplitude`、`--period-ms`、`--cycles` 调整参数。仅检查连接而不运动可使用下面的 SDK 片段：
 
 ```python
 from roboparty_dexhand_sdk import Hand

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(dexhand_install_check LANGUAGES CXX)
+find_package(roboparty_dexhand_sdk CONFIG REQUIRED)
+add_executable(dexhand_install_check main.cpp)
+target_link_libraries(dexhand_install_check PRIVATE roboparty::dexhand_sdk)

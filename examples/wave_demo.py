@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 """双手波浪示例：会使能、回零并运动，运行前清空运动空间。"""
 from concurrent.futures import ThreadPoolExecutor, wait
+import argparse
 import math
 import signal
-import sys
 import threading
 import time
 
-from roboparty_dexhand_sdk import Hand
-
-SPEED, CURRENT = 20000, 400  # 行程当量/秒；厂家限流千分比，不是 mA。
-AMPLITUDE, PERIOD, CYCLES = 6000, 3.0, 10  # 与 C++ 默认参数一致。
-DURATION = PERIOD * CYCLES
-
-
-def target(seconds, direction):
+def target(seconds, direction, options):
     # 六轴：拇指侧摆、拇指屈伸、食指、中指、无名指、小指。
-    edge = max(0.0, min(1.0, min(seconds, DURATION - seconds) / min(2.0, DURATION / 4)))
-    amplitude = AMPLITUDE * (0.5 - 0.5 * math.cos(math.pi * edge))
-    phase = 2 * math.pi * seconds / PERIOD
+    duration = options.period_ms / 1000 * options.cycles
+    edge = max(0.0, min(1.0, min(seconds, duration - seconds) / min(2.0, duration / 4)))
+    amplitude = options.amplitude * (0.5 - 0.5 * math.cos(math.pi * edge))
+    phase = 2 * math.pi * seconds / (options.period_ms / 1000)
     return [0, 0] + [math.floor(amplitude * (1 - math.cos(phase + direction * j * math.pi / 2)) / 2 + 0.5)
                      for j in range(4)]  # 拇指保持零位，左右四指波浪方向相反。
 
@@ -53,6 +47,44 @@ def close_hand(hand, side):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rate', type=int, choices=[50, 100, 150, 200], default=200)
+    parser.add_argument('--left', nargs=2, default=['can0', '1'], metavar=('CAN', 'NODE'))
+    parser.add_argument('--right', nargs=2, default=['can3', '1'], metavar=('CAN', 'NODE'))
+    parser.add_argument('--speed', type=int, default=20000)
+    parser.add_argument('--current', type=int, default=400)
+    parser.add_argument('--amplitude', type=int, default=6000)
+    parser.add_argument('--period-ms', type=int, default=3000)
+    parser.add_argument('--cycles', type=int, default=10)
+    parser.add_argument('--dry-run', action='store_true', help='Check targets without loading SDK or opening CAN')
+    options = parser.parse_args()
+    for name, low, high in [('speed', 1, 20000), ('current', 0, 3000),
+                            ('amplitude', 1, 10000), ('period_ms', 1000, 60000), ('cycles', 1, 100)]:
+        if not low <= getattr(options, name) <= high:
+            parser.error(f'{name} must be in {low}..{high}')
+    for device in (options.left, options.right):
+        try:
+            device[1] = int(device[1])
+        except ValueError:
+            parser.error('node ID must be an integer')
+        if not device[0] or not 1 <= device[1] <= 127:
+            parser.error('device requires a CAN interface and node ID in 1..127')
+    if options.left == options.right:
+        parser.error('left and right must be different devices')
+    duration = options.period_ms / 1000 * options.cycles
+    if options.dry_run:
+        for tick in range(int(duration * options.rate) + 1):
+            seconds = tick / options.rate
+            values = [target(seconds, direction, options) for direction in (-1, 1)]
+            for positions in values:
+                if positions[:2] != [0, 0] or not all(0 <= v <= options.amplitude for v in positions):
+                    raise RuntimeError('Invalid generated target')
+            if tick % options.rate == 0:
+                print(f't={seconds:g}s left={values[0]} right={values[1]}')
+        print('Dry run passed; no CAN connection or hardware commands.')
+        return 0
+    from roboparty_dexhand_sdk import Hand
+
     handleft, handright = Hand(), Hand()
     hands = ((handleft, "左手"), (handright, "右手"))
     interrupted = threading.Event()
@@ -76,35 +108,34 @@ def main():
             raise RuntimeError(f"{name}失败：左手={left_ok}，右手={right_ok}")
 
     try:
-        # 按实际接线修改接口名和节点；每阶段内部最多尝试 30 次。
-        parallel("连接", lambda: handleft.connect("can0", 1), lambda: handright.connect("can3", 1))
-        parallel("设置速度", lambda: handleft.set_speed(SPEED), lambda: handright.set_speed(SPEED))
-        parallel("设置限流", lambda: handleft.set_current_limit(CURRENT), lambda: handright.set_current_limit(CURRENT))
+        parallel("连接", lambda: handleft.connect(*options.left), lambda: handright.connect(*options.right))
+        parallel("设置速度", lambda: handleft.set_speed(options.speed), lambda: handright.set_speed(options.speed))
+        parallel("设置限流", lambda: handleft.set_current_limit(options.current), lambda: handright.set_current_limit(options.current))
         parallel("力矩到位停止", lambda: handleft.set_torque_reached_mode(True), lambda: handright.set_torque_reached_mode(True))
         parallel("使能", handleft.enable, handright.enable)
         parallel("回零", handleft.home, handright.home)
         parallel("食指目标归零", lambda: handleft.set_position(3, 0), lambda: handright.set_position(3, 0))
 
-        print("双手波浪：200 Hz 目标更新", flush=True)
+        print(f"双手波浪：{options.rate} Hz 目标更新", flush=True)
         start = next_tick = time.monotonic()
         next_report = start
-        while (seconds := time.monotonic() - start) < DURATION:
+        while (seconds := time.monotonic() - start) < duration:
             if interrupted.is_set():
                 raise KeyboardInterrupt
             for (hand, side), direction in zip(hands, (-1, 1)):
                 state = checked_state(hand, side)
-                if not hand.set_positions(target(seconds, direction)):
+                if not hand.set_positions(target(seconds, direction, options)):
                     raise RuntimeError(f"{side}波浪目标下发失败")
                 if time.monotonic() >= next_report:
                     print_state(side, state)
-                    if side == 1:
+                    if direction == 1:
                         next_report += 1.0
-            next_tick = max(next_tick + 0.005, time.monotonic())  # 与 C++ 一样扣除下发耗时。
+            next_tick = max(next_tick + 1 / options.rate, time.monotonic())
             interrupted.wait(max(0.0, next_tick - time.monotonic()))
 
         # 下发成功不等于到位；结合位置、速度和有效状态确认双手回到零位。
         parallel("返回零位", lambda: handleft.set_positions([0] * 6), lambda: handright.set_positions([0] * 6))
-        deadline = time.monotonic() + 3.0 + AMPLITUDE / SPEED
+        deadline = time.monotonic() + 3.0 + options.amplitude / options.speed
         while time.monotonic() < deadline:
             if interrupted.is_set():
                 raise KeyboardInterrupt
@@ -137,6 +168,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 1:
-        raise SystemExit("此示例不接受命令行参数；请修改文件中的设备与波浪参数。")
     raise SystemExit(main())

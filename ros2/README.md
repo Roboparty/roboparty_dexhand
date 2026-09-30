@@ -16,6 +16,17 @@ C++ 驱动复用仓库内 SDK；Python 负责 launch 和上层控制示例。消
 
 ## 编译与部署
 
+推荐在完整仓库根目录使用统一入口：
+
+```bash
+bash build.sh ros
+source /opt/ros/jazzy/setup.bash
+source install/ros/local_setup.bash
+ros2 launch roboparty_dexhand_ros dual_hand.launch.py command_rate_hz:=50
+```
+
+`bash build.sh all` 同时构建 C++、Python 和 ROS，分别安装到 `install/cpp`、`install/python`、`install/ros`。此方式与下方原有工作区方式二选一，不要在同一终端加载两份同名 ROS 包。
+
 目标板 `robo@192.168.137.250`：ARM64、Ubuntu 24.04、ROS 2 Jazzy。新版工作区为 `~/dexhand_jazzy_ws`，保留板上原有 `~/roboparty_dexhand_ros`。不要同时启动旧驱动或其他操作同一只手的程序。
 
 在本地仓库根目录同步完整源码（ROS 包直接编译上两级的 SDK）：

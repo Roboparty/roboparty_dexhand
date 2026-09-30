@@ -31,7 +31,7 @@ function(dh116s_runtime target install_path)
 endfunction()
 find_package(Threads REQUIRED)
 add_library(roboparty_dexhand_sdk src/hand.cpp src/socketcan_transport.cpp)
-set_target_properties(roboparty_dexhand_sdk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(roboparty_dexhand_sdk PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME dexhand_sdk)
 add_library(roboparty::dexhand_sdk ALIAS roboparty_dexhand_sdk)
 add_library(dh116s::sdk ALIAS roboparty_dexhand_sdk)
 target_compile_features(roboparty_dexhand_sdk PUBLIC cxx_std_17)
@@ -39,7 +39,8 @@ target_include_directories(roboparty_dexhand_sdk PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
     PRIVATE "${DH116S_VENDOR_ROOT}/include")
-target_link_libraries(roboparty_dexhand_sdk PRIVATE dh116s_vendor Threads::Threads)
+target_link_libraries(roboparty_dexhand_sdk PRIVATE
+    $<BUILD_INTERFACE:dh116s_vendor> $<INSTALL_INTERFACE:roboparty::lhandpro> Threads::Threads)
 dh116s_runtime(roboparty_dexhand_sdk "$ORIGIN")
 target_compile_options(roboparty_dexhand_sdk PRIVATE -Wall -Wextra -Wpedantic)
 option(DH116S_BUILD_DEMO "Build dual-hand wave demo" ON)
@@ -49,16 +50,22 @@ if(DH116S_BUILD_DEMO)
     target_compile_options(dh116s_wave_demo PRIVATE -Wall -Wextra -Wpedantic)
     dh116s_runtime(dh116s_wave_demo "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
     install(TARGETS dh116s_wave_demo RUNTIME DESTINATION bin)
-    add_executable(dh116s_wave_demo_50hz examples/wave_demo_50hz.cpp)
-    target_link_libraries(dh116s_wave_demo_50hz PRIVATE roboparty::dexhand_sdk Threads::Threads)
-    target_compile_options(dh116s_wave_demo_50hz PRIVATE -Wall -Wextra -Wpedantic)
-    dh116s_runtime(dh116s_wave_demo_50hz "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
-    install(TARGETS dh116s_wave_demo_50hz RUNTIME DESTINATION bin)
 endif()
 install(FILES "${DH116S_VENDOR_LIBRARY}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS roboparty_dexhand_sdk ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+install(TARGETS roboparty_dexhand_sdk EXPORT roboparty_dexhand_sdkTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+include(CMakePackageConfigHelpers)
+set(DH116S_CMAKE_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/roboparty_dexhand_sdk")
+configure_package_config_file(cmake/roboparty_dexhand_sdkConfig.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/roboparty_dexhand_sdkConfig.cmake"
+    INSTALL_DESTINATION "${DH116S_CMAKE_INSTALL_DIR}" PATH_VARS CMAKE_INSTALL_LIBDIR)
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/roboparty_dexhand_sdkConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+install(EXPORT roboparty_dexhand_sdkTargets NAMESPACE roboparty:: DESTINATION "${DH116S_CMAKE_INSTALL_DIR}")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/roboparty_dexhand_sdkConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/roboparty_dexhand_sdkConfigVersion.cmake"
+    DESTINATION "${DH116S_CMAKE_INSTALL_DIR}")
 option(DH116S_BUILD_SMOKE "Build a small hardware-free API/lifecycle check" OFF)
 if(DH116S_BUILD_SMOKE)
     enable_testing()

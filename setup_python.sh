@@ -6,7 +6,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 _dexhand_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || return 1
 if [[ ! -f "$_dexhand_root/install/python/roboparty_dexhand_sdk/__init__.py" ]]; then
-    printf 'SDK not built. Run: bash "%s/build_python.sh"\n' "$_dexhand_root" >&2
+    printf 'SDK not built. Run: bash "%s/build.sh" python\n' "$_dexhand_root" >&2
     unset _dexhand_root
     return 1
 fi
