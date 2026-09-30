@@ -25,6 +25,10 @@ public:
         speed_ = declare_parameter("speed", 8000, immutable);
         current_ = declare_parameter("current_limit", 400, immutable);
         torque_stop_ = declare_parameter("torque_reached_stop", true, immutable);
+        const int rate = declare_parameter("command_rate_hz", 200, immutable);
+        if (rate != 50 && rate != 100 && rate != 150 && rate != 200)
+            throw std::invalid_argument("command_rate_hz must be 50, 100, 150 or 200");
+        command_period_ = std::chrono::nanoseconds(1000000000LL / rate);
         if (interface_.empty() || node_id_ < 1 || node_id_ > 127 || speed_ < 1 ||
             speed_ > 20000 || current_ < 0 || current_ > 3000) {
             throw std::invalid_argument("Invalid interface/node_id/speed/current_limit");
@@ -182,7 +186,7 @@ private:
                 if (exiting_ && phase_ != State::STOPPING) break;
                 tick();
             }
-            next = std::max(next + 5ms, std::chrono::steady_clock::now());
+            next = std::max(next + command_period_, std::chrono::steady_clock::now());
             std::this_thread::sleep_until(next);
         }
     }
@@ -205,6 +209,7 @@ private:
     dh116s::Hand hand_;
     std::string interface_;
     int node_id_, speed_, current_, step_ = 0;
+    std::chrono::nanoseconds command_period_{5000000};
     bool torque_stop_, resetting_ = false, active_reset_ = false;
     bool exiting_ = false, stop_error_ = false, stop_final_ = false;
     uint8_t phase_ = State::UNINITIALIZED;

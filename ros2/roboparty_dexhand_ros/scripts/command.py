@@ -35,7 +35,7 @@ def main():
                     and state.phase == DexHandState.READY and state.feedback_valid):
                 publisher.publish(Int32MultiArray(data=args.positions))
                 publisher.wait_for_all_acked(rclpy.duration.Duration(seconds=1))
-                node.get_logger().info('Target sent; driver repeats it at 200 Hz until stop/reset/error.')
+                node.get_logger().info('Target sent; driver repeats it at its configured rate until stop/reset/error.')
                 return
         raise SystemExit('No fresh READY state: call reset and wait for homing to finish first.')
     finally:

@@ -528,7 +528,19 @@ struct Hand::Impl {
             const auto value = snapshot();
             if (!healthy(value) || !all(value.state.enabled)) return false;
             if (all(value.observed_home) && all(value.state.homed) && all(value.stopped)) {
-                return !cancelled(token) && command("restore position mode", [&] { return vendor->set_control_mode(0, lhplib::LCM_POSITION); });
+                bool sent_all = true;
+                for (int attempt = 0; attempt < 30; ++attempt) {
+                    const auto current = snapshot();
+                    if (cancelled(token) || !healthy(current) || !all(current.state.enabled)
+                        || !all(current.state.homed)) return false;
+                    const bool sent = command("restore position mode", [&] {
+                        return vendor->set_control_mode(0, lhplib::LCM_POSITION);
+                    });
+                    sent_all = sent && sent_all;
+                    if (attempt < 29 && !pause(token, 20ms)) return false;
+                }
+                // Repeated sends do not constitute device-side mode readback.
+                return !cancelled(token) && sent_all;
             }
             if (Clock::now() >= retry_at && !all(value.observed_home)) {
                 if (cancelled(token)) return false;

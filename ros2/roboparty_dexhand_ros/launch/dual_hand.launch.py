@@ -9,7 +9,9 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     defaults = get_package_share_directory('roboparty_dexhand_ros') + '/config/defaults.yaml'
-    actions = [DeclareLaunchArgument('config', default_value=defaults)]
+    actions = [DeclareLaunchArgument('config', default_value=defaults),
+               DeclareLaunchArgument('command_rate_hz', default_value='200',
+                                     choices=['50', '100', '150', '200'])]
     for side, interface in [('left', 'can0'), ('right', 'can3')]:
         actions.extend([
             DeclareLaunchArgument(side, default_value='true'),
@@ -20,6 +22,7 @@ def generate_launch_description():
                 name='dexhand_node', namespace='dexhand_' + side,
                 condition=IfCondition(LaunchConfiguration(side)), output='screen',
                 parameters=[LaunchConfiguration('config'), {
+                    'command_rate_hz': ParameterValue(LaunchConfiguration('command_rate_hz'), value_type=int),
                     'interface': LaunchConfiguration(side + '_interface'),
                     'node_id': ParameterValue(LaunchConfiguration(side + '_node_id'), value_type=int),
                 }],

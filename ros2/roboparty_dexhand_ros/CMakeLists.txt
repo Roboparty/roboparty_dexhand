@@ -22,7 +22,7 @@ rosidl_get_typesupport_target(typesupport ${PROJECT_NAME} rosidl_typesupport_cpp
 target_link_libraries(dexhand_node "${typesupport}")
 dh116s_runtime(dexhand_node "$ORIGIN/..")
 install(TARGETS dexhand_node DESTINATION lib/${PROJECT_NAME})
-install(PROGRAMS scripts/command.py DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/command.py scripts/wave.py DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

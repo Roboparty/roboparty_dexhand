@@ -1,5 +1,6 @@
 /**:
   ros__parameters:
+    command_rate_hz: 200
     speed: 8000
     current_limit: 400
     torque_reached_stop: true

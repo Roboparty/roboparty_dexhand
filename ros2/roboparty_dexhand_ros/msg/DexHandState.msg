@@ -7,6 +7,8 @@ uint8 READY=5
 uint8 STOPPING=6
 uint8 STOPPED=7
 uint8 ERROR=8
+uint8 VERIFYING=9
+# Reserved for compatibility; reset no longer performs a motion check.
 std_msgs/Header header
 uint8 phase
 bool feedback_valid

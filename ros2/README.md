@@ -1,5 +1,17 @@
 # DH116S ROS 2 Jazzy
 
+## 下发频率与 reset
+
+`command_rate_hz` 支持 50、100、150、200，默认 200，启动后只读。双手 launch 的同名参数覆盖 YAML 值；直接运行节点时可通过 YAML 或 `-p command_rate_hz:=50` 设置。状态发布保持 50 Hz。
+
+```bash
+ros2 launch roboparty_dexhand_ros dual_hand.launch.py command_rate_hz:=50
+```
+
+reset 不再执行四指运动自检，也不再因自检失败自动重复初始化。SDK 在整手回零完成后调用厂家 `set_control_mode(0, LCM_POSITION)` 30 次，调用间隔 20 ms；全部发送成功且反馈有效、无故障、六轴保持使能及回零状态后进入 READY，等待新的 cmd。
+
+切模式期间 stop 可打断；反馈异常会提前结束，发送失败则初始化失败。重复发送不是设备模式读回确认。`VERIFYING=9` 常量仅为兼容保留，不再发布该阶段。SDK `home()` 的这一行为同时适用于 C++ 和 Python SDK（需重新编译各自使用的库）。
+
 C++ 驱动复用仓库内 SDK；Python 负责 launch 和上层控制示例。消息及接口遵循 [接口设计](../docs/ros_interface_review.md)。
 
 ## 编译与部署
@@ -41,6 +53,22 @@ ros2 launch roboparty_dexhand_ros dual_hand.launch.py \
 
 ## 控制
 
+单手四指波浪（先 reset 并等待 READY）：
+
+```bash
+ros2 run roboparty_dexhand_ros wave.py --side left
+```
+
+通过 cmd topic 以 50 Hz 发布，拇指目标为 0，四指幅度默认 6000，周期 1 秒，总长 6 秒，首尾各 1 秒渐入渐出，正常结束发送全零。可使用 `--amplitude 1000` 调整幅度，`--side right` 选择右手。不会自行 reset；Ctrl+C 只结束发布，驱动仍保留最后目标。实际运动速度受驱动的速度上限约束。
+
+退出波浪后控制全零（不要同时运行两个目标发布端）：
+
+```bash
+ros2 topic pub --once /dexhand_left/cmd std_msgs/msg/Int32MultiArray '{data: [0, 0, 0, 0, 0, 0]}'
+```
+
+全零是位置目标，不是 stop 或重新回零。
+
 启动不连接、不使能、不自动回零，持续发布 UNINITIALIZED。**reset 会使能并驱动整手回零**，执行前清空手部运动空间。
 
 ```bash
@@ -64,7 +92,7 @@ ros2 service call /dexhand_left/stop std_srvs/srv/Trigger '{}'
 
 目标顺序为拇指侧摆、拇指屈伸、食指、中指、无名指、小指，六个整数范围 0..10000，单位为行程当量。长度或范围错误整条拒绝。QoS 为 Reliable、Volatile、KeepLast(1)。状态消息类型为 `roboparty_dexhand_ros/msg/DexHandState`，含与设计一致的阶段常量和六轴数组。
 
-READY 收到首条有效目标后以目标 200 Hz 重发最新缓存，不插值，不因上层退出而停止；state 以 50 Hz 发布。200 Hz 为调度目标，耗时超过周期时跳过落后的周期，不排队补发。实际频率受 SDK 和 CAN 总线负载影响。
+READY 收到首条有效目标后以配置频率（默认 200 Hz）重发最新缓存，不插值，不因上层退出而停止；state 以 50 Hz 发布。频率为调度目标，耗时超过周期时跳过落后的周期，不排队补发。实际频率受 SDK 和 CAN 总线负载影响。
 
 stop 优先取消初始化后续步骤，并通过 SDK urgent stop 打断回零；连接期间等待连接操作结束再确认停止，不会继续使能。reset/stop 期间丢弃 cmd；停止后必须完整 reset。反馈过期、故障、使能或回零状态丢失会终止下发并尝试 stop，最终保持 ERROR。stop 不附加失能，不保证保持抓握。正常退出会尝试 stop 后断开；强制 kill、断电和断网无法保证物理停止。
 
