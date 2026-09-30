@@ -1,336 +1,92 @@
 # roboparty_dexhand_sdk
 
-Linux SocketCAN CAN FD 下的 DH116S 六轴 C++17 / Python SDK，面向 ARM64 板部署。底层使用厂家 **2026-09-21 LHandProLib**。纯 C++ 构建不依赖 Python 或 ROS。
+用于 DH116S 六轴灵巧手的 Linux CAN FD SDK，提供 C++17、Python 和 ROS 2 接口。底层通信与动作逻辑由同一 C++ 核心实现，Python 使用 pybind11 绑定，ROS 驱动直接链接核心。
 
-提供连接、使能、失能、回零、停止、单轴/六轴位置、速度、电流上限、力矩到位行为和状态读取，以及双手四指波浪 demo。公共接口以 [头文件](include/dh116s/hand.hpp) 和 [第一版接口说明](docs/v1_api_summary.md) 为准，失败返回 `false` 并向 stderr 写日志。
+支持连接、使能、失能、停止、整手回零、单轴/六轴位置控制、运动参数设置及反馈读取。项目携带 LHandProLib 2026-09-21 厂家库。
 
-Python 通过 pybind11 复用同一 C++ 驱动，安装和使用见下方第 7 节；接口与线程约定见 [Python SDK 对接说明](docs/python_sdk_plan.md)。
+## 支持范围
 
-ROS 2 Jazzy 的 C++ 驱动、Python launch 和控制示例位于 [ros2/](ros2/README.md)，复用本 SDK，无需安装 Python bindings。
+| 项目 | 支持范围 |
+| --- | --- |
+| 设备 | DH116S，六个主动通道 |
+| 通信 | Linux SocketCAN CAN FD；系统须预先配置接口 |
+| 架构 | x86_64、aarch64/ARM64 |
+| C++ | C++17，CMake >= 3.16 |
+| Python | Python >= 3.9，绑定需按目标架构和 Python ABI 编译 |
+| ROS | ROS 2 Jazzy；统一脚本使用 /opt/ros/jazzy |
+| 参考环境 | Ubuntu 24.04 ARM64 + Jazzy；本地 x86_64 C++/Python 构建已验证 |
 
-## 项目组织与统一构建
+不提供故障清除、触觉数据、力控/阻抗控制或轨迹规划。其他手型、操作系统和 ROS 版本不在当前验证范围内。
 
-一个仓库、一个 C++ 核心：Python 通过 pybind11 调用核心，ROS 节点直接链接核心。底层通信、回零和停止逻辑集中在 C++；ROS 负责 topic/service、阶段和周期调度。
+## 编译
 
-```text
-include/dh116s/        C++ 公共接口
-src/                  C++ SDK 实现
-python/               Python 绑定、包和类型提示
-ros2/                 ROS 2 Jazzy 节点、消息、launch 和 ROS 示例
-examples/wave_demo.cpp C++ 双手 demo
-examples/wave_demo.py  Python 双手 demo
-cmake/                安装导出模板、ARM64 交叉编译工具链
-third_party/          厂家头文件和双架构库
-tests/                可选无硬件检查
-docs/                 接口说明与设计记录
-```
-
-在仓库根目录选择构建内容（不自动运行硬件）：
+在仓库根目录运行，只安装需要使用的入口依赖：
 
 ```bash
-bash build.sh cpp       # C++ SDK + demo
-bash build.sh python    # Python SDK，包含重新编译 C++ 核心
-bash build.sh ros       # ROS 驱动，包含重新编译 C++ 核心，需要 Jazzy
-bash build.sh all       # 依次构建以上三种
+# C++
+sudo apt-get install build-essential cmake iproute2 can-utils
+# Python 额外依赖
+sudo apt-get install python3-dev pybind11-dev
+# ROS 额外依赖：已有 Jazzy 环境下
+sudo apt-get install python3-colcon-common-extensions ros-jazzy-ament-cmake \
+  ros-jazzy-rclcpp ros-jazzy-rclpy ros-jazzy-rcl-interfaces \
+  ros-jazzy-std-msgs ros-jazzy-std-srvs ros-jazzy-sensor-msgs \
+  ros-jazzy-rosidl-default-generators ros-jazzy-rosidl-default-runtime \
+  ros-jazzy-launch-ros ros-jazzy-ament-index-python
+```
+
+```bash
+bash build.sh cpp
+bash build.sh python
+bash build.sh ros
+# 或依次构建全部入口
+bash build.sh all
 ```
 
 | 入口 | 构建目录 | 安装目录 |
 | --- | --- | --- |
-| cpp | build/cpp | install/cpp |
-| python | build/python | install/python |
-| ros | build/ros | install/ros |
+| C++ | build/cpp | install/cpp |
+| Python | build/python | install/python |
+| ROS | build/ros | install/ros |
 
-源码变更后重复执行即可增量构建。改动核心后建议 `bash build.sh all`，避免不同入口使用旧库。设置 `DEXHAND_BUILD_JOBS=2` 控制并行度，`DEXHAND_PYTHON` 选择 Python（默认 /usr/bin/python3）。Python 需要 python3-dev、pybind11-dev；ROS 需要 /opt/ros/jazzy 和 colcon。
+构建不会自动连接设备或执行运动。修改底层后，使用 `bash build.sh all` 更新三种产物。手动 CMake、pip、交叉编译和外部项目接入见 [构建指南](docs/build.md)。
 
-原先独立 ROS 工作区的 colcon 命令仍支持。统一构建后，在新终端加载对应安装目录，避免混用 overlay。
+## 硬件准备
 
-## 1. 复制到 ARM 板
-
-复制整个 `roboparty_dexhand_sdk/` 源码目录即可，不需要复制本机生成的 `build/`。项目已包含厂家头文件及 ARM64、x86_64 动态库，无需另建厂家 SDK 目录：
-
-```text
-roboparty_dexhand_sdk/
-  CMakeLists.txt
-  include/ src/ examples/ cmake/ docs/ tests/
-  third_party/lhandpro/
-    include/LHandProLib/
-    aarch64/lib/libLHandProLib.so
-    x86_64/lib/libLHandProLib.so
-```
-
-CMake 按目标架构自动选择项目内的库。ARM 板 `uname -m` 应为 `aarch64`。32 位 ARM 暂不支持，需要厂家另供匹配库。
-
-## 2. 板上编译（推荐）
-
-系统依赖：Linux、CMake >= 3.16、支持 C++17 的 GCC/Clang、pthread。
-
-```bash
-sudo apt-get install build-essential cmake iproute2 can-utils
-cd ~/roboparty_dexhand_sdk
-bash build.sh cpp
-./install/cpp/bin/dh116s_wave_demo --help
-./install/cpp/bin/dh116s_wave_demo --dry-run
-```
-
-安装目录携带厂家库，可整体复制 `install/cpp/`；不能只复制可执行文件。也可继续手动运行 CMake：
-
-```bash
-cmake -S . -B build/cpp -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/install/cpp"
-cmake --build build/cpp -j2
-cmake --install build/cpp
-```
-
-如出现 `GLIBC_*` / `GLIBCXX_* not found`，需使用与板子系统兼容的厂家库/工具链；设置搜索路径不能解决 ABI 版本不匹配。
-
-可选交叉编译（需要自行安装工具链，且 sysroot 与目标板兼容）：
-
-```bash
-cmake -S . -B build-arm64 \
-  -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-linux-gnu.cmake \
-  -DCMAKE_BUILD_TYPE=Release
-cmake --build build-arm64 -j2
-```
-
-## 3. 配置 CAN FD
-
-SDK 只绑定已有接口，不修改系统网络配置。先按实际硬件配置波特率、供电、接线和终端电阻，关闭控制同一只手的上位机/其他程序。
-
-以下仅示例仲裁域 1 Mbps、数据域 5 Mbps，**必须与手和适配器的实际配置一致**；接口名也需替换：
+先确认供电、接线、终端电阻以及设备的 CAN 参数。下面是仲裁 1 Mbps、数据 5 Mbps 的配置示例，接口名和速率必须与实际设备一致；会中断该接口已有通信：
 
 ```bash
 sudo ip link set can0 down
 sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
 sudo ip link set can0 up
-sudo ip link set can3 down
-sudo ip link set can3 type can bitrate 1000000 dbitrate 5000000 fd on
-sudo ip link set can3 up
 ip -details -statistics link show can0
-ip -details -statistics link show can3
 ```
 
-支持两个独立 CAN 接口各使用节点 1，也支持同一接口的两个不同节点。节点 ID 范围 `1..127`；同一总线的两个设备不能使用相同节点 ID。左右手标签由 demo 参数指定，SDK 不自动识别或交换左右手。
+双手示例默认左手 `can0`、右手 `can3`，节点 ID 均为 1；请按实际接线修改，并配置两条接口。这些名称不代表自动识别左右手。同一总线可以使用两个不同节点 ID，不能使用相同 ID。
 
-## 4. 双手四指波浪 demo
+## C++ 快速使用
 
-不带 `--dry-run` 时会真实使能、回零并运动。回零会运动六轴，包括拇指；波浪阶段只有食指、中指、无名指、小指运动，两个拇指通道的目标固定为 0。初次测试保持手周围无障碍，使用较小行程和合适电流。
-
-```bash
-./install/cpp/bin/dh116s_wave_demo --left can0 1 --right can3 1 \
-  --speed 20000 --current 400 --amplitude 6000 \
-  --period-ms 3000 --cycles 10
-```
-
-只保留这两个 demo，原 `wave_demo_50hz.*` 已合并。对比下发频率：
-
-```bash
-./install/cpp/bin/dh116s_wave_demo --rate 50
-./install/cpp/bin/dh116s_wave_demo --rate 200
-source setup_python.sh
-python3 examples/wave_demo.py --rate 50
-python3 examples/wave_demo.py --rate 200
-# 无硬件检查，不需要 Python SDK 即可运行
-python3 examples/wave_demo.py --rate 150 --dry-run
-```
-
-同总线示例：`--left can0 1 --right can0 2`。
-
-以上也是 demo 默认参数：四指目标范围 0..6000，周期 3 秒，运行 10 个周期，波浪阶段约 30 秒。速度 20000 当量/秒、电流上限 400‰ 来自项目内 LHandProLib 2026-09-21：创建全新实例、设置 DH116S 手型、启用厂家 dry-run 并初始化后，未调用参数 setter，六轴 `get_position_velocity()` 均为 20000，`get_max_current()` 均为 400；已在 x86_64 和 ARM64 上核对一致。它们是厂家 SDK 默认目标缓存，不是设备 EEPROM 出厂配置或实际速度/电流。此核对不发送硬件命令。
-
-首次接线可以先检查连接和反馈，不发送使能、回零或位置运动命令：
-
-```bash
-./install/cpp/bin/dh116s_wave_demo --left can0 1 --right can3 1 --connect-only
-```
-
-该模式会配置设备反馈周期并验证两类反馈频率；发现遗留急停时，会先确认六轴失能、停止，再撤销急停并检查反馈，然后断开。因此 `--connect-only` 不是纯只读操作，可能撤销保持力，应先安置好抓取物。固件可用 8 槽位的 `0x50` 和 31 槽位的 `0x5A` 帧上报；SDK 校验完整长度后读取前六个主动轴，不要求帧槽位数恰好为 6。
-
-运行顺序：
-
-1. 并行连接两只手，配置六轴 20 ms 反馈，分别检查 `0x50` 和 `0x5A` 频率。
-2. 设置速度、电流上限和力矩到位停止模式。
-3. 使能并检查六轴实际使能反馈。
-4. 整手回零，等待每轴本次进入回零运行并完成，然后恢复位置模式。
-5. 调用一次单轴接口，将食指目标设为 0。
-6. 按 `--rate` 指定频率（默认 200 Hz，每 5 ms）下发六轴目标，四指相差四分之一周期，左右手的相位传播方向相反；开始和结束使用平滑幅度过渡。设备反馈仍为约 50 Hz，实际发送频率受调用耗时和系统调度影响。
-7. 回到位置 0 并等待位置/速度反馈满足容差，然后失能、断开。
-
-`--amplitude` 是四指目标最大值，范围 `1..10000`；`--period-ms` 是一个往返周期。速度小于波形要求时设备会跟不上目标，demo 不承诺轨迹跟踪精度。每秒打印一次实际位置；反馈过期、失能、失去回零状态或有告警会结束波浪并执行清理。
-
-两个 wave demo 在正常结束、异常和 `Ctrl+C` / `SIGTERM` 时均执行失能、断开，不调用 `stop()`；失能会取消本地运动等待。失能未确认时仍断开，返回失败并记录日志，不能当作设备已经停止。`SIGKILL` 或掉电不能执行软件清理。退出码：`0` 完成，`1` 运行失败，`2` 参数错误，`130` 信号中断。
-
-`--dry-run` 仅生成并检查波形范围、打印目标，不打开 CAN、不访问厂家设备，也不模拟设备反馈。构建过程不会自动运行运动 demo。
-
-## 5. 在自己的 C++ 项目里使用
-
-安装后可通过标准 CMake 包引用：
-
-```cmake
-find_package(roboparty_dexhand_sdk CONFIG REQUIRED)
-target_link_libraries(your_app PRIVATE roboparty::dexhand_sdk)
-```
-
-配置你的项目时传入 `-DCMAKE_PREFIX_PATH=/absolute/path/install/cpp`。包会自动引入 Threads 和厂家库；无需手写厂家库路径。构建出的应用若另行安装分发，需要按自己的目录布局配置运行时库搜索路径并携带相应共享库。
-
-也支持直接通过 CMake 子目录引用：
-
-```cmake
-set(DH116S_BUILD_DEMO OFF CACHE BOOL "")
-add_subdirectory(roboparty_dexhand_sdk)
-add_executable(my_hand_app main.cpp)
-target_link_libraries(my_hand_app PRIVATE roboparty::dexhand_sdk)
-```
-
-库产物为 `libroboparty_dexhand_sdk.a`（默认静态库）。DH116S 设备接口仍使用 `dh116s::Hand` 和 `<dh116s/hand.hpp>`；旧 CMake 别名 `dh116s::sdk` 仍可使用。
-
-最小流程（会驱动设备）：
+应用包含 `<dh116s/hand.hpp>`，链接 `roboparty::dexhand_sdk`。以下仅连接并读取反馈，不使能或回零；连接可能为恢复遗留急停而失能、撤销急停：
 
 ```cpp
 #include <dh116s/hand.hpp>
+#include <iostream>
 
 int main() {
     dh116s::Hand hand;
     if (!hand.connect("can0", 1)) return 1;
-    bool ok = hand.set_speed(20000)
-        && hand.set_current_limit(400)
-        && hand.set_torque_reached_mode(true)
-        && hand.enable()
-        && hand.home();
-    if (ok) ok = hand.set_positions({0, 0, 1000, 1000, 1000, 1000});
-    // Submission is not arrival. Add a feedback loop with a deadline here
-    // before proceeding to the next action; see wave_demo.cpp.
     const auto state = hand.get_state();
-    const bool stopped = hand.stop();
-    const bool disabled = hand.disable();
+    std::cout << "feedback_valid=" << state.feedback_valid << '\n';
     hand.disconnect();
-    return ok && state.feedback_valid && stopped && disabled ? 0 : 1;
+    return state.feedback_valid ? 0 : 1;
 }
 ```
 
-这个最小片段紧接着停止，完整的运动等待参见 [wave_demo.cpp](examples/wave_demo.cpp)。
-
-### 接口与单位
-
-| 接口 | 含义 |
-| --- | --- |
-| `connect(can, node)` | 初始化、反馈配置、允许未回零运动、遗留急停恢复；各重试阶段最多 30 次（含首次），不自动使能/回零 |
-| `disconnect()` | 取消本地操作，回收线程、socket、厂家对象；不自动停止/失能 |
-| `is_connected()` | 本地连接状态，不保证设备在线或反馈新鲜 |
-| `enable()` / `disable()` / `stop()` | 只有六轴满足反馈条件才返回 true；失败/部分完成返回 false |
-| `home()` | 等待本次六轴回零完成，不自动使能 |
-| `set_positions(array<int,6>)` | 六轴绝对目标，范围 0..10000；不等待到位 |
-| `set_position(id, position)` | 单轴绝对目标，ID 1..6 |
-| `set_speed(speed)` | 六轴速度，正整数，厂家行程当量/秒；具体可用上限由厂家库限制 |
-| `set_current_limit(current)` | 六轴电流上限，0..3000，厂家千分比，不是 mA |
-| `set_torque_reached_mode(true/false)` | true=力矩到位停止，false=保持设定电流 |
-| `get_state()` | 立即复制最新缓存，不发查询、不等待下一帧 |
-
-数组固定顺序：**拇指侧摆、拇指屈伸、食指屈伸、中指屈伸、无名指屈伸、小指屈伸**，对应 ID 1..6。位置 0..10000 为厂家行程当量，不是角度。
-
-`HandState` 包含 `positions`、`velocities`、`currents`、`enabled`、`homed`、`torque_reached`、`fault_codes` 六轴数组和 `feedback_valid`。速度、电流为实际反馈；报警为 `0x5A` 状态2低四位。两类反馈都收到且各自年龄小于 100 ms，连接正常、接收未失败时，`feedback_valid` 才为 true。过期时仍保留最后数值；位置与状态来自不同帧，不代表同时采样。
-
-位置接口的 true 只说明厂家调用成功且调用期间发送层未报告失败。速度/电流/力矩模式接口还检查厂家配置缓存一致，但都不表示设备已独立 ACK、到位或参数已实际生效。不提供参数 getter、故障清除、设备查询接口。
-
-### 线程与等待
-
-每个实例独占厂家对象、控制线程、接收线程和 socket。普通控制接口同步返回，不建立运动长队列；普通操作已占用时新普通操作返回 false（Busy）。`get_state()` 可并发读取；另一线程可以调用 `stop()`、`disable()`、`disconnect()` 取消旧等待和待执行操作。新的停止/失能请求会取消较早的操作，因此用户仍应顺序调用 stop、disable。
-
-厂家调用无法强制打断，优先请求在正在执行的厂家调用返回后生效。对象析构前应先结束所有使用该对象的用户线程；Hand 不可复制或移动。同进程拒绝重复控制同一 `(接口名, 节点 ID)`，不跨进程仲裁。
-
-固定内部参数：使能/失能/停止各最多 30 次，每次反馈等待 500 ms；回零只要仍有轴未观察到启动，就约每秒调用 `home_motors(0)` 整手补发一次，总计最多 30 次（含首次），不进行单轴补发。整手补发可能重新触发已启动或已完成的轴；六轴都观察到启动后只等待完成，整个回零最多 60 秒。参数设置最多 30 次。厂家函数自身耗时可能使实际墙钟时间更长。反馈过期仍允许尝试停止/失能。
-
-连接的第二阶段通过原始 SDO 对六轴周期写入 200（0.1 ms 单位）、匹配写应答、读取并核对，再配置上报倍数 1；每类采样约 1.2 秒、至少 40 帧，验收 40..60 Hz 且间隔小于 100 ms。只改运行配置，不写 EEPROM。失败可能已改变部分设备反馈周期，不会自动回滚。
-
-SDO 无事务序号，超时后等待 500 ms 排空迟到回复；极迟的同索引回复不能从协议上完全区分，因此同时要求读回和实际频率通过。不要让其他程序并行配置同一设备。
-
-初始化还会调用厂家 `set_move_no_home(1)`，允许未回零运动；最多尝试 30 次（含首次），失败间隔 100 ms。返回码为 0 且无新增发送错误才通过，否则连接失败；取消或接收异常也会终止配置。厂家未公开对应读取接口，此处不提供设备配置读回校验。
-
-### stop 后重新初始化
-
-`stop()` 底层使用厂家 `stop_motors(0)`，可能留下软件急停状态；仅调用 `enable()` 不保证解除。停止后需要再次运动时，应先 `disable()`、`disconnect()`，再 `connect(can, node)` 重新初始化，随后重新设置运动参数、使能并回零。不要在原连接中直接继续回零或下发位置。
-
-`connect()` 在反馈配置完成后检查六轴急停状态。发现急停时，先确认六轴失能且停止（必要时发送失能，最多 30 次，每次等待新反馈最多 500 ms），再通过 CAN FD 控制帧发送空闲控制值 `0` 和撤销急停值 `8`。撤销阶段最多尝试 30 次，每次等待新反馈最多 500 ms；只有六轴均退出急停、保持失能和停止且无报警，才连接成功。没有急停时不发送恢复命令。反馈失效、取消或恢复失败会使连接返回 `false`；不自动使能、回零或清除报警。
-
-## 6. 简单验证与排查
-
-可选的小型检查，不需要硬件、不执行运动：
+## Python 快速使用
 
 ```bash
-cmake -S . -B build/check -DDH116S_BUILD_SMOKE=ON
-cmake --build build/check -j2
-ctest --test-dir build/check --output-on-failure
-./install/cpp/bin/dh116s_wave_demo --dry-run
-```
-
-已在本机 x86_64 和 ARM64 板上完成编译、基本参数/离线生命周期检查和波形 dry-run。板上 can0/can3 节点 1 的实际连接检查已通过，两类反馈均约 50 Hz；**尚未验证真实手部运动**。没有增加大型测试框架。
-
-| 现象 | 检查方向 |
-| --- | --- |
-| CAN open failed | 接口名、UP 状态、FD MTU、适配器驱动与权限 |
-| initial/model check failed | 节点、供电、波特率、接线，以及实际手型是否 DH116S 六轴 |
-| SDO timeout/abort | 日志中的轴索引/应答值，固件周期对象支持，是否有其他控制进程 |
-| feedback frequency failed | 两类实测频率、总线负载、周期配置、主动上报支持 |
-| feedback missing/stale | CAN 错误统计、BUS-OFF、供电/线缆、调度延迟；超过 100 ms 不确认动作成功 |
-| home start not observed | 本次回零运行位未被观察到；不会用旧 homed=true 冒充成功 |
-| stop/disable not confirmed | 查看实际轴状态与供电，不能凭函数调用认定已停机 |
-
-设计历史保留在 `docs/`；`cpp_v1_implementation_plan.md` 内存在旧伪代码，当前实际接口以头文件和本文为准。
-
-## 7. Python SDK 与 demo
-
-### 系统 Python 本机编译（无需 pip 或虚拟环境）
-
-在目标板上准备系统依赖后，直接用 CMake 编译：
-
-```bash
-sudo apt-get install build-essential cmake python3-dev pybind11-dev
-cd ~/roboparty_dexhand_sdk
-bash build.sh python
 source setup_python.sh
-/usr/bin/python3 -m unittest discover -s tests -p 'test_python_*.py' -v
-```
-
-编译脚本默认使用 `/usr/bin/python3`，输出到 `build/python/`，完整包安装在项目内 `install/python/`，不修改系统 Python 目录。`setup_python.sh` 设置当前 Bash 的 `PYTHONPATH`，无需设置 `LD_LIBRARY_PATH`；新终端需要重新 source。源码更新后重新执行编译脚本即可。
-
-启动双手波浪（会使能、回零并运动，运行前清空运动空间）：
-
-```bash
-# 配置环境后直接执行系统 Python。
-cd ~/roboparty_dexhand_sdk
-source setup_python.sh
-/usr/bin/python3 examples/wave_demo.py
-```
-
-### pip 安装（可选）
-
-支持 Linux x86_64 / ARM64、Python >= 3.9。在目标机器安装，需要 C++17 编译器、CMake 和 Python 开发文件：
-
-```bash
-sudo apt-get install build-essential cmake python3-dev python3-venv
-cd ~/roboparty_dexhand_sdk
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install .
-python -m unittest discover -s tests -p 'test_python_*.py' -v
-```
-
-pip 自动安装构建依赖 `scikit-build-core` 和 `pybind11`；离线环境需提前准备依赖。wheel 内包含 `_core` 扩展、类型提示及 `lib/libLHandProLib.so`，通过 `$ORIGIN/lib` RPATH 优先加载随包厂家库，无需设置 `LD_LIBRARY_PATH`。wheel 按 CPU 架构和 Python ABI 分别构建，不承诺跨系统版本兼容。
-
-如果 Conda 环境导入时报 `GLIBCXX_3.4.30 not found`，说明其 C++ 运行库与系统编译器不兼容。可使用 `/usr/bin/python3 -m venv .venv` 创建系统 Python 环境，或更新 Conda 的 C++ 运行库；重新设置厂家库路径无法解决此问题。
-
-完成第 3 节 CAN 配置后再运行下面的运动示例。
-
-初次阅读 SDK 建议从 [wave_demo.py](examples/wave_demo.py) 开始。示例带中文注释，主流程直接用 `handleft`、`handright` 演示双手并行连接、参数设置、使能、回零、食指目标归零、波浪和返回零位。波浪阶段检查反馈并每约一秒打印双手实际位置；结束后并行失能、断开。通过 `--left can0 1 --right can3 1` 和波浪参数调整，无需修改源码。
-
-```bash
-# 会使能、回零并运动双手，运行前清空运动空间。
-python examples/wave_demo.py
-```
-
-Python demo 与 C++ 保持相同的主要运动流程：双手并行执行阻塞阶段，波浪目标按 5 ms（200 Hz）计划时刻下发，扣除调用耗时，不补发错过的周期；反馈无效、失能、未回零或故障时终止，返回零位需满足位置/速度容差及超时要求。Python 和 C++ 都支持 `--rate 50/100/150/200`（默认 200）及 `--dry-run`。`--connect-only` 仅由 C++ 提供。
-
-Python demo 与 C++ 默认波浪参数一致：速度 20000、限流 400、幅值 6000、周期 3 秒、运行 10 个周期（30 秒），首尾采用 2 秒余弦渐变，目标取整方式也保持一致。使用 `--speed`、`--current`、`--amplitude`、`--period-ms`、`--cycles` 调整参数。仅检查连接而不运动可使用下面的 SDK 片段：
-
-```python
+python3 - <<'PY'
 from roboparty_dexhand_sdk import Hand
 
 hand = Hand()
@@ -338,14 +94,79 @@ try:
     if not hand.connect("can0", 1):
         raise RuntimeError("connect failed")
     state = hand.get_state()
-    if state.feedback_valid:
-        print(state.positions, state.fault_codes)
+    print(state.feedback_valid, state.positions, state.fault_codes)
 finally:
-    hand.disconnect()  # 此例只检查连接，没有使能或运动。
+    hand.disconnect()
+PY
 ```
 
-`Hand` 方法名、单位及 bool 返回值与 C++ 一致；`set_positions()` 接受六个整数的 list/tuple。类型错误抛 `TypeError`，长度错误或超出 C++ int 表示范围抛 `ValueError`；拒绝 float、bool 充当整数。可表示但超出设备参数范围的值由 C++ 校验并返回 `False`。状态字段只读，六轴字段为独立 tuple 快照，必须检查 `feedback_valid`。
+这个例子同样只检查连接与反馈。C++/Python 的完整接口、运动流程和清理约定见 [API 文档](docs/api.md)。
 
-底层调用和对象析构等待会释放 GIL，但主线程直接调用阻塞方法时，Python 信号处理仍可能延迟到方法返回。demo 的连接、配置、使能和回零在两个应用工作线程执行，主线程每 20 ms 检查中断；Ctrl+C / SIGTERM 后先尝试并行失能、断开双手，再回收工作线程，退出码为 130。未连接的手只断开；失能失败仍尝试断开。自定义运动程序也应显式执行清理，不能依赖析构停机。
+## ROS 快速使用
 
-无硬件测试覆盖参数转换、固定 30 次尝试、快照、双手波形、并行回零、反馈异常、到位超时和等待回零时的中断清理。本机和 ARM64 板均使用系统 Python 构建测试；真实回零取消与物理停机仍需实机验证。
+终端 1，在仓库根目录启动双手驱动：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/ros/local_setup.bash
+ros2 launch roboparty_dexhand_ros dual_hand.launch.py command_rate_hz:=200
+```
+
+节点启动后等待 reset，不自动连接或回零。终端 2 加载相同环境后操作左手：
+
+```bash
+# 会使能并驱动整手回零；先清空运动空间
+ros2 service call /dexhand_left/reset std_srvs/srv/Trigger '{}'
+ros2 topic echo /dexhand_left/state
+# 观察到请求后的 phase=5 且 feedback_valid=true 后，Ctrl+C 退出查看
+ros2 topic pub --once /dexhand_left/cmd std_msgs/msg/Int32MultiArray \
+  '{data: [0, 0, 1000, 1000, 1000, 1000]}'
+ros2 service call /dexhand_left/stop std_srvs/srv/Trigger '{}'
+```
+
+右手将 `dexhand_left` 替换为 `dexhand_right`。Service 返回成功仅表示接受请求，完成状态看 `state`。详细命令、参数和手柄适配见 [ROS 指南](docs/ros2.md)。
+
+## Wave Demo
+
+`examples/` 只保留 C++ 和 Python 两个双手示例，通过参数选择频率：
+
+```bash
+# 不打开 CAN，不运动；Python dry-run 无需安装绑定
+./install/cpp/bin/dh116s_wave_demo --rate 50 --dry-run
+python3 examples/wave_demo.py --rate 150 --dry-run
+
+# 真实双手运动：先退出 ROS 驱动及其他控制程序
+./install/cpp/bin/dh116s_wave_demo --rate 200
+source setup_python.sh
+python3 examples/wave_demo.py --rate 50
+```
+
+默认速度 20000、限流 400、四指幅度 6000、周期 3 秒、10 个周期，拇指在波浪阶段保持目标 0。支持 `--rate 50/100/150/200`、`--left CAN NODE`、`--right CAN NODE`、`--speed`、`--current`、`--amplitude`、`--period-ms`、`--cycles`。完整参数可用 `--help` 查看。
+
+真实 demo 会连接、使能、整手回零、波浪、返回零位，最后失能并断开。C++ 额外提供 `--connect-only`；它会配置反馈并可能恢复遗留急停，不是纯只读操作。ROS 单手波浪使用独立的 [wave.py](docs/ros2.md)。
+
+## 必须了解的行为
+
+- 六轴顺序：拇指侧摆、拇指屈伸、食指、中指、无名指、小指。位置范围 0..10000，为行程当量，不是弧度。
+- 设置位置成功不等于设备运动或到位；读取反馈必须检查 `feedback_valid`。
+- `disconnect()` 只释放本地资源，不自动停止或失能；`stop()` 不保证保持抓握。停止后按完整初始化流程恢复。
+- ROS 会持续重发最后目标，上层退出或停止发布不会自动 stop。每只手只应由一个控制端管理，SDK 不做跨进程独占。
+
+## 目录与文档
+
+```text
+include/dh116s/    C++ 公共接口
+src/              C++ 核心实现
+python/           Python 绑定和类型提示
+ros2/             ROS 包、消息、launch、控制脚本
+examples/         wave_demo.cpp、wave_demo.py
+cmake/            安装导出和交叉编译配置
+third_party/      厂家头文件和二进制库
+tests/            可选无硬件检查
+docs/             正式使用文档
+```
+
+- [API](docs/api.md)：接口、单位、反馈、线程与生命周期。
+- [ROS 2](docs/ros2.md)：控制命令、参数、状态机、RP1 手柄适配。
+- [构建](docs/build.md)：依赖、安装、集成、交叉编译和可选检查。
+- [排查](docs/troubleshooting.md)：已知限制、常见问题、日志与抓包。
