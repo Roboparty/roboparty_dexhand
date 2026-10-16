@@ -67,6 +67,21 @@ python3 examples/wave_demo.py --side left
 
 示例默认左手使用 `can0`、右手使用 `can3`，节点 ID 为 `1`。实机 wave 会执行使能、回零和连续位置控制，按 `Ctrl+C` 退出。
 
+## Wave Demo
+
+C++ 和 Python demo 使用相同的动作序列：拇指侧摆、拇指屈伸，然后四指 wave，持续运行直到按下 `Ctrl+C`。两者都会连接设备、使能并回零，请先确认机械范围和 CAN 接口。
+
+```bash
+# C++ demo（先执行 bash build.sh cpp）
+./install/cpp/bin/rphand_wave_demo --side left
+
+# Python demo（先执行 bash build.sh python，并 source setup_python.sh）
+source setup_python.sh
+python3 examples/wave_demo.py --side left
+```
+
+使用 `--side right` 运行右手；默认左手接口为 `can0`，右手接口为 `can3`，两者的设备节点 ID 都为 `1`。四指动作幅度可通过 `--amplitude 1..10000` 设置。
+
 ## C++ 接入
 
 安装 C++ 组件后，外部 CMake 项目可使用：
