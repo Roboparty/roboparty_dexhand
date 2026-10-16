@@ -42,10 +42,10 @@ docs/                          API、架构和 ROS 2 详细文档
 # 构建并安装 C++ SDK 和 wave 示例
 bash build.sh cpp
 
-# 构建 Python 绑定
-bash build.sh python
-source setup_python.sh
-python3 -c 'from rphand import Hand; print(Hand)'
+# 构建 Python 绑定；构建和运行使用同一个解释器
+RPHAND_PYTHON=/usr/bin/python3 bash build.sh python
+RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
+/usr/bin/python3 -c 'from rphand import Hand; print(Hand)'
 
 # 构建 ROS 2 包
 bash build.sh ros
@@ -54,15 +54,20 @@ bash build.sh ros
 bash build.sh all
 ```
 
-构建产物分别位于 `install/cpp`、`install/python` 和 `install/ros`。可通过 `RPHAND_BUILD_JOBS` 设置并行编译数，通过 `RPHAND_PYTHON` 指定 Python 解释器。
+构建产物分别位于 `install/cpp`、`install/python` 和 `install/ros`。可通过 `RPHAND_BUILD_JOBS` 设置并行编译数，通过 `RPHAND_PYTHON` 指定 Python 解释器。Python 绑定必须使用与运行 demo 相同的解释器构建；当前环境默认使用 `/usr/bin/python3`。如果使用 Conda Python，必须先安装对应的 Python 开发头文件和 pybind11。
+
+```bash
+RPHAND_PYTHON="$(command -v python3)" bash build.sh python
+RPHAND_PYTHON="$(command -v python3)" source setup_python.sh
+```
 
 ## Python 示例
 
 先配置 CAN 接口并完成 Python 构建。确认设备和机械范围后运行：
 
 ```bash
-source setup_python.sh
-python3 examples/wave_demo.py --side left
+RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
+/usr/bin/python3 examples/wave_demo.py --side left
 ```
 
 示例默认左手使用 `can0`、右手使用 `can3`，节点 ID 为 `1`。实机 wave 会执行使能、回零和连续位置控制，按 `Ctrl+C` 退出。
@@ -75,9 +80,9 @@ C++ 和 Python demo 使用相同的动作序列：拇指侧摆、拇指屈伸，
 # C++ demo（先执行 bash build.sh cpp）
 ./install/cpp/bin/rphand_wave_demo --side left
 
-# Python demo（先执行 bash build.sh python，并 source setup_python.sh）
-source setup_python.sh
-python3 examples/wave_demo.py --side left
+# Python demo（先执行 bash build.sh python，并使用同一个 Python 解释器）
+RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
+/usr/bin/python3 examples/wave_demo.py --side left
 ```
 
 使用 `--side right` 运行右手；默认左手接口为 `can0`，右手接口为 `can3`，两者的设备节点 ID 都为 `1`。四指动作幅度可通过 `--amplitude 1..10000` 设置。

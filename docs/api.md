@@ -10,8 +10,8 @@ C++ 入口是 `<rphand/hand.hpp>` 中的 `rphand::Hand`；Python 入口是 `rpha
 
 ```bash
 bash build.sh cpp
-bash build.sh python
-source setup_python.sh
+RPHAND_PYTHON=/usr/bin/python3 bash build.sh python
+RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
 /usr/bin/python3 -c 'from rphand import Hand; print(Hand)'
 ```
 
@@ -178,7 +178,7 @@ finally:
 ## 无硬件验证
 
 ```bash
-source setup_python.sh
+RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
 /usr/bin/python3 -m unittest discover -s tests -p test_python_sdk.py -v
 cmake -S tests/cmake_consumer -B build/consumer \
   -DCMAKE_PREFIX_PATH="$PWD/install/cpp"
