@@ -1,4 +1,4 @@
-#include <dh116s/hand.hpp>
+#include <rphand/hand.hpp>
 #include <pybind11/pybind11.h>
 
 #include <limits>
@@ -18,7 +18,7 @@ int integer(py::handle value) {
 }
 
 struct PythonHand {
-    std::unique_ptr<dh116s::Hand> hand = std::make_unique<dh116s::Hand>();
+    std::unique_ptr<rphand::Hand> hand = std::make_unique<rphand::Hand>();
     ~PythonHand() {
         // Joining native workers must not prevent other Python threads from progressing.
         if (PyGILState_Check()) {
@@ -39,16 +39,16 @@ py::tuple snapshot(const std::array<T, 6>& values) {
 }
 
 PYBIND11_MODULE(_core, m) {
-    m.doc() = "DH116S native bindings; positions use stroke units, not degrees.";
-    py::class_<dh116s::HandState>(m, "HandState")
-        .def_property_readonly("positions", [](const dh116s::HandState& s) { return snapshot(s.positions); })
-        .def_property_readonly("velocities", [](const dh116s::HandState& s) { return snapshot(s.velocities); })
-        .def_property_readonly("currents", [](const dh116s::HandState& s) { return snapshot(s.currents); })
-        .def_property_readonly("enabled", [](const dh116s::HandState& s) { return snapshot(s.enabled); })
-        .def_property_readonly("homed", [](const dh116s::HandState& s) { return snapshot(s.homed); })
-        .def_property_readonly("torque_reached", [](const dh116s::HandState& s) { return snapshot(s.torque_reached); })
-        .def_property_readonly("fault_codes", [](const dh116s::HandState& s) { return snapshot(s.fault_codes); })
-        .def_readonly("feedback_valid", &dh116s::HandState::feedback_valid);
+    m.doc() = "rphand native bindings; positions use stroke units, not degrees.";
+    py::class_<rphand::HandState>(m, "HandState")
+        .def_property_readonly("positions", [](const rphand::HandState& s) { return snapshot(s.positions); })
+        .def_property_readonly("velocities", [](const rphand::HandState& s) { return snapshot(s.velocities); })
+        .def_property_readonly("currents", [](const rphand::HandState& s) { return snapshot(s.currents); })
+        .def_property_readonly("enabled", [](const rphand::HandState& s) { return snapshot(s.enabled); })
+        .def_property_readonly("homed", [](const rphand::HandState& s) { return snapshot(s.homed); })
+        .def_property_readonly("torque_reached", [](const rphand::HandState& s) { return snapshot(s.torque_reached); })
+        .def_property_readonly("fault_codes", [](const rphand::HandState& s) { return snapshot(s.fault_codes); })
+        .def_readonly("feedback_valid", &rphand::HandState::feedback_valid);
 
     auto hand = py::class_<PythonHand>(m, "Hand").def(py::init<>());
     hand.def("connect", [](PythonHand& self, py::object name, py::object node) {

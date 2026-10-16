@@ -10,6 +10,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
     defaults = get_package_share_directory('roboparty_dexhand_ros') + '/config/defaults.yaml'
     actions = [DeclareLaunchArgument('config', default_value=defaults),
+               DeclareLaunchArgument('joy_mapper', default_value='false'),
                DeclareLaunchArgument('command_rate_hz', default_value='200',
                                      choices=['50', '100', '150', '200'])]
     for side, interface in [('left', 'can0'), ('right', 'can3')]:
@@ -28,4 +29,9 @@ def generate_launch_description():
                 }],
             ),
         ])
+    actions.append(Node(
+        package='roboparty_dexhand_ros', executable='dexhand_joy_mapper.py',
+        name='dexhand_joy_mapper', output='screen',
+        condition=IfCondition(LaunchConfiguration('joy_mapper')),
+    ))
     return LaunchDescription(actions)

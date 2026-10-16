@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-namespace dh116s {
+namespace rphand {
 
 // Order: thumb abduction, thumb flexion, index, middle, ring, little.
 struct HandState {
@@ -35,6 +35,8 @@ public:
     bool enable();
     bool disable();
     bool stop(); // Disable and reconnect before starting motion again.
+    // Best-effort session cleanup: one stop and one disable attempt, no retry loop.
+    bool prepare_disconnect();
     bool home();
     bool set_positions(const std::array<int, 6>& positions);
     bool set_position(int id, int position);
@@ -48,4 +50,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace dh116s
+}  // namespace rphand

@@ -1,10 +1,5 @@
 @PACKAGE_INIT@
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)
-if(NOT TARGET roboparty::lhandpro)
-    add_library(roboparty::lhandpro SHARED IMPORTED)
-    set_target_properties(roboparty::lhandpro PROPERTIES
-        IMPORTED_LOCATION "@PACKAGE_CMAKE_INSTALL_LIBDIR@/libLHandProLib.so")
-endif()
 include("${CMAKE_CURRENT_LIST_DIR}/roboparty_dexhand_sdkTargets.cmake")
 check_required_components(roboparty_dexhand_sdk)

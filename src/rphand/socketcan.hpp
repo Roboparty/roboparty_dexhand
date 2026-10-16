@@ -4,7 +4,7 @@
 #include <linux/can.h>
 #include <string>
 
-namespace dh116s::detail {
+namespace rphand::detail {
 class SocketCan {
 public:
     ~SocketCan();
@@ -18,4 +18,4 @@ private:
     int fd_ = -1;
     std::atomic<unsigned long> errors_{0};
 };
-}  // namespace dh116s::detail
+}  // namespace rphand::detail

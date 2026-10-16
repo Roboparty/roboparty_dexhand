@@ -1,4 +1,4 @@
-"""DH116S synchronous SDK. Explicitly stop and disable before disconnecting."""
+"""rphand synchronous SDK. Explicitly stop and disable before disconnecting."""
 
 from ._core import Hand, HandState
 

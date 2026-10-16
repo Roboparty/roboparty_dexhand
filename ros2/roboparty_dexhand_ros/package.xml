@@ -2,7 +2,7 @@
 <package format="3">
   <name>roboparty_dexhand_ros</name>
   <version>0.1.0</version>
-  <description>DH116S C++ driver for ROS 2 Jazzy.</description>
+  <description>rphand C++ driver for ROS 2 Jazzy.</description>
   <maintainer email="dev@roboparty.com">RoboParty</maintainer>
   <license>Proprietary</license>
   <buildtool_depend>ament_cmake</buildtool_depend>

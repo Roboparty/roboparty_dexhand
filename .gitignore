@@ -17,7 +17,7 @@
 /.vscode/
 /.idea/
 
-# Future Python bindings
+# Python build output and local environments
 __pycache__/
 *.py[cod]
 .venv/

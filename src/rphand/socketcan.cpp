@@ -1,4 +1,4 @@
-#include "socketcan_transport.hpp"
+#include "socketcan.hpp"
 
 #include <cerrno>
 #include <cstring>
@@ -10,7 +10,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-namespace dh116s::detail {
+namespace rphand::detail {
 SocketCan::~SocketCan() { close(); }
 void SocketCan::close() {
     if (fd_ >= 0) ::close(fd_);
@@ -20,7 +20,7 @@ bool SocketCan::open(const std::string& name, unsigned node) {
     close();
     const unsigned index = if_nametoindex(name.c_str());
     if (!index) {
-        std::cerr << "[dh116s] CAN interface not found: " << name << '\n';
+        std::cerr << "[rphand] CAN interface not found: " << name << '\n';
         return false;
     }
     fd_ = socket(PF_CAN, SOCK_RAW | SOCK_CLOEXEC, CAN_RAW);
@@ -42,7 +42,7 @@ bool SocketCan::open(const std::string& name, unsigned node) {
         && setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == 0
         && bind(fd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
     if (!ok) {
-        std::cerr << "[dh116s] CAN open failed (interface must be UP with FD MTU): "
+        std::cerr << "[rphand] CAN open failed (interface must be UP with FD MTU): "
                   << name << ": " << std::strerror(errno) << '\n';
         close();
     }
@@ -65,7 +65,7 @@ bool SocketCan::send(unsigned id, const unsigned char* data, unsigned size, int 
     const bool ok = write(fd_, &frame, CANFD_MTU) == CANFD_MTU;
     if (!ok) {
         ++errors_;
-        std::cerr << "[dh116s] CAN write failed: " << std::strerror(errno) << '\n';
+        std::cerr << "[rphand] CAN write failed: " << std::strerror(errno) << '\n';
     }
     return ok;
 }
@@ -82,4 +82,4 @@ int SocketCan::receive(canfd_frame& frame) {
     if (frame.len > (count == CAN_MTU ? 8 : 64)) return 0;
     return 1;
 }
-}  // namespace dh116s::detail
+}  // namespace rphand::detail

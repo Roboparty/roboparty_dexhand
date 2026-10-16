@@ -16,7 +16,7 @@ dexhand_jobs="${DEXHAND_BUILD_JOBS:-2}"
 if [[ "$dexhand_mode" == cpp || "$dexhand_mode" == all ]]; then
     cmake -S "$dexhand_root" -B "$dexhand_root/build/cpp" \
         -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-        -DROBOPARTY_BUILD_PYTHON=OFF -DDH116S_BUILD_DEMO=ON -DDH116S_BUILD_SMOKE=OFF \
+        -DROBOPARTY_BUILD_PYTHON=OFF -DRPHAND_BUILD_DEMO=ON -DRPHAND_BUILD_SMOKE=OFF \
         -DCMAKE_INSTALL_PREFIX="$dexhand_root/install/cpp"
     cmake --build "$dexhand_root/build/cpp" --parallel "$dexhand_jobs"
     cmake --install "$dexhand_root/build/cpp"
@@ -24,7 +24,7 @@ fi
 if [[ "$dexhand_mode" == python || "$dexhand_mode" == all ]]; then
     cmake -S "$dexhand_root" -B "$dexhand_root/build/python" \
         -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-        -DROBOPARTY_BUILD_PYTHON=ON -DDH116S_BUILD_DEMO=OFF -DDH116S_BUILD_SMOKE=OFF \
+        -DROBOPARTY_BUILD_PYTHON=ON -DRPHAND_BUILD_DEMO=OFF -DRPHAND_BUILD_SMOKE=OFF \
         -DPython_EXECUTABLE="${DEXHAND_PYTHON:-/usr/bin/python3}"
     cmake --build "$dexhand_root/build/python" --parallel "$dexhand_jobs"
     cmake --install "$dexhand_root/build/python" --prefix "$dexhand_root/install/python" --component python

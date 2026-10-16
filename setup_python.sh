@@ -15,4 +15,4 @@ case ":${PYTHONPATH:-}:" in
     *) export PYTHONPATH="$_dexhand_root/install/python${PYTHONPATH:+:$PYTHONPATH}" ;;
 esac
 unset _dexhand_root
-# The extension's RPATH resolves the bundled vendor library; LD_LIBRARY_PATH is unnecessary.
+# The default build embeds the SDK core in the Python extension.

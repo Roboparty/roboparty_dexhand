@@ -1,197 +1,143 @@
-# ROS 2 Jazzy
+# ROS
 
-包名 roboparty_dexhand_ros，C++ 节点 dexhand_node。左右手使用同一节点实现、独立实例及 namespace。构建见 [构建指南](build.md)。
+包名 `roboparty_dexhand_ros`，可执行程序和节点名为 `dexhand_node`。每个节点管理一只手，通过 C++ `rphand::Hand` 完成设备操作。
 
-## 启动
+源码依据：[节点](../ros2/roboparty_dexhand_ros/src/dexhand_node.cpp)、[消息](../ros2/roboparty_dexhand_ros/msg/DexHandState.msg)、[launch](../ros2/roboparty_dexhand_ros/launch/dual_hand.launch.py)、[默认配置](../ros2/roboparty_dexhand_ros/config/defaults.yaml)。另见 [架构](architecture.md) 和 [C++ / Python API](api.md)。
 
-每个终端在仓库根目录加载：
+## 构建与启动
+
+以下命令在 SDK 根目录执行。构建脚本要求 `/opt/ros/jazzy/setup.bash` 和 colcon；包依赖 ament、rclcpp、rclpy、rosidl、std_msgs、std_srvs、sensor_msgs 及 launch 组件，完整声明见 [package.xml](../ros2/roboparty_dexhand_ros/package.xml)。
 
 ```bash
+bash build.sh ros
 source /opt/ros/jazzy/setup.bash
 source install/ros/local_setup.bash
+ros2 launch roboparty_dexhand_ros dual_hand.launch.py
 ```
+
+默认启动左右两个节点：
+
+| 手 | 节点 | 接口 | 设备节点 ID |
+| --- | --- | --- | --- |
+| 左 | `/dexhand_left/dexhand_node` | can0 | 1 |
+| 右 | `/dexhand_right/dexhand_node` | can3 | 1 |
+
+启动时不连接设备，也不使能或回零，仅发布无有效反馈的状态并等待 reset。CAN 接口需要由系统预先配置为 UP 和 CAN FD 模式。
 
 ```bash
-ros2 launch roboparty_dexhand_ros dual_hand.launch.py command_rate_hz:=200
-# 只启动左手
-ros2 launch roboparty_dexhand_ros dual_hand.launch.py right:=false
-# 覆盖实际接线与节点
+# 只启动左手，指定接口和目标发送频率
 ros2 launch roboparty_dexhand_ros dual_hand.launch.py \
-  left_interface:=can0 right_interface:=can3 left_node_id:=1 right_node_id:=1
+  right:=false left_interface:=can0 left_node_id:=1 command_rate_hz:=50
+
+# 直接运行单节点，不加载 defaults.yaml
+ros2 run roboparty_dexhand_ros dexhand_node --ros-args \
+  -r __ns:=/dexhand_left -p interface:=can0 -p node_id:=1
 ```
 
-启动后仅发布未初始化状态，不自动连接、使能或回零。双手默认 can0/can3、节点各 1，需事先配置好 CAN FD 接口。左右身份由 namespace 和启动参数指定，不自动识别。
+## 话题与服务
 
-## 参数
-
-节点参数启动后只读：
-
-| 参数 | 默认 | 范围 / 含义 |
+| 相对名称 | 类型 | 行为 |
 | --- | --- | --- |
-| interface | can0 | SocketCAN 接口；双手 launch 为右手覆盖成 can3 |
-| node_id | 1 | 1..127 |
-| speed | 8000 | 1..20000，厂家行程当量/秒 |
-| current_limit | 400 | 0..3000，厂家千分比 |
-| torque_reached_stop | true | 力矩到位后停止 |
-| command_rate_hz | 200 | 50、100、150、200 |
+| `cmd` | `std_msgs/msg/Int32MultiArray` | 订阅六轴绝对位置目标，各值 0..10000 |
+| `state` | `roboparty_dexhand_ros/msg/DexHandState` | 发布反馈快照和有效性 |
+| `reset` | `std_srvs/srv/Trigger` | 受理会话重建、参数配置、使能和回零 |
 
-修改 speed/current_limit/torque_reached_stop 可编辑 [defaults.yaml](../ros2/roboparty_dexhand_ros/config/defaults.yaml) 后重新构建，或传入自定义 YAML：
+左右前缀分别为 `/dexhand_left`、`/dexhand_right`。cmd/state 均使用 Reliable、Volatile、KeepLast(1)。没有 stop 服务，也没有 phase 字段或流程阶段枚举。
 
-```yaml
-/**:
-  ros__parameters:
-    speed: 8000
-    current_limit: 400
-    torque_reached_stop: true
+cmd 数组顺序为拇指侧摆、拇指屈伸、食指、中指、无名指、小指。长度不是 6 或任意值越界时拒绝。初始化完成前、reset 期间和退出期间忽略目标。
+
+state 包含 `header`、`feedback_valid`，以及六元素数组 `positions`、`velocities`、`currents`、`enabled`、`homed`、`torque_reached`、`fault_codes`。字段含义见 [API](api.md)。`header.stamp` 是 ROS 发布时间，不是硬件采样时间。
+
+## 初始化和会话重建
+
+```bash
+# 会使能并驱动整手回零
+ros2 service call /dexhand_left/reset std_srvs/srv/Trigger '{}'
+ros2 topic echo /dexhand_left/state
 ```
+
+服务立即返回受理结果：`success=true` 只代表请求已接受；已有 reset 在执行或节点正在退出时，返回 `success=false`、`message=Busy`。
+
+实际流程由管理线程和会话线程执行：
+
+1. 禁止接收新目标并清空缓存，通知旧会话退出。
+2. 等待旧会话的 SDK 调用返回，完成清理并结束线程。
+3. 创建新的 Hand，调用 connect，再调用 disable。
+4. 依次设置速度、电流限制、力矩到位模式。
+5. 调用 enable 和 home。
+6. 成功后允许接收目标，开始周期发送与状态发布。
+
+完成日志为 `Reset complete; waiting for a new target`。失败日志为 `Reset failed at ...`，随后清理会话，可再次 reset。没有异步结果话题或操作编号；应等待本次完成日志，并结合最新反馈确认六轴已使能、回零且无故障，不能把旧反馈当作本次成功。
+
+## 周期发送与状态发布
+
+收到首条有效目标后，节点按 `command_rate_hz` 持续发送最新缓存；没有新 cmd 时仍重复最后目标。没有插值、命令队列、目标时间戳或命令超时自动停止。reset 和退出会清空目标。
+
+状态发布目标周期为 20 ms，即 50 Hz。目标发送与状态发布在同一会话线程执行，因此初始化、回零和清理期间暂停状态发布，阻塞的 SDK 调用也会影响周期。错过的周期会跳过，不补发积压目标。
+
+位置发送失败会记录日志，后续周期继续尝试；节点没有根据反馈失效、故障或回零标志丢失自动停止的流程。调用方应自行监测设备状态和消息新鲜度。
+
+## 参数与 launch
+
+节点参数声明为只读，启动后不能动态修改。
+
+| 参数 | 直接运行节点 | defaults.yaml | 约束 |
+| --- | --- | --- | --- |
+| `interface` | can0 | 未设置 | 非空 |
+| `node_id` | 1 | 未设置 | 1..127 |
+| `speed` | 8000 | 16000 | 1..20000 行程当量/秒 |
+| `current_limit` | 400 | 400 | 0..3000，额定电流千分比 |
+| `torque_reached_stop` | true | false | 力矩到位时是否停止 |
+| `command_rate_hz` | 200 | 50 | 50、100、150、200 |
+
+双手 launch 加载 YAML 后，再用 launch 参数覆盖接口、节点 ID 和发送频率。因此默认 launch 实际使用速度 16000、电流 400、力矩到位不停、发送频率 200 Hz；YAML 中的 50 Hz 会被默认 launch 参数覆盖。
+
+| launch 参数 | 默认值 |
+| --- | --- |
+| `config` | 包内 config/defaults.yaml |
+| `left` / `right` | true / true |
+| `left_interface` / `right_interface` | can0 / can3 |
+| `left_node_id` / `right_node_id` | 1 / 1 |
+| `command_rate_hz` | 200 |
+| `joy_mapper` | false |
 
 ```bash
 ros2 launch roboparty_dexhand_ros dual_hand.launch.py \
   config:=/absolute/path/hand.yaml command_rate_hz:=50
 ```
 
-launch 始终用自己的 command_rate_hz、接口及节点 ID 参数覆盖 YAML 对应值。直接 ros2 run 节点时才可仅由 YAML 设置这些参数。
+## 退出清理
 
-## 接口
+正常退出、重建旧会话或初始化失败时，若 Hand 仍连接，节点调用 C++ `prepare_disconnect()`：停止和失能各最多尝试一次；停止失败仍尝试失能，已有有效反馈满足条件时可跳过发送。之后无论清理返回值如何，都会 disconnect 并释放对象。
 
-| 接口 | 类型 | 用途 |
-| --- | --- | --- |
-| /dexhand_left/cmd | std_msgs/msg/Int32MultiArray | 六轴目标输入 |
-| /dexhand_left/state | roboparty_dexhand_ros/msg/DexHandState | 状态输出 |
-| /dexhand_left/reset | std_srvs/srv/Trigger | 接受完整初始化请求 |
-| /dexhand_left/stop | std_srvs/srv/Trigger | 接受停止请求 |
+退出意图在当前同步 SDK 调用返回后检查，不会立即打断连接重试或回零。因此单次清理不等于整个退出过程有固定时限。强制终止或通信中断也不能保证设备已停止。
 
-右手对应 dexhand_right。接口使用 namespace 下的相对名称，不带额外 dexhand_node 层级。
+停止目标发布不会清空驱动缓存；正常退出驱动节点才会触发上述清理。reset 会继续使能和回零，不是停止命令。
 
-cmd.data 必须为六个 0..10000 整数，顺序为拇指侧摆、拇指屈伸、食指、中指、无名指、小指。layout 建议留空。长度或范围非法整条拒绝。
+## 示例脚本
 
-cmd/state QoS 为 Reliable、Volatile、KeepLast(1)。cmd 不带时间戳，驱动无法识别延迟抵达的旧目标。
-
-仅 READY 接收 cmd；首条有效目标到达后按配置频率持续下发最新缓存，没有新消息也重发，不插值、不追赶历史目标。不存在命令超时自动 stop。50 Hz 上层发布与 200 Hz 底层重发是两个频率；一次六轴接口调用也不等于一帧 CAN。
-
-频率为调度目标，150 Hz 使用纳秒周期，实际周期受 SDK 调用耗时、调度及总线负载影响。state 始终以目标 50 Hz 发布，包括回零期间。
-
-## Reset 与 Stop
-
-两个服务 success=true 都只表示请求已接受，不表示硬件动作完成。拒绝或 Busy 返回 false，具体原因在 message。
-
-reset：
-
-```text
-禁止外部目标并清空缓存
-→ 旧连接存在则确认失能
-→ 断开旧连接并重新连接
-→ 确认失能
-→ 设置速度、电流、力矩到位行为
-→ 使能
-→ 整手回零
-→ 切位置模式发送 30 次，间隔 20 ms
-→ 检查反馈有效、无故障、六轴使能且已回零
-→ READY，等待新目标
-```
-
-reset 会驱动整只手，不能在抓握负载时当作无运动操作。已取消四指到 1000 再回 0 的自检和相应的整轮自动重试；READY 不代表已经通过位置运动验证。任一步失败都不会进入 READY；驱动尝试停止并进入 ERROR，之后可再次手动 reset。
-
-stop 先禁止周期位置下发、清空目标并取消 reset 后续步骤，后台调用 SDK stop。它可打断回零；连接操作期间等待连接阶段结束后再停止，不继续使能。STOPPED 表示已确认停止，ERROR 表示失败，不能将 ERROR 当作物理停止保证。stop 不附加失能，也不保证保持抓握。
-
-reset/stop 执行中，新 reset 返回 Busy；重复 stop 不重复排队。停止后必须完整 reset。正常节点退出尝试 stop 后断开；强制终止、断电或断网不能保证物理停止。
-
-## State
-
-定义见 [DexHandState.msg](../ros2/roboparty_dexhand_ros/msg/DexHandState.msg)：
-
-```text
-std_msgs/Header header
-uint8 phase
-bool feedback_valid
-int32[6] positions
-int32[6] velocities
-int32[6] currents
-bool[6] enabled
-bool[6] homed
-bool[6] torque_reached
-int32[6] fault_codes
-```
-
-header 为消息发布时间，不是硬件采样时间。反馈过期可保留旧值，但 feedback_valid=false。数组单位及含义见 [API](api.md)。
-
-| phase | 常量 | 含义 |
-| --- | --- | --- |
-| 0 | UNINITIALIZED | 等待 reset |
-| 1 | CONNECTING | 旧连接处理、连接及失能确认 |
-| 2 | CONFIGURING | 参数配置 |
-| 3 | ENABLING | 使能 |
-| 4 | HOMING | 回零及回零后的模式发送 |
-| 5 | READY | 可接收新目标 |
-| 6 | STOPPING | 正在停止 |
-| 7 | STOPPED | 已确认停止，等待 reset |
-| 8 | ERROR | 执行失败或状态异常 |
-| 9 | VERIFYING | 为兼容保留，当前不发布 |
-
-READY 期间反馈失效、故障、使能或回零状态丢失会终止目标下发，尝试 stop 后保持 ERROR。短暂阶段可能来不及发布；收到服务响应后也可能还有在途旧状态，不能把旧 READY 当成本次 reset 结果。接口没有操作编号。
-
-## 左右手测试命令
-
-先清空运动空间，确保只有一个程序管理对应手。各命令在加载环境后使用。
-
-```bash
-# 左右手 reset，分别运行
-ros2 service call /dexhand_left/reset std_srvs/srv/Trigger '{}'
-ros2 service call /dexhand_right/reset std_srvs/srv/Trigger '{}'
-
-# 查看状态；对应手进入 READY 且 feedback_valid=true 后继续
-ros2 topic echo /dexhand_left/state
-ros2 topic echo /dexhand_right/state
-```
-
-查看状态命令持续运行，Ctrl+C 仅退出查看。波浪前等待对应手 READY：
-
-```bash
-ros2 run roboparty_dexhand_ros wave.py --side left
-ros2 run roboparty_dexhand_ros wave.py --side right
-```
-
-ROS wave 默认幅度 6000、周期 1 秒、时长 6 秒、50 Hz 发布，首尾各 1 秒渐入渐出；可用 --amplitude 1000 调整。拇指目标保持 0。它不自行 reset；正常结束发送全零，Ctrl+C 只结束发布，驱动仍保留最后目标。实际跟踪受速度上限约束。
-
-波浪退出后发送全零：
-
-```bash
-ros2 topic pub --once /dexhand_left/cmd std_msgs/msg/Int32MultiArray '{data: [0, 0, 0, 0, 0, 0]}'
-ros2 topic pub --once /dexhand_right/cmd std_msgs/msg/Int32MultiArray '{data: [0, 0, 0, 0, 0, 0]}'
-```
-
-全零是位置目标，不是 stop，也不是整手 home。也可用检查新鲜 READY 后再发送的脚本：
+在本次初始化完成后运行：
 
 ```bash
 ros2 run roboparty_dexhand_ros command.py --side left 0 0 1000 1000 1000 1000
+ros2 run roboparty_dexhand_ros wave.py --side left --amplitude 6000
 ```
+
+两者只等待 cmd 订阅端出现，不检查设备状态。`command.py` 发布一次六轴目标；`wave.py` 以 50 Hz 执行一轮连续动作：拇指侧摆 `0 → 10000 → 0` 用时 2 秒，拇指屈伸相同动作再用 2 秒，随后四指 wave 6 秒、周期 1 秒，默认幅度 6000。总时长 10 秒，不等待到位或归零，正常结束发送全零。`--amplitude` 只影响四指，拇指始终使用全行程目标。全零是位置目标，不等于停止或回零。Ctrl+C 退出发布不保证停止设备。
+
+手柄映射可通过 `joy_mapper:=true` 随 launch 启动，或单独运行 `ros2 run roboparty_dexhand_ros dexhand_joy_mapper.py`。脚本订阅 `/joy`，默认横轴 6、纵轴 7、阈值 0.5：上/下请求左/右手 reset，左/右启动左/右手 wave。
+
+按钮 2 的上升沿切换脚本内部“电机使能”标志：切到开启时请求双手 reset，切到关闭时不操作手。它不读取整机电机状态或手部反馈。reset 请求和 wave 发布独立，没有手柄断线自动停止。
+
+手柄每次 wave 触发也执行一轮上述动作，与命令行共用 `scripts/wave_motion.py`。参数为 `horizontal_axis=6`、`vertical_axis=7`、`motor_enable_button=2`、`threshold=0.5`、`wave_amplitude=6000`、`wave_duration=6.0`。幅度只影响四指，要求 1..10000；时长只控制四指阶段，要求正数且有限，总时长为该值加 4 秒拇指动作。避免多个脚本同时向同一 cmd 话题发目标。
+
+## 无硬件验证
+
+加载 ROS 和包安装环境后执行：
 
 ```bash
-ros2 service call /dexhand_left/stop std_srvs/srv/Trigger '{}'
-ros2 service call /dexhand_right/stop std_srvs/srv/Trigger '{}'
+ROS_DOMAIN_ID=187 ROS_LOCALHOST_ONLY=1 /usr/bin/python3 tests/ros_lifecycle.py \
+  "$(ros2 pkg prefix roboparty_dexhand_ros)/lib/roboparty_dexhand_ros/dexhand_node"
 ```
 
-## RP1 手柄适配示例
-
-`dexhand_joy_mapper.py` 订阅 /joy，通过现有 reset 服务及 cmd topic 控制，不修改 C++ 核心，也不负责启动手柄驱动或 RP1 推理节点。
-
-```bash
-ros2 run roboparty_dexhand_ros dexhand_joy_mapper.py
-```
-
-| 参数 | 默认 | 含义 |
-| --- | --- | --- |
-| horizontal_axis | 6 | 十字键横轴 |
-| vertical_axis | 7 | 十字键纵轴 |
-| motor_enable_button | 2 | RP1 电机切换按键索引 |
-| threshold | 0.5 | 方向触发阈值 |
-| wave_amplitude | 6000 | 四指幅度，1..10000 |
-| wave_duration | 6.0 | 波浪时长，使用正的有限秒数 |
-
-十字键正纵轴为上、正横轴为左：上/下对应左/右手 reset，左/右对应左/右手 wave。持续按住同一方向不会反复触发。不同手柄应先观察 /joy 的轴和按钮映射。
-
-按钮 2 的上升沿切换适配脚本内部的布尔状态；它推算为“使能”的那次会 reset 双手，下一次不操作手。脚本不读取 RP1 实际电机使能结果，重启、丢事件或 RP1 操作失败可能导致不同步。
-
-该示例保持 RP1 集成时的逻辑：reset 的 busy 在服务响应时即释放，并非等待回零结束；波浪只在开始时检查缓存 READY，没有反馈接收时间检查，也不在波浪期间持续检查状态。没有手柄 stop 映射，也没有手柄断联自动 stop。需要停止时调用服务；底层 ROS 驱动仍执行自身反馈保护。不要同时运行手柄波浪和其他 cmd 发布端。
-
-RP1 的整机启动脚本属于部署项目，不随本 SDK 提供。
+测试自行启动节点，使用超过 Linux 接口名长度上限的名称，检查空闲状态、reset 受理及 Busy、连接失败后的恢复和退出，不连接真实 CAN。它不验证实机回零或运动效果。

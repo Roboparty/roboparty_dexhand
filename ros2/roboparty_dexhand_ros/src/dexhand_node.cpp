@@ -1,4 +1,4 @@
-#include <dh116s/hand.hpp>
+#include <rphand/hand.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <chrono>
-#include <future>
+#include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -30,172 +32,205 @@ public:
             throw std::invalid_argument("command_rate_hz must be 50, 100, 150 or 200");
         command_period_ = std::chrono::nanoseconds(1000000000LL / rate);
         if (interface_.empty() || node_id_ < 1 || node_id_ > 127 || speed_ < 1 ||
-            speed_ > 20000 || current_ < 0 || current_ > 3000) {
+            speed_ > 20000 || current_ < 0 || current_ > 3000)
             throw std::invalid_argument("Invalid interface/node_id/speed/current_limit");
-        }
+
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
         publisher_ = create_publisher<State>("state", qos);
         subscription_ = create_subscription<std_msgs::msg::Int32MultiArray>(
             "cmd", qos, [this](std_msgs::msg::Int32MultiArray::ConstSharedPtr msg) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                if (phase_ != State::READY) return;
                 if (msg->data.size() != 6 || std::any_of(msg->data.begin(), msg->data.end(),
                         [](auto v) { return v < 0 || v > 10000; })) {
-                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Rejected cmd: expected six values in 0..10000");
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                        "Rejected cmd: expected six values in 0..10000");
                     return;
                 }
-                std::array<int, 6> values;
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (!accept_targets_ || reset_busy_ || exiting_) return;
+                Target values;
                 std::copy(msg->data.begin(), msg->data.end(), values.begin());
                 target_ = values;
             });
         reset_service_ = create_service<Trigger>("reset", [this](
-                const Trigger::Request::SharedPtr, Trigger::Response::SharedPtr response) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (resetting_ || phase_ == State::STOPPING) {
-                response->message = "Busy";
-                return;
+                Trigger::Request::SharedPtr, Trigger::Response::SharedPtr response) {
+            bool busy;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                busy = reset_busy_ || exiting_;
+                if (!busy) {
+                    reset_busy_ = true;
+                    accept_targets_ = false;
+                    target_.reset();
+                    pending_reset_ = true;
+                    stop_requested_ = true;
+                }
             }
-            target_.reset();
-            resetting_ = true;
-            step_ = 0;
-            phase_ = State::CONNECTING;
-            response->success = true;
-            response->message = "Accepted: reconnect, configure, enable and home";
+            if (busy) {
+                response->message = "Busy";
+            } else {
+                response->success = true;
+                response->message = "Restart accepted; initialization result will be logged";
+                cv_.notify_all();
+            }
         });
-        stop_service_ = create_service<Trigger>("stop", [this](
-                const Trigger::Request::SharedPtr, Trigger::Response::SharedPtr response) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (phase_ != State::STOPPING &&
-                !(phase_ == State::STOPPED && hand_.get_state().feedback_valid)) request_stop(false);
-            response->success = true;
-            response->message = "Accepted; inspect state for completion";
-        });
-        timer_ = create_wall_timer(20ms, [this] { publish_state(); });
-        worker_ = std::thread([this] { run(); });
         RCLCPP_INFO(get_logger(), "%s node=%d: waiting for reset", interface_.c_str(), node_id_);
+        manager_ = std::thread([this] { manage(); });
     }
 
     ~DexHandNode() override {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             exiting_ = true;
-            if (phase_ != State::UNINITIALIZED) request_stop(false);
+            stop_requested_ = true;
+            target_.reset();
         }
-        if (worker_.joinable()) worker_.join();
-        hand_.disconnect();
+        cv_.notify_all();
+        if (manager_.joinable()) manager_.join();
     }
 
 private:
-    static bool ready(const dh116s::HandState& s) {
-        return s.feedback_valid &&
-            std::all_of(s.enabled.begin(), s.enabled.end(), [](bool v) { return v; }) &&
-            std::all_of(s.homed.begin(), s.homed.end(), [](bool v) { return v; }) &&
-            std::all_of(s.fault_codes.begin(), s.fault_codes.end(), [](int v) { return v == 0; });
+    using Target = std::array<int, 6>;
+    using Clock = std::chrono::steady_clock;
+
+    bool exiting() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return exiting_ || stop_requested_ || !rclcpp::ok(get_node_base_interface()->get_context());
     }
-    static bool done(std::future<bool>& f) {
-        return f.valid() && f.wait_for(0ms) == std::future_status::ready;
-    }
-    bool result(std::future<bool>& f) {
-        try { return f.get(); }
-        catch (const std::exception& e) { RCLCPP_ERROR(get_logger(), "%s", e.what()); }
-        catch (...) { RCLCPP_ERROR(get_logger(), "Unexpected SDK exception"); }
+
+    template<class F> bool attempt(const char* operation, F call) {
+        try {
+            if (call()) return true;
+            RCLCPP_WARN(get_logger(), "%s not confirmed", operation);
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(get_logger(), "%s: %s", operation, e.what());
+        } catch (...) {
+            RCLCPP_ERROR(get_logger(), "%s: unexpected SDK exception", operation);
+        }
         return false;
     }
-    void request_stop(bool error) {
-        target_.reset();
-        resetting_ = false;
-        phase_ = State::STOPPING;
-        stop_error_ = error;
-    }
-    void fail(const char* operation) {
-        RCLCPP_ERROR(get_logger(), "%s failed (reset step %d); attempting stop", operation, step_);
-        request_stop(true);
-    }
-    bool reset_step(int step) {
-        switch (step) {
-        case 0: return !hand_.is_connected() || hand_.disable();
-        case 1: hand_.disconnect(); return hand_.connect(interface_, node_id_);
-        case 2: return hand_.disable();
-        case 3: return hand_.set_speed(speed_);
-        case 4: return hand_.set_current_limit(current_);
-        case 5: return hand_.set_torque_reached_mode(torque_stop_);
-        case 6: return hand_.enable();
-        case 7: return hand_.home();
-        default: return false;
+
+    void cleanup() {
+        if (!hand_) return;
+        const auto started = Clock::now();
+        if (hand_->is_connected()) {
+            attempt("Single-attempt cleanup", [this] { return hand_->prepare_disconnect(); });
         }
+        // All SDK calls have returned; disconnect joins its internal workers.
+        hand_->disconnect();
+        hand_.reset();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started);
+        RCLCPP_INFO(get_logger(), "SDK session released in %lld ms", static_cast<long long>(elapsed.count()));
     }
-    void tick() {
-        // Only this coordinator starts SDK work. ROS callbacks change intent under
-        // the same lock; a stop can preempt a blocking SDK home via its urgent queue.
-        if (phase_ == State::STOPPING) {
-            if (done(active_)) result(active_);
-            // Reconnect owns the SDK lifecycle; wait for it before stopping the
-            // new connection. It cannot proceed to enable after cancellation.
-            const bool reconnecting = active_.valid() && active_reset_ && step_ == 1;
-            if (!stopping_.valid() && !reconnecting && (hand_.is_connected() || !active_.valid())) {
-                stop_final_ = !active_.valid();
-                stopping_ = std::async(std::launch::async, [this] { return hand_.stop(); });
-            }
-            if (!active_.valid() && done(stopping_)) {
-                const bool ok = result(stopping_);
-                // Confirm once more after the interrupted caller has returned,
-                // including the case where its async dispatch was still starting.
-                if (!stop_final_) return;
-                phase_ = ok && !stop_error_ ? State::STOPPED : State::ERROR;
-                if (!ok) RCLCPP_ERROR(get_logger(), "Physical stop could not be confirmed");
-            }
-            return;
+
+    Trigger::Response reset() {
+        Trigger::Response response;
+        const char* step = "create session";
+        try {
+            if (exiting()) throw std::runtime_error("Node shutting down");
+            hand_ = std::make_unique<rphand::Hand>();
+            auto perform = [&](const char* name, auto call) {
+                step = name;
+                if (exiting()) throw std::runtime_error("Node shutting down");
+                if (!call()) throw std::runtime_error("SDK returned false");
+            };
+            perform("connect", [this] { return hand_->connect(interface_, node_id_); });
+            perform("disable", [this] { return hand_->disable(); });
+            perform("set speed", [this] { return hand_->set_speed(speed_); });
+            perform("set current limit", [this] { return hand_->set_current_limit(current_); });
+            perform("set torque mode", [this] { return hand_->set_torque_reached_mode(torque_stop_); });
+            perform("enable", [this] { return hand_->enable(); });
+            perform("home", [this] { return hand_->home(); });
+            if (exiting()) throw std::runtime_error("Node shutting down");
+            response.success = true;
+            response.message = "Reset complete; waiting for a new target";
+        } catch (const std::exception& e) {
+            response.message = std::string("Reset failed at ") + step + ": " + e.what();
+        } catch (...) {
+            response.message = std::string("Reset failed at ") + step + ": unexpected SDK exception";
         }
-        if (done(active_)) {
-            const bool ok = result(active_);
-            if (!ok) { fail("SDK operation"); return; }
-            // A reset can arrive while a position send is completing.
-            if (resetting_ && active_reset_) ++step_;
-        }
-        if (active_.valid()) return;
-        if (resetting_) {
-            if (step_ == 8) {
-                if (!ready(hand_.get_state())) { fail("Post-home feedback"); return; }
-                resetting_ = false;
-                phase_ = State::READY;
-                RCLCPP_INFO(get_logger(), "READY: waiting for a new cmd");
-                return;
-            }
-            phase_ = step_ < 3 ? State::CONNECTING : step_ < 6 ? State::CONFIGURING :
-                step_ == 6 ? State::ENABLING : State::HOMING;
-            active_reset_ = true;
-            active_ = std::async(std::launch::async, [this, step = step_] { return reset_step(step); });
-        } else if (phase_ == State::READY) {
-            if (!ready(hand_.get_state())) { fail("Feedback health"); return; }
-            if (target_) {
-                active_reset_ = false;
-                active_ = std::async(std::launch::async, [this, target = *target_] {
-                    return hand_.set_positions(target);
-                });
-            }
-        } else if (phase_ == State::STOPPED && !hand_.get_state().feedback_valid) {
-            phase_ = State::ERROR;
-            RCLCPP_ERROR(get_logger(), "Stopped feedback expired");
-        }
+        if (!response.success) cleanup();
+        return response;
     }
-    void run() {
-        auto next = std::chrono::steady_clock::now();
+
+    void manage() {
+        std::thread session([this] { run(false); });
         for (;;) {
             {
-                std::lock_guard<std::mutex> lock(mutex_);
-                if (exiting_ && phase_ != State::STOPPING) break;
-                tick();
+                std::unique_lock<std::mutex> lock(mutex_);
+                cv_.wait(lock, [this] { return exiting_ || pending_reset_; });
             }
-            next = std::max(next + command_period_, std::chrono::steady_clock::now());
-            std::this_thread::sleep_until(next);
+            // The old session owns its SDK until cleanup and join have completed.
+            if (session.joinable()) session.join();
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (exiting_) break;
+                pending_reset_ = false;
+                stop_requested_ = false;
+            }
+            try {
+                session = std::thread([this] { run(true); });
+            } catch (const std::exception& e) {
+                RCLCPP_ERROR(get_logger(), "Could not start session: %s", e.what());
+                std::lock_guard<std::mutex> lock(mutex_);
+                reset_busy_ = false;
+            }
         }
     }
+
+    static Clock::time_point advance(Clock::time_point deadline, Clock::duration period) {
+        const auto now = Clock::now();
+        return deadline <= now ? deadline + period * ((now - deadline) / period + 1) : deadline;
+    }
+
+    void run(bool initialize) {
+        if (initialize) {
+            auto result = reset();
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                reset_busy_ = false;
+                accept_targets_ = result.success && !exiting_ && !stop_requested_;
+            }
+            if (result.success) RCLCPP_INFO(get_logger(), "%s", result.message.c_str());
+            else RCLCPP_ERROR(get_logger(), "%s", result.message.c_str());
+        }
+        auto next_command = Clock::now();
+        auto next_state = next_command;
+        for (;;) {
+            std::optional<Target> target;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                cv_.wait_until(lock, std::min(next_command, next_state),
+                    [this] { return exiting_ || stop_requested_; });
+                if (exiting_ || stop_requested_ || !rclcpp::ok(get_node_base_interface()->get_context())) break;
+                if (Clock::now() >= next_command) target = target_;
+            }
+            if (Clock::now() >= next_command) {
+                try {
+                    if (target && (!hand_ || !hand_->set_positions(*target)))
+                        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                            "Position send failed; reset may be required");
+                } catch (const std::exception& e) {
+                    RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000, "Position send: %s", e.what());
+                } catch (...) {
+                    RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000, "Unexpected position send exception");
+                }
+                next_command = advance(next_command, command_period_);
+            }
+            if (Clock::now() >= next_state && !exiting()) {
+                try { publish_state(); }
+                catch (const std::exception& e) {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Feedback publish: %s", e.what());
+                }
+                next_state = advance(next_state, 20ms);
+            }
+        }
+        cleanup();
+    }
+
     void publish_state() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        const auto s = hand_.get_state();
+        const auto s = hand_ ? hand_->get_state() : rphand::HandState{};
         State msg;
         msg.header.stamp = now();
-        msg.phase = phase_;
         msg.feedback_valid = s.feedback_valid;
         std::copy(s.positions.begin(), s.positions.end(), msg.positions.begin());
         std::copy(s.velocities.begin(), s.velocities.end(), msg.velocities.begin());
@@ -206,21 +241,20 @@ private:
         std::copy(s.fault_codes.begin(), s.fault_codes.end(), msg.fault_codes.begin());
         publisher_->publish(msg);
     }
-    dh116s::Hand hand_;
+
+    std::unique_ptr<rphand::Hand> hand_;
     std::string interface_;
-    int node_id_, speed_, current_, step_ = 0;
+    int node_id_, speed_, current_;
     std::chrono::nanoseconds command_period_{5000000};
-    bool torque_stop_, resetting_ = false, active_reset_ = false;
-    bool exiting_ = false, stop_error_ = false, stop_final_ = false;
-    uint8_t phase_ = State::UNINITIALIZED;
-    std::optional<std::array<int, 6>> target_;
+    bool torque_stop_, reset_busy_ = false, exiting_ = false;
+    bool pending_reset_ = false, stop_requested_ = false, accept_targets_ = false;
+    std::optional<Target> target_;
     std::mutex mutex_;
-    std::future<bool> active_, stopping_;
-    std::thread worker_;
+    std::condition_variable cv_;
+    std::thread manager_;
     rclcpp::Publisher<State>::SharedPtr publisher_;
     rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr subscription_;
-    rclcpp::Service<Trigger>::SharedPtr reset_service_, stop_service_;
-    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Service<Trigger>::SharedPtr reset_service_;
 };
 
 int main(int argc, char** argv) {
