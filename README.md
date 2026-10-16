@@ -54,12 +54,7 @@ bash build.sh ros
 bash build.sh all
 ```
 
-构建产物分别位于 `install/cpp`、`install/python` 和 `install/ros`。可通过 `RPHAND_BUILD_JOBS` 设置并行编译数，通过 `RPHAND_PYTHON` 指定 Python 解释器。Python 绑定必须使用与运行 demo 相同的解释器构建；当前环境默认使用 `/usr/bin/python3`。如果使用 Conda Python，必须先安装对应的 Python 开发头文件和 pybind11。
-
-```bash
-RPHAND_PYTHON="$(command -v python3)" bash build.sh python
-RPHAND_PYTHON="$(command -v python3)" source setup_python.sh
-```
+构建产物分别位于 `install/cpp`、`install/python` 和 `install/ros`。Python 绑定必须使用与运行 demo 相同的解释器构建，默认使用 `/usr/bin/python3`。
 
 ## Python 示例
 
