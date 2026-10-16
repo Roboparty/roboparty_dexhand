@@ -2,7 +2,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>
 #include <std_srvs/srv/trigger.hpp>
-#include <roboparty_dexhand_ros/msg/dex_hand_state.hpp>
+#include <rphand_ros/msg/dex_hand_state.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -14,12 +14,12 @@
 #include <thread>
 
 using namespace std::chrono_literals;
-using State = roboparty_dexhand_ros::msg::DexHandState;
+using State = rphand_ros::msg::DexHandState;
 using Trigger = std_srvs::srv::Trigger;
 
 class DexHandNode : public rclcpp::Node {
 public:
-    DexHandNode() : Node("dexhand_node") {
+    DexHandNode() : Node("rphand_node") {
         rcl_interfaces::msg::ParameterDescriptor immutable;
         immutable.read_only = true;
         interface_ = declare_parameter("interface", "can0", immutable);
@@ -262,7 +262,7 @@ int main(int argc, char** argv) {
     int status = 0;
     try { rclcpp::spin(std::make_shared<DexHandNode>()); }
     catch (const std::exception& e) {
-        RCLCPP_FATAL(rclcpp::get_logger("dexhand_node"), "%s", e.what());
+        RCLCPP_FATAL(rclcpp::get_logger("rphand_node"), "%s", e.what());
         status = 1;
     }
     rclcpp::shutdown();

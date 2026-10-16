@@ -48,21 +48,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--side', choices=['left', 'right'], default='left')
     parser.add_argument('--amplitude', type=int, default=6000, help='Four-finger amplitude (1..10000, default: 6000)')
-    parser.add_argument('--dry-run', action='store_true', help='Preview one round without SDK or CAN')
     options = parser.parse_args()
     if not 1 <= options.amplitude <= 10000:
         parser.error('amplitude must be in 1..10000')
-    if options.dry_run:
-        for tick in range(ROUND_SECONDS * RATE + 1):
-            values = target(tick / RATE, options.amplitude)
-            if any(v < 0 or v > (10000 if axis < 2 else options.amplitude) for axis, v in enumerate(values)):
-                raise RuntimeError('Invalid generated target')
-            if tick % 5 == 0:
-                print(f'tick={tick} positions:', *values)
-        print('Dry run passed; no CAN connection or hardware commands.')
-        return 0
-
-    from roboparty_dexhand_sdk import Hand
+    from rphand import Hand
     hand = Hand()
     interrupted = threading.Event()
     previous = {sig: signal.signal(sig, lambda *_: interrupted.set()) for sig in (signal.SIGINT, signal.SIGTERM)}

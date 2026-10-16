@@ -29,7 +29,7 @@ C++ 应用             Python 应用             ROS 节点
 | [src/rphand/protocol.hpp](../src/rphand/protocol.hpp)、[protocol.cpp](../src/rphand/protocol.cpp) | 报文编码、解码、长度校验和数据换算，不执行 I/O |
 | [src/rphand/socketcan.hpp](../src/rphand/socketcan.hpp)、[socketcan.cpp](../src/rphand/socketcan.cpp) | Linux socket、节点过滤、CAN FD 帧收发和发送错误计数 |
 | [python/bindings.cpp](../python/bindings.cpp) | Python 参数检查、GIL 释放、状态快照转换 |
-| [ros2/roboparty_dexhand_ros](../ros2/roboparty_dexhand_ros) | 会话重建、周期目标发送、状态发布、消息与示例 |
+| [ros2/rphand_ros](../ros2/rphand_ros) | 会话重建、周期目标发送、状态发布、消息与示例 |
 
 `src/rphand` 是内部实现，头文件不安装。应用通过 `rphand::Hand` 使用设备，不直接操作 Session 或协议缓存。
 
@@ -76,11 +76,11 @@ Session 缓存六轴目标、速度和电流参数，以脏标记控制参数补
 | 命令 | 产物 |
 | --- | --- |
 | `bash build.sh cpp` | `install/cpp` 下的静态库、公共头文件、CMake 配置及 C++ 示例 |
-| `bash build.sh python` | `install/python/roboparty_dexhand_sdk` 下的 Python 包和原生扩展 |
+| `bash build.sh python` | `install/python/rphand` 下的 Python 包和原生扩展 |
 | `bash build.sh ros` | `install/ros` 下的 ROS 包，脚本要求 `/opt/ros/jazzy` |
 | `bash build.sh all` | 依次构建以上三项，也是无参数时的行为 |
 
-`DEXHAND_BUILD_JOBS` 控制并行度，默认 2；`DEXHAND_PYTHON` 指定 Python 构建解释器，默认 `/usr/bin/python3`。默认脚本静态链接 SDK 核心，Python 原生扩展和 ROS 消息类型支持仍是正常的共享库。
+`RPHAND_BUILD_JOBS` 控制并行度，默认 2；`RPHAND_PYTHON` 指定 Python 构建解释器，默认 `/usr/bin/python3`。默认脚本静态链接 SDK 核心，Python 原生扩展和 ROS 消息类型支持仍是正常的共享库。
 
 ## 无硬件验证
 

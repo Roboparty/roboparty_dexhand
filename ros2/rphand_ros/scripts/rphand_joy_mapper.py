@@ -16,7 +16,7 @@ class DexHandJoyMapper(Node):
     """Use axes 6/7 D-pad edges to trigger one safe hand action at a time."""
 
     def __init__(self) -> None:
-        super().__init__("dexhand_joy_mapper")
+        super().__init__("rphand_joy_mapper")
         self.declare_parameter("horizontal_axis", 6)
         self.declare_parameter("vertical_axis", 7)
         self.declare_parameter("motor_enable_button", 2)

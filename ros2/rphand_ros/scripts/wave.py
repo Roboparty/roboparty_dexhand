@@ -18,7 +18,7 @@ def main():
     if not 1 <= args.amplitude <= 10000:
         parser.error('amplitude must be in 1..10000')
     rclpy.init()
-    node = rclpy.create_node('dexhand_wave', namespace='dexhand_' + args.side)
+    node = rclpy.create_node('rphand_wave', namespace='dexhand_' + args.side)
     publisher = node.create_publisher(Int32MultiArray, 'cmd', 1)
     try:
         deadline = time.monotonic() + 3

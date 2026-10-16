@@ -1,36 +1,36 @@
 # ROS
 
-包名 `roboparty_dexhand_ros`，可执行程序和节点名为 `dexhand_node`。每个节点管理一只手，通过 C++ `rphand::Hand` 完成设备操作。
+包名 `rphand_ros`，可执行程序和节点名为 `rphand_node`。每个节点管理一只手，通过 C++ `rphand::Hand` 完成设备操作。
 
-源码依据：[节点](../ros2/roboparty_dexhand_ros/src/dexhand_node.cpp)、[消息](../ros2/roboparty_dexhand_ros/msg/DexHandState.msg)、[launch](../ros2/roboparty_dexhand_ros/launch/dual_hand.launch.py)、[默认配置](../ros2/roboparty_dexhand_ros/config/defaults.yaml)。另见 [架构](architecture.md) 和 [C++ / Python API](api.md)。
+源码依据：[节点](../ros2/rphand_ros/src/rphand_node.cpp)、[消息](../ros2/rphand_ros/msg/DexHandState.msg)、[launch](../ros2/rphand_ros/launch/dual_hand.launch.py)、[默认配置](../ros2/rphand_ros/config/defaults.yaml)。另见 [架构](architecture.md) 和 [C++ / Python API](api.md)。
 
 ## 构建与启动
 
-以下命令在 SDK 根目录执行。构建脚本要求 `/opt/ros/jazzy/setup.bash` 和 colcon；包依赖 ament、rclcpp、rclpy、rosidl、std_msgs、std_srvs、sensor_msgs 及 launch 组件，完整声明见 [package.xml](../ros2/roboparty_dexhand_ros/package.xml)。
+以下命令在 SDK 根目录执行。构建脚本要求 `/opt/ros/jazzy/setup.bash` 和 colcon；包依赖 ament、rclcpp、rclpy、rosidl、std_msgs、std_srvs、sensor_msgs 及 launch 组件，完整声明见 [package.xml](../ros2/rphand_ros/package.xml)。
 
 ```bash
 bash build.sh ros
 source /opt/ros/jazzy/setup.bash
 source install/ros/local_setup.bash
-ros2 launch roboparty_dexhand_ros dual_hand.launch.py
+ros2 launch rphand_ros dual_hand.launch.py
 ```
 
 默认启动左右两个节点：
 
 | 手 | 节点 | 接口 | 设备节点 ID |
 | --- | --- | --- | --- |
-| 左 | `/dexhand_left/dexhand_node` | can0 | 1 |
-| 右 | `/dexhand_right/dexhand_node` | can3 | 1 |
+| 左 | `/dexhand_left/rphand_node` | can0 | 1 |
+| 右 | `/dexhand_right/rphand_node` | can3 | 1 |
 
 启动时不连接设备，也不使能或回零，仅发布无有效反馈的状态并等待 reset。CAN 接口需要由系统预先配置为 UP 和 CAN FD 模式。
 
 ```bash
 # 只启动左手，指定接口和目标发送频率
-ros2 launch roboparty_dexhand_ros dual_hand.launch.py \
+ros2 launch rphand_ros dual_hand.launch.py \
   right:=false left_interface:=can0 left_node_id:=1 command_rate_hz:=50
 
 # 直接运行单节点，不加载 defaults.yaml
-ros2 run roboparty_dexhand_ros dexhand_node --ros-args \
+ros2 run rphand_ros rphand_node --ros-args \
   -r __ns:=/dexhand_left -p interface:=can0 -p node_id:=1
 ```
 
@@ -39,7 +39,7 @@ ros2 run roboparty_dexhand_ros dexhand_node --ros-args \
 | 相对名称 | 类型 | 行为 |
 | --- | --- | --- |
 | `cmd` | `std_msgs/msg/Int32MultiArray` | 订阅六轴绝对位置目标，各值 0..10000 |
-| `state` | `roboparty_dexhand_ros/msg/DexHandState` | 发布反馈快照和有效性 |
+| `state` | `rphand_ros/msg/DexHandState` | 发布反馈快照和有效性 |
 | `reset` | `std_srvs/srv/Trigger` | 受理会话重建、参数配置、使能和回零 |
 
 左右前缀分别为 `/dexhand_left`、`/dexhand_right`。cmd/state 均使用 Reliable、Volatile、KeepLast(1)。没有 stop 服务，也没有 phase 字段或流程阶段枚举。
@@ -102,7 +102,7 @@ ros2 topic echo /dexhand_left/state
 | `joy_mapper` | false |
 
 ```bash
-ros2 launch roboparty_dexhand_ros dual_hand.launch.py \
+ros2 launch rphand_ros dual_hand.launch.py \
   config:=/absolute/path/hand.yaml command_rate_hz:=50
 ```
 
@@ -119,13 +119,13 @@ ros2 launch roboparty_dexhand_ros dual_hand.launch.py \
 在本次初始化完成后运行：
 
 ```bash
-ros2 run roboparty_dexhand_ros command.py --side left 0 0 1000 1000 1000 1000
-ros2 run roboparty_dexhand_ros wave.py --side left --amplitude 6000
+ros2 run rphand_ros command.py --side left 0 0 1000 1000 1000 1000
+ros2 run rphand_ros wave.py --side left --amplitude 6000
 ```
 
 两者只等待 cmd 订阅端出现，不检查设备状态。`command.py` 发布一次六轴目标；`wave.py` 以 50 Hz 执行一轮连续动作：拇指侧摆 `0 → 10000 → 0` 用时 2 秒，拇指屈伸相同动作再用 2 秒，随后四指 wave 6 秒、周期 1 秒，默认幅度 6000。总时长 10 秒，不等待到位或归零，正常结束发送全零。`--amplitude` 只影响四指，拇指始终使用全行程目标。全零是位置目标，不等于停止或回零。Ctrl+C 退出发布不保证停止设备。
 
-手柄映射可通过 `joy_mapper:=true` 随 launch 启动，或单独运行 `ros2 run roboparty_dexhand_ros dexhand_joy_mapper.py`。脚本订阅 `/joy`，默认横轴 6、纵轴 7、阈值 0.5：上/下请求左/右手 reset，左/右启动左/右手 wave。
+手柄映射可通过 `joy_mapper:=true` 随 launch 启动，或单独运行 `ros2 run rphand_ros rphand_joy_mapper.py`。脚本订阅 `/joy`，默认横轴 6、纵轴 7、阈值 0.5：上/下请求左/右手 reset，左/右启动左/右手 wave。
 
 按钮 2 的上升沿切换脚本内部“电机使能”标志：切到开启时请求双手 reset，切到关闭时不操作手。它不读取整机电机状态或手部反馈。reset 请求和 wave 发布独立，没有手柄断线自动停止。
 
@@ -137,7 +137,7 @@ ros2 run roboparty_dexhand_ros wave.py --side left --amplitude 6000
 
 ```bash
 ROS_DOMAIN_ID=187 ROS_LOCALHOST_ONLY=1 /usr/bin/python3 tests/ros_lifecycle.py \
-  "$(ros2 pkg prefix roboparty_dexhand_ros)/lib/roboparty_dexhand_ros/dexhand_node"
+  "$(ros2 pkg prefix rphand_ros)/lib/rphand_ros/rphand_node"
 ```
 
 测试自行启动节点，使用超过 Linux 接口名长度上限的名称，检查空闲状态、reset 受理及 Busy、连接失败后的恢复和退出，不连接真实 CAN。它不验证实机回零或运动效果。

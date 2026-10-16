@@ -3,7 +3,7 @@ import subprocess
 import sys
 import unittest
 
-from roboparty_dexhand_sdk import Hand
+from rphand import Hand
 
 
 class BindingTests(unittest.TestCase):
@@ -59,7 +59,7 @@ class BindingTests(unittest.TestCase):
     def test_failed_connection_releases_workers(self):
         # Longer than Linux IFNAMSIZ, so this cannot address a real CAN device.
         result = subprocess.run([sys.executable, "-c", """
-from roboparty_dexhand_sdk import Hand
+from rphand import Hand
 hand = Hand()
 for _ in range(2):
     assert not hand.connect("sdk_test_interface_name_too_long", 1)

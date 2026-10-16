@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>roboparty_dexhand_ros</name>
+  <name>rphand_ros</name>
   <version>0.1.0</version>
   <description>rphand C++ driver for ROS 2 Jazzy.</description>
   <maintainer email="dev@roboparty.com">RoboParty</maintainer>

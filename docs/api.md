@@ -1,8 +1,8 @@
 # C++ / Python API
 
-C++ 入口是 `<rphand/hand.hpp>` 中的 `rphand::Hand`；Python 入口是 `roboparty_dexhand_sdk.Hand`。两者使用相同控制流程，Python 没有单独的重试线程或异步 API。
+C++ 入口是 `<rphand/hand.hpp>` 中的 `rphand::Hand`；Python 入口是 `rphand.Hand`。两者使用相同控制流程，Python 没有单独的重试线程或异步 API。
 
-源码依据：[公共头文件](../include/rphand/hand.hpp)、[控制实现](../src/hand.cpp)、[Python 绑定](../python/bindings.cpp)、[类型声明](../python/roboparty_dexhand_sdk/__init__.pyi)。另见 [架构](architecture.md) 和 [ROS](ros2.md)。
+源码依据：[公共头文件](../include/rphand/hand.hpp)、[控制实现](../src/hand.cpp)、[Python 绑定](../python/bindings.cpp)、[类型声明](../python/rphand/__init__.pyi)。另见 [架构](architecture.md) 和 [ROS](ros2.md)。
 
 ## 构建与接入
 
@@ -12,7 +12,7 @@ C++ 入口是 `<rphand/hand.hpp>` 中的 `rphand::Hand`；Python 入口是 `robo
 bash build.sh cpp
 bash build.sh python
 source setup_python.sh
-/usr/bin/python3 -c 'from roboparty_dexhand_sdk import Hand; print(Hand)'
+/usr/bin/python3 -c 'from rphand import Hand; print(Hand)'
 ```
 
 `setup_python.sh` 只为当前 shell 设置本地包路径，不安装依赖。运行 Python 的解释器应与构建时一致。也可在目标 Python 环境中运行 `python -m pip install .`，由 pyproject 构建扩展。
@@ -22,12 +22,12 @@ source setup_python.sh
 ```cmake
 cmake_minimum_required(VERSION 3.16)
 project(hand_app LANGUAGES CXX)
-find_package(roboparty_dexhand_sdk CONFIG REQUIRED)
+find_package(rphand CONFIG REQUIRED)
 add_executable(hand_app main.cpp)
-target_link_libraries(hand_app PRIVATE roboparty::dexhand_sdk)
+target_link_libraries(hand_app PRIVATE rphand::rphand)
 ```
 
-配置外部项目时，通过 `-DCMAKE_PREFIX_PATH=/absolute/path/roboparty_dexhand_sdk/install/cpp` 指定安装位置。
+配置外部项目时，通过 `-DCMAKE_PREFIX_PATH=/absolute/path/rphand/install/cpp` 指定安装位置。
 
 ## 通道与单位
 
@@ -145,7 +145,7 @@ int main() {
 ```
 
 ```python
-from roboparty_dexhand_sdk import Hand
+from rphand import Hand
 
 hand = Hand()
 try:
@@ -161,11 +161,9 @@ finally:
 
 ## 连续动作示例
 
-[wave_demo.cpp](../examples/wave_demo.cpp) 和 [wave_demo.py](../examples/wave_demo.py) 使用相同的单手动作序列。参数仅保留 `--side left|right`（默认 left）、`--amplitude`（默认 6000，范围 1..10000，仅影响四指）和 `--dry-run`。
+[wave_demo.cpp](../examples/wave_demo.cpp) 和 [wave_demo.py](../examples/wave_demo.py) 使用相同的单手动作序列。参数为 `--side left|right`（默认 left）和 `--amplitude`（默认 6000，范围 1..10000，仅影响四指）。
 
 ```bash
-./install/cpp/bin/rphand_wave_demo --side left --dry-run
-/usr/bin/python3 examples/wave_demo.py --side right --dry-run
 # 实机运行，会使能和回零；Python 需要先 source setup_python.sh
 ./install/cpp/bin/rphand_wave_demo --side left
 /usr/bin/python3 examples/wave_demo.py --side right
@@ -175,7 +173,7 @@ finally:
 
 初始化后以 50 Hz 连续下发，每轮 10 秒：拇指侧摆 `0 → 10000 → 0` 用时 2 秒，拇指屈伸相同动作再用 2 秒，随后四指 wave 6 秒、周期 1 秒，自动进入下一轮。每段仅对应手指运动，其余目标为零；段间目标平滑衔接，不等待到位或归零确认。实际行程取决于设备跟随能力，目标全行程不代表反馈已到端点。
 
-实机模式持续循环直到 Ctrl+C；反馈异常或发送失败也会退出，并尝试失能后断开。dry-run 不加载设备、不等待，只预览一轮。ROS 的 `wave.py` 和手柄 wave 使用相同动作顺序，但每次触发只执行一轮，见 [ROS](ros2.md)。
+实机模式持续循环直到 Ctrl+C；反馈异常或发送失败也会退出，并尝试失能后断开。ROS 的 `wave.py` 和手柄 wave 使用相同动作顺序，但每次触发只执行一轮，见 [ROS](ros2.md)。
 
 ## 无硬件验证
 
@@ -185,7 +183,7 @@ source setup_python.sh
 cmake -S tests/cmake_consumer -B build/consumer \
   -DCMAKE_PREFIX_PATH="$PWD/install/cpp"
 cmake --build build/consumer --parallel 2
-./build/consumer/dexhand_install_check
+./build/consumer/rphand_install_check
 ```
 
 C++ 模拟设备测试入口见 [架构](architecture.md)。

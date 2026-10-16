@@ -16,7 +16,6 @@
 namespace {
 using Clock = std::chrono::steady_clock;
 using namespace std::chrono_literals;
-constexpr int rate = 50;
 constexpr double thumb_seconds = 2, wave_seconds = 6;
 constexpr double round_seconds = 2 * thumb_seconds + wave_seconds;
 constexpr double pi = 3.14159265358979323846;
@@ -27,19 +26,17 @@ void signal_handler(int) { interrupted.store(true, std::memory_order_relaxed); }
 struct Options {
     std::string side = "left";
     int amplitude = 6000;
-    bool dry_run = false;
 };
 const char* help =
-    "Usage: rphand_wave_demo [--side left|right] [--amplitude 6000] [--dry-run]\n"
+    "Usage: rphand_wave_demo [--side left|right] [--amplitude 6000]\n"
     "Left: can0/node 1; right: can3/node 1. Targets: 50 Hz.\n"
     "Enables and homes the hand, then repeats until Ctrl+C:\n"
     "thumb 1 full stroke (2 s), thumb 2 full stroke (2 s), four-finger wave (6 s).\n"
-    "Stages advance by time without waiting for arrival. --dry-run previews one round without CAN.\n";
+    "Stages advance by time without waiting for arrival.\n";
 
 bool parse(int argc, char** argv, Options& options) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--dry-run") { options.dry_run = true; continue; }
         if (i + 1 >= argc) return false;
         const std::string value = argv[++i];
         if (arg == "--side") {
@@ -70,11 +67,6 @@ std::array<int, 6> target(double seconds, int amplitude) {
                 * (1 - std::cos(2 * pi * local + j * pi / 2)) / 2));
     }
     return values;
-}
-void print_target(int tick, const std::array<int, 6>& values) {
-    std::cout << "tick=" << tick << " positions:";
-    for (int value : values) std::cout << ' ' << value;
-    std::cout << '\n';
 }
 bool healthy(const rphand::HandState& state) {
     return state.feedback_valid
@@ -131,16 +123,6 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) if (std::string(argv[i]) == "--help") { std::cout << help; return 0; }
     Options options;
     if (!parse(argc, argv, options)) { std::cerr << help; return 2; }
-    if (options.dry_run) {
-        for (int tick = 0; tick <= static_cast<int>(round_seconds * rate); ++tick) {
-            const auto values = target(tick / static_cast<double>(rate), options.amplitude);
-            for (int axis = 0; axis < 6; ++axis)
-                if (values[axis] < 0 || values[axis] > (axis < 2 ? 10000 : options.amplitude)) return 1;
-            if (tick % 5 == 0) print_target(tick, values);
-        }
-        std::cout << "Dry run passed; no CAN connection or hardware commands.\n";
-        return 0;
-    }
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
     rphand::Hand hand;

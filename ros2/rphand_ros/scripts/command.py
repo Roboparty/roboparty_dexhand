@@ -16,7 +16,7 @@ def main():
     if any(value < 0 or value > 10000 for value in args.positions):
         parser.error('positions must be in 0..10000')
     rclpy.init()
-    node = rclpy.create_node('dexhand_command', namespace='dexhand_' + args.side)
+    node = rclpy.create_node('rphand_command', namespace='dexhand_' + args.side)
     publisher = node.create_publisher(Int32MultiArray, 'cmd', QoSProfile(depth=1))
     try:
         deadline = time.monotonic() + 3.0

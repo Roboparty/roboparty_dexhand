@@ -8,7 +8,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    defaults = get_package_share_directory('roboparty_dexhand_ros') + '/config/defaults.yaml'
+    defaults = get_package_share_directory('rphand_ros') + '/config/defaults.yaml'
     actions = [DeclareLaunchArgument('config', default_value=defaults),
                DeclareLaunchArgument('joy_mapper', default_value='false'),
                DeclareLaunchArgument('command_rate_hz', default_value='200',
@@ -19,8 +19,8 @@ def generate_launch_description():
             DeclareLaunchArgument(side + '_interface', default_value=interface),
             DeclareLaunchArgument(side + '_node_id', default_value='1'),
             Node(
-                package='roboparty_dexhand_ros', executable='dexhand_node',
-                name='dexhand_node', namespace='dexhand_' + side,
+                package='rphand_ros', executable='rphand_node',
+                name='rphand_node', namespace='dexhand_' + side,
                 condition=IfCondition(LaunchConfiguration(side)), output='screen',
                 parameters=[LaunchConfiguration('config'), {
                     'command_rate_hz': ParameterValue(LaunchConfiguration('command_rate_hz'), value_type=int),
@@ -30,8 +30,8 @@ def generate_launch_description():
             ),
         ])
     actions.append(Node(
-        package='roboparty_dexhand_ros', executable='dexhand_joy_mapper.py',
-        name='dexhand_joy_mapper', output='screen',
+        package='rphand_ros', executable='rphand_joy_mapper.py',
+        name='rphand_joy_mapper', output='screen',
         condition=IfCondition(LaunchConfiguration('joy_mapper')),
     ))
     return LaunchDescription(actions)

@@ -9,11 +9,11 @@ import time
 
 def main():
     import rclpy
-    from roboparty_dexhand_ros.msg import DexHandState
+    from rphand_ros.msg import DexHandState
     from std_srvs.srv import Trigger
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("executable", help="installed dexhand_node executable")
+    parser.add_argument("executable", help="installed rphand_node executable")
     args = parser.parse_args()
     rclpy.init()
     node = rclpy.create_node("rphand_lifecycle_check")
