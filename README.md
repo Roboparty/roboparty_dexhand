@@ -1,6 +1,10 @@
-# rphand 灵巧手 SDK
+# RP Hand SDK
 
-`rphand` 是面向 rphand 六轴灵巧手的 Linux SDK，通过 SocketCAN CAN FD 提供 C++、Python 和 ROS 2 接口。
+[RP1 人形机器人](https://github.com/Roboparty/RP1) / [RP Hand 产品资料](https://github.com/Roboparty/rp_dexhand) / **SDK**
+
+`rphand` 是 RP Hand 六轴灵巧手的 Linux SDK，通过 SocketCAN CAN-FD 提供 C++、Python 和 ROS 2 接口。产品参数、接线、配套软件与模型下载见 [RP Hand 产品仓库](https://github.com/Roboparty/rp_dexhand)；本仓库提供控制代码、示例和接口文档。
+
+ROS 2 包随 SDK 一同提供，位于 `ros2/rphand_ros`。
 
 SDK 的 C++、Python 和 ROS 2 接口共用同一套设备通信和状态管理实现，支持连接、使能、失能、停止、回零、位置控制、速度与电流设置，以及反馈状态读取。
 
@@ -21,7 +25,7 @@ SDK 的 C++、Python 和 ROS 2 接口共用同一套设备通信和状态管理�
 include/                       C++ 公共头文件
 src/                           C++ SDK 和 CAN 协议实现
 python/                        Python 绑定和类型声明
-ros2/rphand_ros/   ROS 2 包、节点、消息和示例
+ros2/rphand_ros/                ROS 2 包、节点、消息和示例
 examples/                      C++ / Python wave 示例
 tests/                         无硬件测试
 docs/                          API、架构和 ROS 2 详细文档
@@ -29,7 +33,7 @@ docs/                          API、架构和 ROS 2 详细文档
 
 ## 环境要求
 
-- Linux，CMake 3.16 及以上
+- Linux，CMake 3.20 及以上（用于完整构建与下文测试流程）
 - C++17 编译器
 - Python 3.9 及以上（构建 Python 绑定还需要 Python 开发文件和 pybind11）
 - ROS 2 Jazzy 和 colcon（仅构建 ROS 2 包时需要）
