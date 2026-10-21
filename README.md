@@ -38,6 +38,7 @@ wave 会使能、回零并连续运动，拇指走全行程，按 Ctrl+C 退出�
 | 文档 | 内容 |
 | --- | --- |
 | [使用指南](docs/getting-started.md) | Windows/Linux 安装、示例参数、常见问题 |
+| [SDK 功能手册](docs/sdk-manual.md) | 核心类型、控制流程、C++/Python/ROS 2 接口和故障排查 |
 | [API](docs/api.md) | C++/Python 接入、单位、状态和失败语义 |
 | [ROS 2](docs/ros2.md) | Jazzy 节点、话题、服务与 launch |
 | [架构与开发](docs/architecture.md) | 内部分层、构建选项和测试 |
