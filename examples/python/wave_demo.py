@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""拇指侧摆往返、拇指屈伸往返、四指 wave，按时间连续循环到 Ctrl+C。"""
+"""Repeat thumb 1, thumb 2 and four-finger wave until Ctrl+C."""
 from concurrent.futures import ThreadPoolExecutor, wait
 import math
 import signal
@@ -34,10 +34,10 @@ def close_hand(hand):
     ok = True
     try:
         if hand.is_connected() and not hand.disable():
-            print("失能未确认", flush=True)
+            print("Disable unconfirmed.", flush=True)
             ok = False
     except Exception as error:
-        print(f"失能失败：{error}", flush=True)
+        print(f"Disable failed: {error}", flush=True)
         ok = False
     finally:
         hand.disconnect()
@@ -56,18 +56,18 @@ def main():
     result = 0
 
     def initialize():
-        steps = [('连接', connect)]
+        steps = [('Connect', connect)]
         if not options.connect_only:
-            steps.extend([('失能', hand.disable), ('设置速度', lambda: hand.set_speed(16000)),
-                          ('设置限流', lambda: hand.set_current_limit(400)),
-                          ('力矩到位模式', lambda: hand.set_torque_reached_mode(False)),
-                          ('使能', hand.enable), ('回零', hand.home)])
+            steps.extend([('Disable', hand.disable), ('Set speed', lambda: hand.set_speed(16000)),
+                          ('Set current limit', lambda: hand.set_current_limit(400)),
+                          ('Set torque mode', lambda: hand.set_torque_reached_mode(False)),
+                          ('Enable', hand.enable), ('Home', hand.home)])
         for name, call in steps:
             if interrupted.is_set():
                 return
             print(f'{name}...', flush=True)
             if not call():
-                raise RuntimeError(f'{name}失败')
+                raise RuntimeError(f'{name} failed')
 
     try:
         initialization = pool.submit(initialize)
@@ -76,25 +76,25 @@ def main():
                 raise KeyboardInterrupt
         initialization.result()
         if options.connect_only:
-            print('连接检查：观察反馈 5 秒，不使能、不回零、不执行 wave。', flush=True)
+            print('Checking feedback for 5 seconds...', flush=True)
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 if interrupted.is_set():
                     raise KeyboardInterrupt
                 state = hand.get_state()
                 if not state.feedback_valid or any(state.fault_codes):
-                    raise RuntimeError('连接检查失败：反馈无效或存在故障')
+                    raise RuntimeError('Invalid/fault feedback during connection check')
                 interrupted.wait(0.02)
-            print('连接及反馈检查通过。', flush=True)
+            print('Connection and feedback check passed.', flush=True)
         else:
-            print('拇指侧摆 -> 拇指屈伸 -> 四指 wave，50 Hz 连续循环；Ctrl+C 退出。', flush=True)
+            print('Repeating thumb 1 -> thumb 2 -> four-finger wave; Ctrl+C to exit.', flush=True)
         start = next_tick = time.monotonic()
         while not options.connect_only and not interrupted.is_set():
             state = hand.get_state()
             if not (state.feedback_valid and all(state.enabled) and all(state.homed) and not any(state.fault_codes)):
-                raise RuntimeError('反馈无效、失能、未回零或存在故障')
+                raise RuntimeError('Invalid/disabled/unhomed/fault feedback')
             if not hand.set_positions(target(time.monotonic() - start, options.amplitude)):
-                raise RuntimeError('位置目标下发失败')
+                raise RuntimeError('Position send failed')
             next_tick = max(next_tick + 1 / RATE, time.monotonic())
             interrupted.wait(max(0.0, next_tick - time.monotonic()))
     except KeyboardInterrupt:
@@ -107,7 +107,7 @@ def main():
         if interrupted.is_set():
             result = 130
         interrupted.set()
-        print('失能 -> 断开', flush=True)
+        print('Disable -> disconnect', flush=True)
         try:
             if not close_hand(hand):
                 result = 1
