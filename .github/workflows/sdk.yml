@@ -1,0 +1,36 @@
+name: SDK
+on: [push, pull_request]
+jobs:
+  hardware-free:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Configure C++
+        run: cmake -S . -B build/check -DRPHAND_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build C++
+        run: cmake --build build/check --config Release --parallel 2
+      - name: Test C++ without hardware
+        run: ctest --test-dir build/check -C Release --output-on-failure --parallel 2
+      - name: Install C++
+        run: cmake --install build/check --config Release --prefix "${{ github.workspace }}/install/check"
+      - name: Configure installed C++ consumer
+        run: cmake -S tests -B build/consumer -DCMAKE_PREFIX_PATH="${{ github.workspace }}/install/check"
+      - name: Build installed C++ consumer
+        run: cmake --build build/consumer --config Release --parallel 2
+      - name: Run installed C++ consumer
+        run: ctest --test-dir build/consumer -C Release --output-on-failure
+      - name: Install Python build dependencies
+        run: python -m pip install "scikit-build-core>=0.10" "pybind11>=2.13"
+      - name: Build and check source archive
+        run: python tests/test_python.py --sdist dist
+      - name: Install Python from source archive
+        run: python -m pip install --no-build-isolation --no-index --no-binary=rphand --find-links=dist rphand
+      - name: Test Python without hardware
+        run: python -m unittest discover -s tests -p test_python.py -v

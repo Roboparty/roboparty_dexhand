@@ -1,6 +1,6 @@
 #pragma once
 #include "protocol.hpp"
-#include "socketcan.hpp"
+#include "transport.hpp"
 #include <rphand/hand.hpp>
 #include <atomic>
 #include <chrono>
@@ -38,9 +38,9 @@ public:
     using Cancel = std::function<bool()>;
     Session();
     ~Session();
-    bool open_transport(const std::string& interface, int node);
+    bool open_transport(const ConnectionOptions& options);
     bool receive_failed() const { return rx_failed_; }
-    unsigned long send_errors() const { return transport_.errors(); }
+    unsigned long send_errors() const { return transport_ ? transport_->errors() : 0; }
     Snapshot snapshot(bool connected = true) const;
     bool pause(std::chrono::milliseconds duration, const Cancel& cancelled);
     void wait_for_status(std::uint64_t sequence, Clock::time_point deadline, const Cancel& cancelled);
@@ -91,7 +91,7 @@ private:
     mutable std::mutex receive_mutex_;
     std::condition_variable received_;
     Send callback_;
-    detail::SocketCan transport_;
+    std::unique_ptr<detail::CanTransport> transport_;
     std::thread receiver_;
     std::atomic<bool> rx_done_{true}, rx_failed_{false};
     CommandState state_;

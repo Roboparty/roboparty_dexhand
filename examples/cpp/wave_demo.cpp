@@ -1,9 +1,9 @@
 #include <rphand/hand.hpp>
+#include "options.hpp"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <csignal>
@@ -23,33 +23,13 @@ static_assert(std::atomic<bool>::is_always_lock_free);
 std::atomic<bool> interrupted{false};
 void signal_handler(int) { interrupted.store(true, std::memory_order_relaxed); }
 
-struct Options {
-    std::string side = "left";
-    int amplitude = 6000;
-};
-const char* help =
-    "Usage: rphand_wave_demo [--side left|right] [--amplitude 6000]\n"
-    "Left: can0/node 1; right: can3/node 1. Targets: 50 Hz.\n"
-    "Enables and homes the hand, then repeats until Ctrl+C:\n"
-    "thumb 1 full stroke (2 s), thumb 2 full stroke (2 s), four-finger wave (6 s).\n"
-    "Stages advance by time without waiting for arrival.\n";
-
-bool parse(int argc, char** argv, Options& options) {
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (i + 1 >= argc) return false;
-        const std::string value = argv[++i];
-        if (arg == "--side") {
-            if (value != "left" && value != "right") return false;
-            options.side = value;
-        } else if (arg == "--amplitude") {
-            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), options.amplitude);
-            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()
-                || options.amplitude < 1 || options.amplitude > 10000) return false;
-        } else return false;
-    }
-    return true;
-}
+using example::Options;
+using example::parse;
+const std::string help = std::string("Usage: rphand_wave_demo [connection options] [--amplitude 6000] [--connect-only]\n")
+    + example::connection_help
+    + "Enables and homes the hand, then repeats at 50 Hz until Ctrl+C.\n"
+      "Thumb stages use full stroke; amplitude controls only the four fingers.\n"
+      "--connect-only: check feedback for 5 seconds without enable/home/motion.\n";
 
 std::array<int, 6> target(double seconds, int amplitude) {
     const double t = std::fmod(seconds, round_seconds);
@@ -93,7 +73,8 @@ void run(rphand::Hand& hand, const Options& options) {
             if (interrupted) throw std::runtime_error("Initialization interrupted");
             perform(name, call);
         };
-        step("Connect", [&] { return hand.connect(options.side == "left" ? "can0" : "can3", 1); });
+        step("Connect", [&] { return hand.connect(options.connection); });
+        if (options.connect_only) return;
         step("Disable", [&] { return hand.disable(); });
         step("Set speed", [&] { return hand.set_speed(16000); });
         step("Set current limit", [&] { return hand.set_current_limit(400); });
@@ -106,6 +87,19 @@ void run(rphand::Hand& hand, const Options& options) {
     }
     initialization.get();
     if (interrupted) return;
+    if (options.connect_only) {
+        std::cout << "Checking feedback for 5 seconds..." << std::endl;
+        const auto deadline = Clock::now() + 5s;
+        while (!interrupted && Clock::now() < deadline) {
+            const auto state = hand.get_state();
+            if (!state.feedback_valid || std::any_of(state.fault_codes.begin(), state.fault_codes.end(),
+                                                    [](int fault) { return fault != 0; }))
+                throw std::runtime_error("Invalid/fault feedback during connection check");
+            std::this_thread::sleep_for(20ms);
+        }
+        if (!interrupted) std::cout << "Connection and feedback check passed.\n";
+        return;
+    }
     std::cout << "Repeating thumb 1 -> thumb 2 -> four-finger wave; Ctrl+C to exit.\n";
     const auto start = Clock::now();
     auto next = start;

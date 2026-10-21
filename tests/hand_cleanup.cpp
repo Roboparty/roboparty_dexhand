@@ -1,5 +1,5 @@
 #include <rphand/hand.hpp>
-#include "rphand/socketcan.hpp"
+#include "rphand/transport.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -16,7 +16,7 @@ using Clock = std::chrono::steady_clock;
 struct Device {
     std::mutex mutex;
     std::condition_variable changed;
-    std::deque<canfd_frame> replies;
+    std::deque<rphand::detail::CanFrame> replies;
     Clock::time_point next_feedback;
     unsigned node = 1, stops = 0, disables = 0;
     unsigned char status = 0x15;
@@ -33,7 +33,7 @@ struct Device {
         changed.notify_all();
     }
     void feedback() {
-        canfd_frame position{}, state{};
+        rphand::detail::CanFrame position{}, state{};
         position.can_id = state.can_id = 0x480 + node;
         position.len = 64;
         position.data[0] = 0x50;
@@ -64,10 +64,19 @@ void settle() {
 }
 }
 
-// This target replaces SocketCAN at link time. No socket or CAN interface is used.
+// This target supplies a simulated transport factory; no physical I/O is linked.
 namespace rphand::detail {
-SocketCan::~SocketCan() { close(); }
-bool SocketCan::open(const std::string&, unsigned node) {
+class MockTransport final : public CanTransport {
+public:
+    ~MockTransport() override { close(); }
+    bool open(const ConnectionOptions&) override;
+    void close() override;
+    bool send(unsigned, const unsigned char*, unsigned, int) override;
+    int receive(CanFrame&) override;
+};
+std::unique_ptr<CanTransport> make_transport(Backend) { return std::make_unique<MockTransport>(); }
+bool MockTransport::open(const ConnectionOptions& options) {
+    const unsigned node = options.node_id;
     std::lock_guard<std::mutex> lock(device.mutex);
     device.node = node;
     device.open = true;
@@ -75,17 +84,17 @@ bool SocketCan::open(const std::string&, unsigned node) {
     errors_ = 0;
     return true;
 }
-void SocketCan::close() {
+void MockTransport::close() {
     std::lock_guard<std::mutex> lock(device.mutex);
     device.open = false;
     device.replies.clear();
     device.changed.notify_all();
 }
-bool SocketCan::send(unsigned id, const unsigned char* data, unsigned size, int) {
+bool MockTransport::send(unsigned id, const unsigned char* data, unsigned size, int) {
     std::lock_guard<std::mutex> lock(device.mutex);
     if (!device.open) return false;
     if (id == 0x600 + device.node && size == 8) {
-        canfd_frame reply{};
+        rphand::detail::CanFrame reply{};
         reply.can_id = 0x580 + device.node;
         reply.len = 8;
         std::copy(data, data + 4, reply.data);
@@ -106,13 +115,14 @@ bool SocketCan::send(unsigned id, const unsigned char* data, unsigned size, int)
     device.changed.notify_all();
     return true;
 }
-int SocketCan::receive(canfd_frame& frame) {
+int MockTransport::receive(rphand::detail::CanFrame& frame) {
     std::unique_lock<std::mutex> lock(device.mutex);
     const auto deadline = Clock::now() + 25ms;
     while (device.open) {
         if (Clock::now() >= device.next_feedback) {
             device.feedback();
-            device.next_feedback = Clock::now() + 20ms;
+            // Emulate the hardware clock, not the host scheduler's wake-up time.
+            device.next_feedback += 20ms;
         }
         if (!device.replies.empty()) {
             frame = device.replies.front();

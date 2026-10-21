@@ -1,4 +1,23 @@
-from typing import Tuple, Union
+from typing import Tuple, Union, overload
+from enum import Enum
+
+class Backend(Enum):
+    SocketCan = 0
+    GsUsbWinUsb = 1
+
+class ConnectionOptions:
+    """Defaults: SocketCAN/can0, node 1, channel 0, CAN FD 1 Mbps / 5 Mbps.
+
+    Windows: select GsUsbWinUsb and set serial. Linux rates are configured by the OS.
+    """
+    def __init__(self) -> None: ...
+    backend: Backend
+    interface: str
+    serial: str
+    channel: int
+    node_id: int
+    bitrate: int
+    data_bitrate: int
 
 IntAxes = Tuple[int, int, int, int, int, int]
 BoolAxes = Tuple[bool, bool, bool, bool, bool, bool]
@@ -23,7 +42,10 @@ class HandState:
 
 class Hand:
     def __init__(self) -> None: ...
+    @overload
     def connect(self, can_name: str, node_id: int) -> bool: ...
+    @overload
+    def connect(self, options: ConnectionOptions) -> bool: ...
     def disconnect(self) -> None: ...
     def is_connected(self) -> bool: ...
     def enable(self) -> bool: ...

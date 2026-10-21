@@ -6,16 +6,32 @@ build-backend = "scikit_build_core.build"
 name = "rphand"
 version = "0.1.0"
 description = "Python bindings for the rphand six-axis dexterous hand SDK"
-readme = "docs/architecture.md"
+readme = "README.md"
 requires-python = ">=3.9"
-classifiers = ["Operating System :: POSIX :: Linux", "Programming Language :: Python :: 3"]
+classifiers = ["Operating System :: POSIX :: Linux", "Operating System :: Microsoft :: Windows", "Programming Language :: Python :: 3"]
 
 [tool.scikit-build]
 wheel.packages = ["python/rphand"]
 install.components = ["python"]
+# Opt in to release sources. Do not depend on the developer's Git working tree
+# or ignore rules to keep build output and scratch files out of the archive.
+# include takes precedence over exclude in scikit-build-core >=0.10.
+sdist.exclude = ["*"]
+sdist.include = [
+    "/pyproject.toml", "/CMakeLists.txt", "/README.md", "/LICENSE*", "/NOTICE*", "/COPYING*",
+    "/build.sh", "/setup_python.sh", "/cmake/*.cmake", "/cmake/*.cmake.in",
+    "/include/rphand/*.hpp", "/src/*.cpp", "/src/rphand/*.cpp", "/src/rphand/*.hpp",
+    "/src/rphand/backends/*.cpp", "/src/rphand/backends/*.hpp",
+    "/python/bindings.cpp", "/python/rphand/*.py", "/python/rphand/*.pyi", "/python/rphand/py.typed",
+    "/examples/cpp/*.cpp", "/examples/cpp/*.hpp", "/examples/python/*.py", "/examples/wave_demo.py",
+    "/tests/CMakeLists.txt", "/tests/*.cpp", "/tests/*.py", "/docs/*.md",
+    "/ros2/rphand_ros/CMakeLists.txt", "/ros2/rphand_ros/package.xml",
+    "/ros2/rphand_ros/src/*.cpp", "/ros2/rphand_ros/scripts/*.py",
+    "/ros2/rphand_ros/launch/*.py", "/ros2/rphand_ros/config/*.yaml", "/ros2/rphand_ros/msg/*.msg",
+]
 
 [tool.scikit-build.cmake.define]
 RPHAND_BUILD_PYTHON = "ON"
 RPHAND_BUILD_DEMO = "OFF"
-RPHAND_BUILD_SMOKE = "OFF"
+RPHAND_BUILD_TESTS = "OFF"
 BUILD_SHARED_LIBS = "OFF"

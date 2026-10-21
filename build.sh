@@ -16,7 +16,7 @@ rphand_jobs="${RPHAND_BUILD_JOBS:-2}"
 if [[ "$rphand_mode" == cpp || "$rphand_mode" == all ]]; then
     cmake -S "$rphand_root" -B "$rphand_root/build/cpp" \
         -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-        -DRPHAND_BUILD_PYTHON=OFF -DRPHAND_BUILD_DEMO=ON -DRPHAND_BUILD_SMOKE=OFF \
+        -DRPHAND_BUILD_PYTHON=OFF -DRPHAND_BUILD_DEMO=ON -DRPHAND_BUILD_TESTS=OFF \
         -DCMAKE_INSTALL_PREFIX="$rphand_root/install/cpp"
     cmake --build "$rphand_root/build/cpp" --parallel "$rphand_jobs"
     cmake --install "$rphand_root/build/cpp"
@@ -24,7 +24,7 @@ fi
 if [[ "$rphand_mode" == python || "$rphand_mode" == all ]]; then
     cmake -S "$rphand_root" -B "$rphand_root/build/python" \
         -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-        -DRPHAND_BUILD_PYTHON=ON -DRPHAND_BUILD_DEMO=OFF -DRPHAND_BUILD_SMOKE=OFF \
+        -DRPHAND_BUILD_PYTHON=ON -DRPHAND_BUILD_DEMO=OFF -DRPHAND_BUILD_TESTS=OFF \
         -DPython_EXECUTABLE="${RPHAND_PYTHON:-/usr/bin/python3}"
     cmake --build "$rphand_root/build/python" --parallel "$rphand_jobs"
     cmake --install "$rphand_root/build/python" --prefix "$rphand_root/install/python" --component python

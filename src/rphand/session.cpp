@@ -14,16 +14,17 @@ Session::Session() {
     for (auto& a : state_.axes) { a.home_function = 1; a.velocity = 20000; a.current = 400; }
 }
 Session::~Session() { close(); }
-bool Session::open_transport(const std::string& interface, int node) {
+bool Session::open_transport(const ConnectionOptions& options) {
     close();
     rx_failed_ = false;
     {
         std::lock_guard<std::mutex> lock(receive_mutex_);
         feedback_ = {}; snapshot_ = {}; samples_ = {}; track_home_ = false;
     }
-    if (!transport_.open(interface, node)) return false;
+    transport_ = detail::make_transport(options.backend);
+    if (!transport_ || !transport_->open(options)) return false;
     set_send_callback([this](unsigned id, const unsigned char* data, unsigned size, int extended) {
-        return transport_.send(id, data, size, extended);
+        return transport_->send(id, data, size, extended);
     });
     rx_done_ = false;
     try { receiver_ = std::thread([this] { receive_loop(); }); }
@@ -32,8 +33,8 @@ bool Session::open_transport(const std::string& interface, int node) {
 }
 void Session::receive_loop() {
     while (!rx_done_) {
-        canfd_frame frame{};
-        const int result = transport_.receive(frame);
+        detail::CanFrame frame{};
+        const int result = transport_->receive(frame);
         if (result < 0) {
             std::lock_guard<std::mutex> lock(receive_mutex_);
             rx_failed_ = true;
@@ -113,7 +114,7 @@ void Session::close() {
     received_.notify_all();
     if (receiver_.joinable()) receiver_.join();
     std::lock_guard<std::recursive_mutex> lock(command_mutex_);
-    transport_.close();
+    if (transport_) transport_->close();
 }
 int Session::send(unsigned base, const Bytes& bytes) {
     Send callback;

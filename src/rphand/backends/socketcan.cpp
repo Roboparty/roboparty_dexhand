@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 namespace rphand::detail {
@@ -16,7 +17,9 @@ void SocketCan::close() {
     if (fd_ >= 0) ::close(fd_);
     fd_ = -1;
 }
-bool SocketCan::open(const std::string& name, unsigned node) {
+bool SocketCan::open(const ConnectionOptions& options) {
+    const auto& name = options.interface;
+    const unsigned node = options.node_id;
     close();
     const unsigned index = if_nametoindex(name.c_str());
     if (!index) {
@@ -69,7 +72,8 @@ bool SocketCan::send(unsigned id, const unsigned char* data, unsigned size, int 
     }
     return ok;
 }
-int SocketCan::receive(canfd_frame& frame) {
+int SocketCan::receive(CanFrame& output) {
+    canfd_frame frame{};
     pollfd pfd{fd_, POLLIN, 0};
     const int rc = poll(&pfd, 1, 20);
     if (rc < 0 && errno == EINTR) return 0;
@@ -80,6 +84,12 @@ int SocketCan::receive(canfd_frame& frame) {
     if (count != CAN_MTU && count != CANFD_MTU) return -1;
     if (frame.can_id & (CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_ERR_FLAG)) return 0;
     if (frame.len > (count == CAN_MTU ? 8 : 64)) return 0;
+    output = {};
+    output.can_id = frame.can_id;
+    output.len = frame.len;
+    output.fd = count == CANFD_MTU;
+    output.brs = output.fd && (frame.flags & CANFD_BRS);
+    std::memcpy(output.data, frame.data, frame.len);
     return 1;
 }
 }  // namespace rphand::detail

@@ -40,6 +40,25 @@ py::tuple snapshot(const std::array<T, 6>& values) {
 
 PYBIND11_MODULE(_core, m) {
     m.doc() = "rphand native bindings; positions use stroke units, not degrees.";
+    py::enum_<rphand::Backend>(m, "Backend")
+        .value("SocketCan", rphand::Backend::SocketCan)
+        .value("GsUsbWinUsb", rphand::Backend::GsUsbWinUsb);
+    auto options = py::class_<rphand::ConnectionOptions>(m, "ConnectionOptions",
+        "Default: SocketCAN/can0, node 1, CAN FD 1 Mbps / 5 Mbps. "
+        "Windows: select GsUsbWinUsb and set serial. Linux rates are configured by the OS.")
+        .def(py::init<>())
+        .def_readwrite("backend", &rphand::ConnectionOptions::backend)
+        .def_readwrite("interface", &rphand::ConnectionOptions::interface)
+        .def_readwrite("serial", &rphand::ConnectionOptions::serial);
+    auto int_option = [&](const char* name, int rphand::ConnectionOptions::*field) {
+        options.def_property(name,
+            [field](const rphand::ConnectionOptions& o) { return o.*field; },
+            [field](rphand::ConnectionOptions& o, py::object value) { o.*field = integer(value); });
+    };
+    int_option("node_id", &rphand::ConnectionOptions::node_id);
+    int_option("channel", &rphand::ConnectionOptions::channel);
+    int_option("bitrate", &rphand::ConnectionOptions::bitrate);
+    int_option("data_bitrate", &rphand::ConnectionOptions::data_bitrate);
     py::class_<rphand::HandState>(m, "HandState")
         .def_property_readonly("positions", [](const rphand::HandState& s) { return snapshot(s.positions); })
         .def_property_readonly("velocities", [](const rphand::HandState& s) { return snapshot(s.velocities); })
@@ -58,6 +77,10 @@ PYBIND11_MODULE(_core, m) {
         py::gil_scoped_release release;
         return self.hand->connect(can, id);
     }, py::arg("can_name"), py::arg("node_id"));
+    hand.def("connect", [](PythonHand& self, rphand::ConnectionOptions options) {
+        py::gil_scoped_release release;
+        return self.hand->connect(options);
+    }, py::arg("options"));
     hand.def("set_positions", [](PythonHand& self, py::object values) {
         if (!py::isinstance<py::list>(values) && !py::isinstance<py::tuple>(values))
             throw py::type_error("values must be a list or tuple of six integers");

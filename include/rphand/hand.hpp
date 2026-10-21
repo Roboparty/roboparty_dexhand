@@ -1,22 +1,10 @@
 #pragma once
 
-#include <array>
+#include <rphand/types.hpp>
 #include <memory>
 #include <string>
 
 namespace rphand {
-
-// Order: thumb abduction, thumb flexion, index, middle, ring, little.
-struct HandState {
-    std::array<int, 6> positions{};
-    std::array<int, 6> velocities{};
-    std::array<int, 6> currents{};
-    std::array<bool, 6> enabled{};
-    std::array<bool, 6> homed{};
-    std::array<bool, 6> torque_reached{};
-    std::array<int, 6> fault_codes{};
-    bool feedback_valid = false;
-};
 
 class Hand {
 public:
@@ -30,6 +18,7 @@ public:
     // Each connection stage makes at most 30 attempts, including the first.
     // A latched emergency stop is recovered while all axes are disabled.
     bool connect(const std::string& can_name, int node_id);
+    bool connect(const ConnectionOptions& options);
     void disconnect();
     bool is_connected() const;
     bool enable();

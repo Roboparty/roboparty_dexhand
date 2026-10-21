@@ -6,6 +6,8 @@
 /install/
 /CMakeUserPresets.json
 /compile_commands.json
+# Some compiler probes accidentally write their stdout to a file named '-'.
+/-
 *.o
 *.obj
 

@@ -48,6 +48,8 @@ struct Hand::Impl {
     bool worker_exit = false, ordinary_busy = false;
     unsigned urgent_count = 0;
     std::string interface;
+    ConnectionOptions options;
+    std::pair<std::string, int> owner_key;
     int node = 0;
     bool owns_device = false;
 
@@ -125,7 +127,7 @@ struct Hand::Impl {
         cleanup_attempt();
         if (owns_device) {
             std::lock_guard<std::mutex> lock(owners_mutex);
-            owners.erase({interface, node});
+            owners.erase(owner_key);
             owns_device = false;
         }
     }
@@ -197,7 +199,7 @@ struct Hand::Impl {
         constexpr int retries = 30;
         bool initialized = false;
         for (int attempt = 1; attempt <= retries && !cancelled(token); ++attempt) {
-            if (session.open_transport(interface, node)) {
+            if (session.open_transport(options)) {
                 int type = -1, total = 0, active = 0;
                 initialized = command("initial", [&] { return session.initial(Session::Canfd, node); })
                     && check(session.get_hand_type(&type), "get_hand_type")
@@ -229,8 +231,14 @@ struct Hand::Impl {
         cleanup();
         return fail("connect failed/cancelled; local resources released");
     }
-    bool connect(const std::string& name, int id) {
-        if (name.empty() || id < 1 || id > 127) return fail("invalid connect arguments");
+    bool connect(const ConnectionOptions& requested) {
+        const bool usb = requested.backend == Backend::GsUsbWinUsb;
+        const auto& name = usb ? requested.serial : requested.interface;
+        const int id = requested.node_id;
+        if (name.empty() || id < 1 || id > 127 ||
+            (requested.backend != Backend::SocketCan && !usb) ||
+            (usb && (requested.channel != 0 || requested.bitrate <= 0 || requested.data_bitrate <= 0)))
+            return fail("invalid connection options (USB requires serial, channel 0 and both bitrates)");
         std::future<bool> result;
         std::uint64_t connect_token = 0;
         {
@@ -239,10 +247,12 @@ struct Hand::Impl {
             if (worker.joinable()) return fail("already connected/connecting; disconnect before reconnecting");
             {
                 std::lock_guard<std::mutex> owner_lock(owners_mutex);
-                if (!owners.emplace(name, id).second) return fail("device already owned by this process");
+                owner_key = {std::string(usb ? "usb:" : "socketcan:") + name, usb ? 0 : id};
+                if (!owners.insert(owner_key).second) return fail("device already owned by this process");
                 owns_device = true;
             }
             interface = name;
+            options = requested;
             node = id;
             closing = false;
             worker_exit = false;
@@ -416,7 +426,13 @@ struct Hand::Impl {
 
 Hand::Hand() : impl_(std::make_unique<Impl>()) {}
 Hand::~Hand() = default;
-bool Hand::connect(const std::string& name, int id) { return impl_->connect(name, id); }
+bool Hand::connect(const std::string& name, int id) {
+    ConnectionOptions options;
+    options.interface = name;
+    options.node_id = id;
+    return connect(options);
+}
+bool Hand::connect(const ConnectionOptions& options) { return impl_->connect(options); }
 void Hand::disconnect() { impl_->disconnect(); }
 bool Hand::is_connected() const { return impl_->connected && !impl_->closing; }
 HandState Hand::get_state() const { return impl_->snapshot().state; }

@@ -1,5 +1,0 @@
-cmake_minimum_required(VERSION 3.16)
-project(rphand_install_check LANGUAGES CXX)
-find_package(rphand CONFIG REQUIRED)
-add_executable(rphand_install_check main.cpp)
-target_link_libraries(rphand_install_check PRIVATE rphand::rphand)

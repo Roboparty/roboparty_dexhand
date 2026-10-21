@@ -6,16 +6,7 @@ C++ 入口是 `<rphand/hand.hpp>` 中的 `rphand::Hand`；Python 入口是 `rpha
 
 ## 构建与接入
 
-以下命令在 SDK 根目录执行。Linux 与构建依赖见 [架构](architecture.md)。
-
-```bash
-bash build.sh cpp
-RPHAND_PYTHON=/usr/bin/python3 bash build.sh python
-RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
-/usr/bin/python3 -c 'from rphand import Hand; print(Hand)'
-```
-
-`setup_python.sh` 只为当前 shell 设置本地包路径，不安装依赖。运行 Python 的解释器应与构建时一致。也可在目标 Python 环境中运行 `python -m pip install .`，由 pyproject 构建扩展。
+安装和平台准备见 [使用指南](getting-started.md)。
 
 外部 C++ 项目接入：
 
@@ -48,8 +39,9 @@ target_link_libraries(hand_app PRIVATE rphand::rphand)
 
 | C++ 方法 | Python 调用 | 当前行为 |
 | --- | --- | --- |
+| `connect(const ConnectionOptions&)` | `connect(options)` | 使用明确后端与设备选择，默认速率 1 Mbps / 5 Mbps、节点 1；Linux 速率由系统设置 |
 | `connect(const std::string&, int)` | `connect(can_name, node_id)` | 接口非空、节点 1..127；同步完成初始化及反馈检查。重复连接需先断开 |
-| `disconnect()` | `disconnect()` | 取消任务、等待线程退出、释放 socket；可重复调用，不自动停止或失能 |
+| `disconnect()` | `disconnect()` | 取消任务、等待线程退出、释放平台传输资源；可重复调用，不自动停止或失能 |
 | `is_connected() const` | `is_connected()` | 返回本地连接状态，不代表设备反馈正常 |
 | `enable()` | `enable()` | 六轴使能；要求反馈有效且无故障。需要实际切换时，还要求六轴静止，先切位置模式 |
 | `disable()` | `disable()` | 取消旧任务并请求六轴失能，等待状态确认 |
@@ -128,62 +120,29 @@ connect → disable → 设置速度、电流、力矩到位模式
 
 ## 使用示例
 
-下面示例只连接、读取状态并断开，不主动使能和回零；连接仍可能恢复遗留急停。
-
-```cpp
-#include <rphand/hand.hpp>
-#include <iostream>
-
-int main() {
-    rphand::Hand hand;
-    if (!hand.connect("can0", 1)) return 1;
-    const auto state = hand.get_state();
-    std::cout << "feedback_valid=" << state.feedback_valid << '\n';
-    hand.disconnect();
-    return 0;
-}
-```
-
-```python
-from rphand import Hand
-
-hand = Hand()
-try:
-    if not hand.connect("can0", 1):
-        raise RuntimeError("connect failed")
-    state = hand.get_state()
-    print(state.feedback_valid, state.positions)
-finally:
-    hand.disconnect()
-```
+最小状态读取：[C++](../examples/cpp/read_state.cpp) / [Python](../examples/python/read_state.py)。
+完整动作：[C++ wave](../examples/cpp/wave_demo.cpp) / [Python wave](../examples/python/wave_demo.py)。
+参数、动作范围和退出行为见 [使用指南](getting-started.md#示例参数与行为)。
 
 实际运动结束时，C++ 可在仍连接时调用 `prepare_disconnect()`，检查结果后再断开。Python 没有这个接口，应分别调用 `stop()`、`disable()` 并检查各自结果，不能用短路表达式跳过第二步；这两个 Python 调用仍各自使用普通的最多 30 次策略。
 
-## 连续动作示例
+## 连接配置
 
-[wave_demo.cpp](../examples/wave_demo.cpp) 和 [wave_demo.py](../examples/wave_demo.py) 使用相同的单手动作序列。参数为 `--side left|right`（默认 left）和 `--amplitude`（默认 6000，范围 1..10000，仅影响四指）。
+`Hand::connect(const ConnectionOptions&)` 与 Python `hand.connect(options)` 共用以下配置。
+类型定义位于 `<rphand/types.hpp>`；包含 `<rphand/hand.hpp>` 时也会自动引入。
 
-```bash
-# 实机运行，会使能和回零；Python 需要先 source setup_python.sh
-./install/cpp/bin/rphand_wave_demo --side left
-/usr/bin/python3 examples/wave_demo.py --side right
-```
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `backend` | `Backend::SocketCan` | Windows 显式选择 `Backend::GsUsbWinUsb` |
+| `interface` | `"can0"` | Linux 接口名，由系统预先配置为 UP / CAN FD |
+| `serial` | 空字符串 | Windows 必填的实际适配器序列号 |
+| `channel` | `0` | 当前 Windows 只支持单通道 |
+| `node_id` | `1` | 范围 `1..127` |
+| `bitrate` | `1000000` | 产品仲裁段速率，Windows 自动应用 |
+| `data_bitrate` | `5000000` | 产品数据段速率，Windows 自动应用 |
 
-左手固定使用 can0、右手 can3，节点 ID 均为 1。初始化依次连接、失能、设置速度 16000、电流限制 400、力矩到位不停、使能和回零，与 ROS 默认 launch 的配置一致。
-
-初始化后以 50 Hz 连续下发，每轮 10 秒：拇指侧摆 `0 → 10000 → 0` 用时 2 秒，拇指屈伸相同动作再用 2 秒，随后四指 wave 6 秒、周期 1 秒，自动进入下一轮。每段仅对应手指运动，其余目标为零；段间目标平滑衔接，不等待到位或归零确认。实际行程取决于设备跟随能力，目标全行程不代表反馈已到端点。
-
-实机模式持续循环直到 Ctrl+C；反馈异常或发送失败也会退出，并尝试失能后断开。ROS 的 `wave.py` 和手柄 wave 使用相同动作顺序，但每次触发只执行一轮，见 [ROS](ros2.md)。
-
-## 无硬件验证
-
-```bash
-RPHAND_PYTHON=/usr/bin/python3 source setup_python.sh
-/usr/bin/python3 -m unittest discover -s tests -p test_python_sdk.py -v
-cmake -S tests/cmake_consumer -B build/consumer \
-  -DCMAKE_PREFIX_PATH="$PWD/install/cpp"
-cmake --build build/consumer --parallel 2
-./build/consumer/rphand_install_check
-```
-
-C++ 模拟设备测试入口见 [架构](architecture.md)。
+Python 枚举写作 `Backend.SocketCan` / `Backend.GsUsbWinUsb`。
+速率字段允许高级覆盖，正数校验和硬件位时序校验仍有效。Linux 后端不设置系统速率。
+原 `connect(can_name, node_id)` 始终选择 SocketCAN，保持兼容。
+连接选项必须明确选择正确平台后端，不会通过名称猜测 USB 或 CAN。
+平台准备与示例见 [使用指南](getting-started.md)。
