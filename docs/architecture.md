@@ -67,8 +67,20 @@ C++ 应用 / Python 绑定 / ROS 2 适配
 
 旧 `RPHAND_BUILD_SMOKE` 兼容为测试开关别名。Windows 另构建 USB probe。
 Linux 的 `bash build.sh cpp|python|ros|all` 分别安装到 `install/cpp|python|ros`；
-`RPHAND_BUILD_JOBS` 默认 2，`RPHAND_PYTHON` 默认 `/usr/bin/python3`。
-独立 Python 构建需要预装 pybind11，再用 `source setup_python.sh` 设置包路径；
+`RPHAND_BUILD_JOBS` 默认 2；`build.sh` 的 `RPHAND_PYTHON` 默认 `/usr/bin/python3`，
+但 `setup_python.sh` 未设置该变量时使用 PATH 中的 `python3` 检查加载，可能指向不同版本。
+独立 Python 构建需要预装可被 CMake 找到的 pybind11，再用 `source setup_python.sh` 设置包路径。
+构建、加载检查和运行示例应显式使用同一个解释器，例如使用系统 Python：
+
+```bash
+export RPHAND_PYTHON=/usr/bin/python3
+bash build.sh python
+source setup_python.sh
+"$RPHAND_PYTHON" examples/python/read_state.py --interface can0
+```
+
+使用项目虚拟环境时，将 `RPHAND_PYTHON` 改为该环境解释器的绝对路径，并为该环境准备构建依赖。
+`setup_python.sh` 只设置包搜索路径并检查导入，不会切换当前 Python 环境。
 ROS 构建需要 `/opt/ros/jazzy`，详见 [ROS 2](ros2.md)。
 
 ## 测试
