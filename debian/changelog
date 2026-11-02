@@ -1,0 +1,52 @@
+roboparty-dexhand (0.6.0-1) stable; urgency=medium
+
+  * Consolidate the hand SDK and ROS 2 interfaces under the rphand name.
+  * Add a Windows CAN-FD backend and streamline SDK delivery.
+  * Ship the Python SDK, dual-hand wave demos and RP Hand documentation.
+
+ -- RoboParty <2321901849@qq.com>  Mon, 02 Nov 2026 18:28:02 +0800
+
+roboparty-dexhand (0.5.0-1) stable; urgency=medium
+
+  * Build packages natively on Ubuntu 24.04 for amd64 and arm64.
+  * Run tagged-release assembly on Ubuntu 24.04.
+  * Target the system Python 3.12 ABI on Ubuntu 24.04.
+
+ -- RoboParty <2321901849@qq.com>  Thu, 10 Sep 2026 18:47:16 +0800
+
+roboparty-dexhand (0.4.2-1) stable; urgency=medium
+
+  * Confirm homing with fresh position and status feedback instead of treating
+    the vendor command return as proof of completion.
+  * Return as soon as all six axes are stopped, alarm-free, and within 400
+    counts of zero; fail safely on alarm or timeout.
+
+ -- RoboParty <2321901849@qq.com>  Fri, 04 Sep 2026 19:30:00 +0800
+
+roboparty-dexhand (0.4.1-1) stable; urgency=medium
+
+  * Reject init_hand on an initialized driver when arguments differ from
+    the active session instead of silently reporting success.
+
+ -- RoboParty <2321901849@qq.com>  Sat, 30 Aug 2026 12:00:00 +0800
+
+roboparty-dexhand (0.4.0-1) stable; urgency=medium
+
+  * Brand the public API as RP_Hand with legacy LHandPro aliases.
+  * Add the RP_Hand hardware validation guide (VALIDATION.md).
+  * Trim the public tree to release essentials.
+
+ -- RoboParty <2321901849@qq.com>  Fri, 28 Aug 2026 22:18:35 +0800
+
+roboparty-dexhand (0.3.0-1) stable; urgency=medium
+
+  * Add verified LHandPro feedback-period provisioning.
+  * Install the roboparty-dexhand-config CLI for show, apply, and save workflows.
+
+ -- RoboParty <2321901849@qq.com>  Thu, 27 Aug 2026 18:43:10 +0800
+
+roboparty-dexhand (0.2.0-1) stable; urgency=medium
+
+  * Initial standard Debian package release.
+
+ -- RoboParty <2321901849@qq.com>  Mon, 24 Aug 2026 00:00:00 +0800
