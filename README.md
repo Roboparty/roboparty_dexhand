@@ -22,16 +22,24 @@ python examples/python/read_state.py --serial YOUR_SERIAL
 python examples/python/wave_demo.py --serial YOUR_SERIAL
 ```
 
-Linux（先配置 can0 为 1 Mbps / 5 Mbps）：
+Linux（先退出使用 can0 的程序，再配置 CAN FD 为 1 Mbps / 5 Mbps；重新配置会暂时中断该接口通信）：
 
 ```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can0 up
+ip -details link show can0
+
 python examples/python/read_state.py --interface can0
 python examples/python/wave_demo.py --interface can0
 ```
 
+将 `can0` 替换为实际接口名，确认接口已 UP、启用 FD，且 `bitrate` 为 `1000000`、
+`dbitrate` 为 `5000000`。重启或重新插拔后可能需要再次配置，详见[Linux 使用指南](docs/getting-started.md#环境与-can-配置)。
+
 C++ 程序为 `rphand_read_state`、`rphand_wave_demo`，使用相同参数；构建命令见使用指南。
 wave 会使能、回零并连续运动，拇指走全行程，按 Ctrl+C 退出并尝试失能。
-状态读取不使能或回零，但连接会配置反馈并可能恢复遗留急停，不能当作只读 USB 查询。
+状态读取不使能、回零或解除急停，但连接会写入反馈配置，不能当作只读 USB 查询。
 
 ## 文档
 

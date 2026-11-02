@@ -5,7 +5,6 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <deque>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -17,12 +16,6 @@ struct Snapshot {
     std::array<bool, 6> stopped{}, observed_home{}, emergency_stopped{};
     std::array<Clock::time_point, 2> last{};
     std::array<std::uint64_t, 2> sequence{};
-};
-struct FeedbackRate {
-    std::size_t count = 0;
-    long long age_ms = -1;
-    double hz = 0;
-    bool gap_ok = true;
 };
 struct SdoResult {
     int code = 0;
@@ -46,8 +39,8 @@ public:
     void wait_for_status(std::uint64_t sequence, Clock::time_point deadline, const Cancel& cancelled);
     void notify_waiters();
     void track_home(bool enabled);
-    void clear_feedback_samples();
-    std::array<FeedbackRate, 2> feedback_rates() const;
+    bool wait_for_feedback(const std::array<std::uint64_t, 2>& baseline,
+                           Clock::time_point deadline, const Cancel& cancelled);
     SdoResult feedback_period(unsigned index, bool write, const Cancel& cancelled);
     int configure_feedback();
     int recover_stop(int control);
@@ -98,7 +91,6 @@ private:
     Kinematics kinematics_{rphand};
     std::array<FeedbackAxis, 30> feedback_{};
     Snapshot snapshot_;
-    std::array<std::deque<Clock::time_point>, 2> samples_;
     bool track_home_ = false;
     std::atomic<int> node_{1};
     std::atomic<bool> closed_{true}, ready_{false};

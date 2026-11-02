@@ -4,7 +4,7 @@ SDK 支持 C++17、Python 3.9+，产品固定使用 **CAN FD + BRS，仲裁段 1
 默认节点 ID 为 `1`。以下命令均在仓库根目录执行。
 
 先运行状态读取，再运行运动示例；wave 会使能、回零并连续运动，按 Ctrl+C 退出并尝试失能。
-`read_state` 不使能、不回零，但连接会配置反馈，并可能恢复遗留软件急停，不保证保持原有抓握。
+`read_state` 不使能、不回零、不解除急停，但连接会写入反馈周期和反馈内容配置。
 
 ## Windows
 
@@ -48,7 +48,7 @@ python -m venv .venv
 
 需要支持 CAN FD 的适配器及内核驱动、C++17 编译器、CMake 3.20+。
 Python 源码安装还需要对应解释器的开发头文件。
-先退出使用 CAN 的程序，再配置实际接口（以下为 `can0`）：
+先退出使用 CAN 的程序，再配置实际接口（以下为 `can0`）；重新配置会暂时中断该接口通信：
 
 ```bash
 sudo ip link set can0 down
@@ -120,7 +120,10 @@ Windows 的 `--bitrate` / `--data-bitrate` 可高级覆盖，普通产品无需�
 | wave 退出或失能未确认 | 失败发生在哪一步、反馈有效性、故障码和设备实际状态 |
 | Python 找不到包或默认值仍旧 | 用运行解释器执行 `python -m pip show rphand`；修改核心后重新安装 |
 
-排查连接时给 wave 增加 `--connect-only`。正常连接会检查两组反馈约为 50 Hz。
+排查连接时给 wave 增加 `--connect-only`。连接写入 20 ms 反馈周期并确认应答，每轴最多尝试 3 次，
+单次等待 500 ms，超时或发送失败后间隔 50 ms 重试，设备 Abort、接收失败或取消立即结束。
+再以 5 ms 间隔发送反馈内容配置 10 次；两组各收到一帧可解析的反馈即可成功，发送期间收到的反馈也计入，
+发送结束后最多再等 500 ms。不再读取型号、元数据或周期值，也不测量反馈频率。
 Windows 保存日志可在命令末尾加 `2>&1 | Tee-Object connection.log`；使用 `-X utf8` 时先执行
 `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`。
 Linux 可加 `2>&1 | tee connection.log`。

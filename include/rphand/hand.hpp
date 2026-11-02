@@ -15,15 +15,15 @@ public:
     Hand(Hand&&) = delete;
     Hand& operator=(Hand&&) = delete;
 
-    // Each connection stage makes at most 30 attempts, including the first.
-    // A latched emergency stop is recovered while all axes are disabled.
+    // Write feedback periods (up to 3 attempts per axis), send configuration 10 times at 5ms
+    // intervals, then wait up to 500ms for both groups. No motor control.
     bool connect(const std::string& can_name, int node_id);
     bool connect(const ConnectionOptions& options);
     void disconnect();
     bool is_connected() const;
     bool enable();
     bool disable();
-    bool stop(); // Disable and reconnect before starting motion again.
+    bool stop();
     // Best-effort session cleanup: one stop and one disable attempt, no retry loop.
     bool prepare_disconnect();
     bool home();
