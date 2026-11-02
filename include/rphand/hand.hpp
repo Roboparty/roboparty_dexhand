@@ -23,6 +23,8 @@ public:
     bool is_connected() const;
     bool enable();
     bool disable();
+    // id: 0=all axes, 1..6=one axis. Success confirms sending only.
+    bool clear_faults(int id = 0);
     bool stop();
     // Best-effort session cleanup: one stop and one disable attempt, no retry loop.
     bool prepare_disconnect();

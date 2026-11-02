@@ -55,6 +55,7 @@ public:
     int get_now_current(int id, int* value) const;
     int set_move_no_home(int enable);
     int set_enable(int id, int enable);
+    int set_clear_alarm(int id);
     int set_control_mode(int id, int mode);
     int stop_motors(int id);
     int home_motors(int id);

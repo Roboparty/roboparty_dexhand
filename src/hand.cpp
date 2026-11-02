@@ -358,6 +358,14 @@ bool Hand::is_connected() const { return impl_->connected && !impl_->closing; }
 HandState Hand::get_state() const { return impl_->snapshot().state; }
 bool Hand::enable() { return impl_->submit([this](auto token) { return impl_->action(0, token); }); }
 bool Hand::disable() { return impl_->submit([this](auto token) { return impl_->action(1, token); }, true); }
+bool Hand::clear_faults(int id) {
+    if (id < 0 || id > 6) return fail("invalid axis (expected 0..6)");
+    return impl_->submit([this, id](auto token) {
+        return !impl_->cancelled(token) && impl_->command("set_clear_alarm", [&] {
+            return impl_->session.set_clear_alarm(id);
+        });
+    });
+}
 bool Hand::stop() { return impl_->submit([this](auto token) { return impl_->action(2, token); }, true); }
 bool Hand::prepare_disconnect() {
     return impl_->submit([this](auto token) {

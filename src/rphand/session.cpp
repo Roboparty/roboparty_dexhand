@@ -246,6 +246,13 @@ int Session::set_enable(int id, int enable) {
     int rc = control(id, 0, 0); if (rc) return rc;
     interval(); return control(id, 0, enable > 0 ? 1 : 2);
 }
+int Session::set_clear_alarm(int id) {
+    std::lock_guard<std::recursive_mutex> lock(command_mutex_);
+    if (!ready_) return 2;
+    // The device executes control commands only when their value changes.
+    int rc = control(id, 0, 0); if (rc) return rc;
+    interval(); return control(id, 0, 3);
+}
 int Session::set_control_mode(int id, int mode) {
     std::lock_guard<std::recursive_mutex> lock(command_mutex_);
     if (!valid_axis(id) || mode != Position) return 1;
