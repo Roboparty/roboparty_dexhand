@@ -4,7 +4,7 @@ SDK 支持 C++17、Python 3.9+，产品固定使用 **CAN FD + BRS，仲裁段 1
 默认节点 ID 为 `1`。以下命令均在仓库根目录执行。
 
 先运行状态读取，再运行运动示例；wave 会使能、回零并连续运动，按 Ctrl+C 退出并尝试失能。
-`read_state` 不使能、不回零，但连接会配置反馈，并可能恢复遗留软件急停，不保证保持原有抓握。
+`read_state` 不使能、不回零、不解除急停，但连接会写入反馈周期和反馈内容配置。
 
 ## Windows
 
@@ -48,7 +48,7 @@ python -m venv .venv
 
 需要支持 CAN FD 的适配器及内核驱动、C++17 编译器、CMake 3.20+。
 Python 源码安装还需要对应解释器的开发头文件。
-先退出使用 CAN 的程序，再配置实际接口（以下为 `can0`）：
+先退出使用 CAN 的程序，再配置实际接口（以下为 `can0`）；重新配置会暂时中断该接口通信：
 
 ```bash
 sudo ip link set can0 down
@@ -120,8 +120,31 @@ Windows 的 `--bitrate` / `--data-bitrate` 可高级覆盖，普通产品无需�
 | wave 退出或失能未确认 | 失败发生在哪一步、反馈有效性、故障码和设备实际状态 |
 | Python 找不到包或默认值仍旧 | 用运行解释器执行 `python -m pip show rphand`；修改核心后重新安装 |
 
-排查连接时给 wave 增加 `--connect-only`。正常连接会检查两组反馈约为 50 Hz。
+排查连接时给 wave 增加 `--connect-only`。连接写入 20 ms 反馈周期并确认应答，每轴最多尝试 3 次，
+单次等待 500 ms，超时或发送失败后间隔 50 ms 重试，设备 Abort、接收失败或取消立即结束。
+再以 5 ms 间隔发送反馈内容配置 10 次；两组各收到一帧可解析的反馈即可成功，发送期间收到的反馈也计入，
+发送结束后最多再等 500 ms。不再读取型号、元数据或周期值，也不测量反馈频率。
 Windows 保存日志可在命令末尾加 `2>&1 | Tee-Object connection.log`；使用 `-X utf8` 时先执行
 `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`。
 Linux 可加 `2>&1 | tee connection.log`。
 报告问题附操作系统、适配器型号、SDK 版本/提交、完整命令及首次失败日志，可隐藏序列号。
+
+Windows 后端在启动 CAN 前及断开时，先复位 CAN，再排空 USB 残留数据。
+连续 40 ms 没有数据才认为排空完成；达到 500 ms、64 KiB 或 1024 次读取上限仍不安静，
+或发生读取错误时会明确报错，启动阶段不会继续连接。退出阶段即使清理失败也会释放本地资源。
+`discarded ... stale USB bytes while CAN stopped` 表示清理了旧数据。
+
+如果仍出现 `invalid TX echo ID` 或帧截断，可开启原始 USB 日志后运行状态读取：
+
+```powershell
+$env:RPHAND_USB_TRACE = '1'
+try {
+    .\.venv\Scripts\python.exe -X utf8 examples/python/read_state.py --serial YOUR_SERIAL 2>&1 | Tee-Object usb-trace.log
+} finally {
+    Remove-Item Env:RPHAND_USB_TRACE
+}
+```
+
+日志包含 RESET/START 时序、排空丢弃的数据、每次 USB 读取和发送的原始字节。
+日志中的时间为本次打开适配器后的相对时间；`RX` 才是原始读取，解析错误中的 `raw` 是解析器截取的记录。
+正常使用时关闭该日志，避免大量终端输出影响收发时序。

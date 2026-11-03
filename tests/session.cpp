@@ -20,7 +20,7 @@ struct Device {
     Session hand;
     Session::Send callback;
     std::vector<Frame> frames;
-    int node = 7, model = 3, safe = 1, fail_at = -1;
+    int node = 7, safe = 1, fail_at = -1;
     bool silence = false, abort = false;
     std::function<void(Bytes&)> alter_reply;
     Device() {
@@ -31,8 +31,7 @@ struct Device {
                 const unsigned index = data[1] | (unsigned(data[2]) << 8);
                 if (data[0] == 0x2b && index == 0x2017) safe = data[4];
                 if (data[0] == 0x40 && !silence) {
-                    int value = index == 0x200e && data[3] == 0x1d ? model :
-                        index == 0x2017 ? safe : 1;
+                    int value = index == 0x2017 ? safe : 1;
                     Bytes reply{static_cast<unsigned char>(abort ? 0x80 : 0x4b), data[1], data[2], data[3],
                                 static_cast<unsigned char>(value), static_cast<unsigned char>(value >> 8), 0, 0};
                     if (alter_reply) alter_reply(reply);
@@ -91,10 +90,9 @@ static void independent() {
     Device d;
     check(d.hand.initial(2, 7) == 1 && d.frames.empty(), "reject other transports");
     check(d.hand.initial(1, 0) == 1 && d.frames.empty(), "reject node zero");
-    check(d.initial() == 0, "synchronous startup replies do not deadlock");
-    check(d.frames.size() == 10, "model/direction/firmware/six serial/config sequence");
+    check(d.initial() == 0 && d.frames.empty(), "initialization is local and sends no metadata requests or config");
     int v = -1, active = 0;
-    check(d.hand.get_hand_type(&v) == 0 && v == 2, "detected rphand");
+    check(d.hand.get_hand_type(&v) == 0 && v == 2, "fixed rphand type");
     check(d.hand.get_dof(&v, &active) == 0 && v == 11 && active == 6, "six axes");
     check(d.hand.set_target_position(7, 1) == 1, "axis bounds");
     check(d.hand.get_now_position(0, &v) == 1 && d.hand.get_now_current(1, nullptr) == 1, "getter bounds");
@@ -155,30 +153,8 @@ static void independent() {
     });
     while (!done) { d.hand.get_now_position(1, &v); d.hand.set_position_velocity(0, 1234); }
     receiver.get(); check(true, "concurrent feedback and setters");
-    for (int model : {0, 1, 2, 6, 7, 9, 65535}) {
-        Device other; other.model = model;
-        check(other.initial() == 3 && other.frames.size() == 1, "reject unsupported detected model");
-        check(other.hand.set_enable(0, 1) == 2, "failed initialization cannot enable");
-    }
-    for (int model : {3, 4, 5}) { Device valid; valid.model = model; check(valid.initial() == 0, "rphand model codes"); }
     Device no_reply; no_reply.silence = true;
-    check(no_reply.initial() == 7 && no_reply.frames.size() == 1, "model detection required");
-    Device startup;
-    std::promise<void> configuring, resume;
-    auto resume_future = resume.get_future();
-    startup.hand.set_send_callback([&](unsigned id, const unsigned char* p, unsigned n, int flags) {
-        if (id == 0x507 && p[0] == 0) { configuring.set_value(); resume_future.wait(); }
-        return startup.callback(id, p, n, flags);
-    });
-    auto initializing = std::async(std::launch::async, [&] { return startup.initial(); });
-    configuring.get_future().wait();
-    auto closing = std::async(std::launch::async, [&] { startup.hand.close(); });
-    Bytes ack{0x60, 0, 0, 0, 0, 0, 0, 0};
-    const auto deadline = std::chrono::steady_clock::now() + 1s;
-    while (startup.hand.set_canfd_data_decode(0x587, ack.data(), 8) != 2 &&
-           std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
-    resume.set_value(); closing.get();
-    check(initializing.get() == 2 && startup.hand.get_hand_type(&v) == 2, "close during final startup send remains closed");
+    check(no_reply.initial() == 0 && no_reply.frames.empty(), "local initialization needs no device replies");
 }
 
 static void snapshots() {
@@ -229,11 +205,6 @@ static void snapshots() {
     check(d.hand.set_canfd_data_decode(0x488, positions.data(), positions.size()) == 3, "reject other node");
     check(d.hand.set_canfd_data_decode(0x487, positions.data(), 48) == 3, "reject truncated feedback");
     check(d.hand.snapshot().sequence == before, "rejected frames cannot refresh feedback");
-    const auto rates = d.hand.feedback_rates();
-    check(rates[0].count == 2 && rates[1].count == 3, "sample counters follow each group");
-    d.hand.clear_feedback_samples();
-    check(d.hand.feedback_rates()[0].count == 0 && d.hand.snapshot().sequence == before,
-          "frequency measurement reset preserves feedback");
     std::this_thread::sleep_for(110ms);
     d.feedback(positions);
     check(!d.hand.snapshot().state.feedback_valid, "one stale group invalidates fresh position feedback");

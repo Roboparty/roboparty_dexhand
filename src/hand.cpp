@@ -145,88 +145,50 @@ struct Hand::Impl {
         queue_cv.notify_all();
         if (worker.joinable()) worker.join();
     }
-    bool transaction(unsigned index, bool write, std::uint64_t token) {
-        const auto response = session.feedback_period(index, write, [&] { return cancelled(token); });
-        const bool ok = response.code == 0 && !cancelled(token) && !session.receive_failed()
-            && response.received && !response.aborted && (write || response.value == 200);
-        if (!ok) {
-            std::lock_guard<std::mutex> log_lock(log_mutex);
-            std::cerr << "[rphand] SDO " << (write ? "write" : "read") << " index=0x"
-                      << std::hex << index << " response=0x" << response.value << std::dec
-                      << " received=" << response.received << " abort=" << response.aborted << '\n';
-        }
-        return ok;
-    }
-    bool configure_feedback(std::uint64_t token) {
-        // Allow late startup replies to drain before configuring feedback.
-        if (!pause(token, 100ms)) return false;
-        for (unsigned index : {0x201du, 0x205du, 0x209du, 0x20ddu, 0x211du, 0x215du}) {
-            if (!transaction(index, true, token) || !transaction(index, false, token)) return false;
-        }
-        if (session.configure_feedback() != 0) return false;
-        session.clear_feedback_samples();
-        if (!pause(token, 1200ms) || session.receive_failed()) return false;
-        const auto rates = session.feedback_rates();
-        for (int group = 0; group < 2; ++group) {
-            const auto& rate = rates[group];
-            if (rate.count < 40 || rate.age_ms >= 100) {
-                return fail(interface + " node=" + std::to_string(node)
-                    + (group == 0 ? " 0x50" : " 0x5A") + " feedback check failed: samples="
-                    + std::to_string(rate.count) + " age_ms=" + std::to_string(rate.age_ms));
-            }
+    bool write_feedback_period(unsigned index, std::uint64_t token) {
+        for (int attempt = 1; attempt <= 3; ++attempt) {
+            if (cancelled(token) || session.receive_failed()) return false;
+            const auto response = session.feedback_period(index, true, [&] { return cancelled(token); });
+            if (cancelled(token) || session.receive_failed()) return false;
+            if (response.code == 0 && response.received && !response.aborted) return true;
             {
                 std::lock_guard<std::mutex> log_lock(log_mutex);
-                std::cerr << "[rphand] " << interface << " node=" << node
-                          << (group == 0 ? " 0x50=" : " 0x5A=") << rate.hz << " Hz\n";
+                std::cerr << "[rphand] SDO write index=0x"
+                          << std::hex << index << " response=0x" << response.value << std::dec
+                          << " attempt=" << attempt << "/3 code=" << response.code
+                          << " received=" << response.received << " abort=" << response.aborted << '\n';
             }
-            if (rate.hz < 40 || rate.hz > 60 || !rate.gap_ok)
-                return fail("feedback frequency outside 40..60 Hz or gap >=100ms");
+            // Only retry transport send failures and unanswered requests. A late
+            // acknowledgement is valid because every attempt writes the same value.
+            if (response.aborted || (response.code != 6 && !(response.code == 7 && !response.received)))
+                return false;
+            if (attempt < 3 && !pause(token, 50ms)) return false;
         }
-        return true;
+        return false;
     }
-    bool configure_move_no_home(std::uint64_t token) {
-        // The backend API has no getter for this flag; success is SDK-confirmed only.
-        for (int attempt = 1; attempt <= 30 && !cancelled(token) && !session.receive_failed(); ++attempt) {
-            if (command("set_move_no_home(1)", [&] { return session.set_move_no_home(1); })) {
-                return !cancelled(token) && !session.receive_failed();
-            }
-            fail("set_move_no_home(1) attempt=" + std::to_string(attempt));
-            if (attempt < 30 && !session.receive_failed() && !pause(token, 100ms)) break;
+    bool configure_feedback(std::uint64_t token) {
+        for (unsigned index : {0x201du, 0x205du, 0x209du, 0x20ddu, 0x211du, 0x215du}) {
+            if (!write_feedback_period(index, token)) return false;
         }
-        return fail("set_move_no_home(1) failed/cancelled");
+        // Count only feedback received since this configuration began, including
+        // frames arriving while the repeated configuration sends are in progress.
+        const auto baseline = session.snapshot().sequence;
+        for (int attempt = 0; attempt < 10; ++attempt) {
+            if (cancelled(token) || session.receive_failed()) return false;
+            if (!command("configure_feedback", [&] { return session.configure_feedback(); })) return false;
+            if (attempt < 9 && !pause(token, 5ms)) return false;
+        }
+        return session.wait_for_feedback(baseline, Clock::now() + 500ms, [&] { return cancelled(token); })
+            || fail(interface + " node=" + std::to_string(node)
+                    + " waiting for 0x50 and 0x5A feedback failed/cancelled (500ms)");
     }
     bool open_device(std::uint64_t token) {
-        constexpr int retries = 30;
-        bool initialized = false;
-        for (int attempt = 1; attempt <= retries && !cancelled(token); ++attempt) {
-            if (session.open_transport(options)) {
-                int type = -1, total = 0, active = 0;
-                initialized = command("initial", [&] { return session.initial(Session::Canfd, node); })
-                    && check(session.get_hand_type(&type), "get_hand_type")
-                    && check(session.get_dof(&total, &active), "get_dof")
-                    && type == Session::rphand && active == 6 && !session.receive_failed();
-                if (initialized) break;
-                fail("initialization/model check failed: type=" + std::to_string(type) + " active=" + std::to_string(active));
-            }
-            cleanup_attempt();
-            fail("connect initialization attempt=" + std::to_string(attempt));
-            if (attempt < retries) pause(token, 100ms);
-        }
-        if (initialized) {
-            for (int attempt = 1; attempt <= retries && !cancelled(token); ++attempt) {
-                if (configure_feedback(token)) {
-                    if (!configure_move_no_home(token)) break;
-                    if (!recover_stop(token)) break;
-                    connected = true;
-                    if (!cancelled(token)) return true;
-                    connected = false;
-                    break;
-                }
-                fail("connect feedback configuration attempt=" + std::to_string(attempt));
-                // CANopen SDO has no transaction ID. Drain late responses before
-                // retrying the same index; readback and measured rate are required too.
-                if (attempt < retries) pause(token, 500ms);
-            }
+        if (!cancelled(token) && session.open_transport(options)
+            && check(session.initial(Session::Canfd, node), "initial")
+            && check(session.set_move_no_home(1), "set_move_no_home")
+            && configure_feedback(token) && !cancelled(token) && !session.receive_failed()) {
+            connected = true;
+            if (!cancelled(token)) return true;
         }
         cleanup();
         return fail("connect failed/cancelled; local resources released");
@@ -294,48 +256,6 @@ struct Hand::Impl {
             session.wait_for_status(value.sequence[1], deadline, [&] { return cancelled(token); });
         }
         return false;
-    }
-    bool recover_stop(std::uint64_t token) {
-        auto any = [](const auto& values) {
-            return std::any_of(values.begin(), values.end(), [](auto value) { return bool(value); });
-        };
-        auto value = snapshot(true);
-        if (cancelled(token) || !healthy(value)) return false;
-        if (!any(value.emergency_stopped)) return true;
-
-        // Releasing a latched stop must not resume an enabled axis or old target.
-        bool disabled = !any(value.state.enabled) && all(value.stopped);
-        for (int attempt = 1; !disabled && attempt <= 30 && !cancelled(token); ++attempt) {
-            value = snapshot(true);
-            if (!healthy(value)) return false;
-            const auto baseline = value.sequence[1];
-            const bool sent = command("disable before stop recovery", [&] { return session.set_enable(0, 0); });
-            disabled = sent && confirm(token, baseline, [&](const Snapshot& s) {
-                return !any(s.state.enabled) && all(s.stopped);
-            }, true);
-        }
-        if (!disabled) return fail("connect: disable before stop recovery not confirmed/cancelled");
-
-        // Recovery requires an idle edge before revoking emergency stop.
-        for (int attempt = 1; attempt <= 30 && !cancelled(token); ++attempt) {
-            value = snapshot(true);
-            if (!healthy(value) || any(value.state.enabled) || !all(value.stopped))
-                return fail("connect: stop recovery requires disabled, stationary axes");
-            const bool idle_sent = session.recover_stop(0) == 0;
-            if (!pause(token, 20ms)) return false;
-            value = snapshot(true);
-            if (!healthy(value) || any(value.state.enabled) || !all(value.stopped)) return false;
-            const auto baseline = value.sequence[1];
-            const bool sent = idle_sent && !cancelled(token)
-                && session.recover_stop(8) == 0;
-            if (sent && confirm(token, baseline, [&](const Snapshot& s) {
-                return !any(s.emergency_stopped) && !any(s.state.enabled)
-                    && all(s.stopped) && !any(s.state.fault_codes);
-            }, true)) return true;
-            fail(interface + " node=" + std::to_string(node)
-                + " stop recovery attempt=" + std::to_string(attempt));
-        }
-        return fail("connect: stop recovery not confirmed/cancelled");
     }
     // mode: 0=enable, 1=disable, 2=stop.
     bool action(int mode, std::uint64_t token, int attempts = 30) {
@@ -438,6 +358,14 @@ bool Hand::is_connected() const { return impl_->connected && !impl_->closing; }
 HandState Hand::get_state() const { return impl_->snapshot().state; }
 bool Hand::enable() { return impl_->submit([this](auto token) { return impl_->action(0, token); }); }
 bool Hand::disable() { return impl_->submit([this](auto token) { return impl_->action(1, token); }, true); }
+bool Hand::clear_faults(int id) {
+    if (id < 0 || id > 6) return fail("invalid axis (expected 0..6)");
+    return impl_->submit([this, id](auto token) {
+        return !impl_->cancelled(token) && impl_->command("set_clear_alarm", [&] {
+            return impl_->session.set_clear_alarm(id);
+        });
+    });
+}
 bool Hand::stop() { return impl_->submit([this](auto token) { return impl_->action(2, token); }, true); }
 bool Hand::prepare_disconnect() {
     return impl_->submit([this](auto token) {

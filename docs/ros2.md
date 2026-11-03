@@ -22,7 +22,8 @@ ros2 launch rphand_ros dual_hand.launch.py
 | 左 | `/dexhand_left/rphand_node` | can0 | 1 |
 | 右 | `/dexhand_right/rphand_node` | can3 | 1 |
 
-启动时不连接设备，也不使能或回零，仅发布无有效反馈的状态并等待 reset。CAN 接口需要由系统预先配置为 UP 和 CAN FD 模式。
+启动时不连接设备，也不使能或回零，仅发布无有效反馈的状态并等待 reset。CAN 接口需要由系统预先配置为 UP 和 CAN FD 模式，仲裁段 1 Mbps、数据段 5 Mbps。
+配置命令见 [Linux 使用指南](getting-started.md#环境与-can-配置)；双手默认使用的 `can0`、`can3` 需要分别配置。
 
 ```bash
 # 只启动左手，指定接口和目标发送频率

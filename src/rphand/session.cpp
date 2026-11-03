@@ -19,7 +19,7 @@ bool Session::open_transport(const ConnectionOptions& options) {
     rx_failed_ = false;
     {
         std::lock_guard<std::mutex> lock(receive_mutex_);
-        feedback_ = {}; snapshot_ = {}; samples_ = {}; track_home_ = false;
+        feedback_ = {}; snapshot_ = {}; track_home_ = false;
     }
     transport_ = detail::make_transport(options.backend);
     if (!transport_ || !transport_->open(options)) return false;
@@ -74,24 +74,16 @@ void Session::track_home(bool enabled) {
     if (enabled) snapshot_.observed_home.fill(false);
     track_home_ = enabled;
 }
-void Session::clear_feedback_samples() {
-    std::lock_guard<std::mutex> lock(receive_mutex_);
-    for (auto& samples : samples_) samples.clear();
-}
-std::array<FeedbackRate, 2> Session::feedback_rates() const {
-    std::lock_guard<std::mutex> lock(receive_mutex_);
-    std::array<FeedbackRate, 2> rates{};
-    for (int group = 0; group < 2; ++group) {
-        const auto& times = samples_[group];
-        auto& rate = rates[group];
-        rate.count = times.size();
-        if (times.empty()) continue;
-        rate.age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - times.back()).count();
-        if (times.size() > 1)
-            rate.hz = (times.size() - 1) / std::chrono::duration<double>(times.back() - times.front()).count();
-        for (std::size_t i = 1; i < times.size(); ++i) rate.gap_ok &= times[i] - times[i-1] < 100ms;
-    }
-    return rates;
+bool Session::wait_for_feedback(const std::array<std::uint64_t, 2>& baseline,
+                                Clock::time_point deadline, const Cancel& cancelled) {
+    std::unique_lock<std::mutex> lock(receive_mutex_);
+    const auto complete = [&] {
+        return snapshot_.sequence[0] > baseline[0] && snapshot_.sequence[1] > baseline[1];
+    };
+    received_.wait_until(lock, deadline, [&] {
+        return complete() || closed_ || rx_failed_ || cancelled();
+    });
+    return complete() && !closed_ && !rx_failed_ && !cancelled();
 }
 SdoResult Session::feedback_period(unsigned index, bool write, const Cancel& cancelled) {
     return transact_sdo(index, 0x14, write, write ? 200 : 0, 500, cancelled, true);
@@ -163,29 +155,13 @@ int Session::initial(int mode, int node) {
     node_ = node;
     {
         std::lock_guard<std::mutex> lock(receive_mutex_);
-        feedback_ = {}; snapshot_ = {}; samples_ = {}; track_home_ = false;
-        closed_ = false; ready_ = false;
+        feedback_ = {}; snapshot_ = {}; track_home_ = false;
+        closed_ = false; ready_ = true;
     }
     state_ = CommandState{}; state_.axes.resize(6);
     for (auto& a : state_.axes) { a.home_function = 1; a.velocity = 20000; a.current = 400; }
     velocity_dirty_ = current_dirty_ = true; restore_pending_ = allow_no_home_ = false;
-    int model = 0;
-    int rc = read_sdo(0x200e, 0x1d, &model, 50);
-    if (!rc && (model < 3 || model > 5)) rc = 3;
-    if (rc) { closed_ = true; return rc; }
-    // These metadata reads preserve the device startup sequence; only model detection is required.
-    int metadata = 0;
-    read_sdo(0x2030, 5, &metadata, 50);
-    send(0x600, sdo_payload(SdoCommand::Read, 0x200e, 0x1e, 0));
-    for (unsigned i = 0; i < 6 && !closed_; ++i) read_sdo(0x2030 + 0x40*i, 6, &metadata);
-    rc = emit(Command::Config);
-    {
-        std::lock_guard<std::mutex> lock(receive_mutex_);
-        if (closed_) rc = 2;
-        ready_ = rc == 0;
-        if (rc) closed_ = true;
-    }
-    return rc;
+    return 0;
 }
 int Session::get_hand_type(int* value) const {
     if (!value) return 1;
@@ -240,8 +216,6 @@ int Session::set_canfd_data_decode(unsigned id, const unsigned char* data, int s
     const auto now = Clock::now();
     snapshot_.last[group] = now;
     ++snapshot_.sequence[group];
-    samples_[group].push_back(now);
-    if (samples_[group].size() > 256) samples_[group].pop_front();
     received_.notify_all();
     return 0;
 }
@@ -271,6 +245,13 @@ int Session::set_enable(int id, int enable) {
     if (!ready_) return 2;
     int rc = control(id, 0, 0); if (rc) return rc;
     interval(); return control(id, 0, enable > 0 ? 1 : 2);
+}
+int Session::set_clear_alarm(int id) {
+    std::lock_guard<std::recursive_mutex> lock(command_mutex_);
+    if (!ready_) return 2;
+    // The device executes control commands only when their value changes.
+    int rc = control(id, 0, 0); if (rc) return rc;
+    interval(); return control(id, 0, 3);
 }
 int Session::set_control_mode(int id, int mode) {
     std::lock_guard<std::recursive_mutex> lock(command_mutex_);

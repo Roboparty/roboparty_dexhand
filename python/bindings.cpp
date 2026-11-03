@@ -96,6 +96,12 @@ PYBIND11_MODULE(_core, m) {
         py::gil_scoped_release release;
         return self.hand->set_position(id, position);
     }, py::arg("id"), py::arg("position"));
+    hand.def("clear_faults", [](PythonHand& self, py::object axis) {
+        const int id = integer(axis);
+        py::gil_scoped_release release;
+        return self.hand->clear_faults(id);
+    }, py::arg("id") = 0,
+       "Send alarm clear commands (0: all axes, 1..6: one axis); does not confirm fault recovery.");
     hand.def("set_speed", [](PythonHand& self, py::object value) {
         const int speed = integer(value);
         py::gil_scoped_release release;
