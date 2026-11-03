@@ -15,7 +15,7 @@ endif()
 # One suite per responsibility; none of these tests requires attached hardware.
 # Keep tests beside the SDK DLL for Windows shared-library builds as well.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}")
-foreach(test IN ITEMS transport session)
+foreach(test IN ITEMS transport session usb_drain)
     add_executable(rphand_${test} ${test}.cpp)
     target_include_directories(rphand_${test} PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_link_libraries(rphand_${test} PRIVATE rphand::rphand Threads::Threads)

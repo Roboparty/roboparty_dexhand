@@ -1,5 +1,6 @@
 #include "gs_usb_winusb.hpp"
 #include "gs_usb_protocol.hpp"
+#include "gs_usb_drain.hpp"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -93,6 +94,25 @@ struct GsUsbWinUsb::Impl {
     bool failed = false;
     unsigned status_messages = 0;
     bool send_failure_reported = false;
+    bool trace = false;
+    std::chrono::steady_clock::time_point trace_start = std::chrono::steady_clock::now();
+
+    void trace_io(const char* phase, const unsigned char* bytes = nullptr,
+                  unsigned size = 0, DWORD error = 0) const {
+        if (!trace) return;
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - trace_start).count();
+        std::ostringstream line;
+        line << "[rphand] USB trace +" << elapsed << "us " << phase
+             << " bytes=" << size << " error=" << error;
+        if (bytes) {
+            line << " raw=" << std::hex << std::setfill('0');
+            for (unsigned i = 0; i < size; ++i) line << std::setw(2) << unsigned(bytes[i]);
+        }
+        static std::mutex trace_mutex;
+        std::lock_guard<std::mutex> lock(trace_mutex);
+        std::cerr << line.str() << '\n';
+    }
 
     ~Impl() { close(); }
     bool control(bool read, UCHAR request, void* data, USHORT size) {
@@ -107,12 +127,45 @@ struct GsUsbWinUsb::Impl {
             return failure("control transfer");
         return actual == size || reject("short control transfer");
     }
+    bool reset_and_drain() {
+        trace_io("RESET begin");
+        std::array<unsigned char, 8> reset{};
+        if (!control(false, 2, reset.data(), static_cast<USHORT>(reset.size()))) {
+            trace_io("RESET failed");
+            return false;
+        }
+        started = false;
+        trace_io("RESET complete");
+        // Flush only clears WinUSB's host cache. Read the stopped device's
+        // endpoint as well: it may still contain the tail of an old FD record.
+        if (!WinUsb_FlushPipe(usb, input)) return failure("flush receive cache");
+        std::array<unsigned char, gs::ReceiveBuffer::max_chunk> packet{};
+        const auto result = gs::drain_stopped_rx([&](unsigned& bytes) {
+            ULONG received = 0;
+            if (!WinUsb_ReadPipe(usb, input, packet.data(), input_packet_size, &received, nullptr)) {
+                const auto error = GetLastError();
+                trace_io("drain read", nullptr, 0, error);
+                if (error == ERROR_SEM_TIMEOUT) return gs::DrainRead::Timeout;
+                std::cerr << "[rphand] WinUSB drain read failed, Windows error=" << error << '\n';
+                return gs::DrainRead::Failure;
+            }
+            bytes = received;
+            trace_io("drain discard", packet.data(), received);
+            return gs::DrainRead::Data;
+        }, [] { return std::chrono::steady_clock::now(); });
+        receive_buffer = {};
+        if (result.status == gs::DrainStatus::ReadFailure) return false;
+        if (result.status != gs::DrainStatus::Quiet)
+            return reject("stopped USB RX did not become quiet (500 ms / 64 KiB / 1024 reads limit)");
+        if (result.bytes)
+            std::cerr << "[rphand] gs_usb: discarded " << result.bytes << " stale USB bytes while CAN stopped\n";
+        trace_io("drain complete");
+        return true;
+    }
     void close() {
         if (usb) {
-            if (started) {
-                std::array<unsigned char, 8> reset{};
-                control(false, 2, reset.data(), static_cast<USHORT>(reset.size()));
-            }
+            if (started && !reset_and_drain())
+                reject("shutdown USB cleanup failed; device reset/drain was not confirmed");
             WinUsb_Free(usb); usb = nullptr;
         }
         if (file != INVALID_HANDLE_VALUE) { CloseHandle(file); file = INVALID_HANDLE_VALUE; }
@@ -193,6 +246,10 @@ bool GsUsbWinUsb::open(const ConnectionOptions& options) {
     if (options.channel != 0 || options.bitrate <= 0 || options.data_bitrate <= 0 ||
         options.node_id < 1 || options.node_id > 127) return reject("invalid connection options");
     auto& d = *impl_;
+    char trace_value[2]{};
+    d.trace = GetEnvironmentVariableA("RPHAND_USB_TRACE", trace_value, sizeof(trace_value)) == 1
+        && trace_value[0] == '1';
+    d.trace_start = std::chrono::steady_clock::now();
     auto initialize = [&] {
         if (!d.access(options.serial)) return false;
         std::array<unsigned char, 20> nominal{}, data{};
@@ -216,17 +273,16 @@ bool GsUsbWinUsb::open(const ConnectionOptions& options) {
         std::array<unsigned char, 4> format{};
         gs::put32(format.data(), 0x0000beef);
         std::array<unsigned char, 8> mode{};
-        if (!d.control(false, 0, format.data(), 4) || !d.control(false, 2, mode.data(), 8))
+        if (!d.control(false, 0, format.data(), 4) || !d.reset_and_drain())
             return false;
-        // Discard host-side leftovers only while CAN is stopped, before START.
-        if (!WinUsb_FlushPipe(d.usb, d.input)) return failure("flush receive cache");
-        d.receive_buffer = {};
         if (!d.control(false, 1, nominal.data(), 20) || !d.control(false, 10, data.data(), 20)) return false;
         gs::put32(mode.data(), 1);
         gs::put32(mode.data()+4, gs::fd_feature);
         // Attempt a reset on cleanup even if the START request times out.
         d.started = true;
+        d.trace_io("START begin");
         if (!d.control(false, 2, mode.data(), 8)) return false;
+        d.trace_io("START complete");
         d.node = options.node_id;
         {
             std::lock_guard<std::mutex> lock(d.mutex);
@@ -267,6 +323,7 @@ bool GsUsbWinUsb::send(unsigned id, const unsigned char* data, unsigned size, in
         ++errors_; failure("write"); return d.broken();
     }
     if (sent != packet.size()) { ++errors_; reject("short USB write"); return d.broken(); }
+    d.trace_io("TX", packet.data(), sent);
     return true; // CAN completion arrives as an echo, never as device feedback.
 }
 int GsUsbWinUsb::receive(CanFrame& frame) {
@@ -279,9 +336,13 @@ int GsUsbWinUsb::receive(CanFrame& frame) {
         std::array<unsigned char, gs::ReceiveBuffer::max_chunk> packet{};
         ULONG received = 0;
         if (!WinUsb_ReadPipe(d.usb, d.input, packet.data(), d.input_packet_size, &received, nullptr)) {
-            if (GetLastError() == ERROR_SEM_TIMEOUT) return 0;
+            const auto error = GetLastError();
+            d.trace_io("RX read", nullptr, 0, error);
+            if (error == ERROR_SEM_TIMEOUT) return 0;
+            SetLastError(error);
             failure("read"); d.broken(); return -1;
         }
+        d.trace_io("RX", packet.data(), received);
         if (!d.receive_buffer.append(packet.data(), received, received < d.input_packet_size)) {
             reject("USB receive assembly capacity exceeded"); d.broken(); return -1;
         }

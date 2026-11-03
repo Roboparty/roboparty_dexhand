@@ -128,3 +128,23 @@ Windows 保存日志可在命令末尾加 `2>&1 | Tee-Object connection.log`；�
 `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`。
 Linux 可加 `2>&1 | tee connection.log`。
 报告问题附操作系统、适配器型号、SDK 版本/提交、完整命令及首次失败日志，可隐藏序列号。
+
+Windows 后端在启动 CAN 前及断开时，先复位 CAN，再排空 USB 残留数据。
+连续 40 ms 没有数据才认为排空完成；达到 500 ms、64 KiB 或 1024 次读取上限仍不安静，
+或发生读取错误时会明确报错，启动阶段不会继续连接。退出阶段即使清理失败也会释放本地资源。
+`discarded ... stale USB bytes while CAN stopped` 表示清理了旧数据。
+
+如果仍出现 `invalid TX echo ID` 或帧截断，可开启原始 USB 日志后运行状态读取：
+
+```powershell
+$env:RPHAND_USB_TRACE = '1'
+try {
+    .\.venv\Scripts\python.exe -X utf8 examples/python/read_state.py --serial YOUR_SERIAL 2>&1 | Tee-Object usb-trace.log
+} finally {
+    Remove-Item Env:RPHAND_USB_TRACE
+}
+```
+
+日志包含 RESET/START 时序、排空丢弃的数据、每次 USB 读取和发送的原始字节。
+日志中的时间为本次打开适配器后的相对时间；`RX` 才是原始读取，解析错误中的 `raw` 是解析器截取的记录。
+正常使用时关闭该日志，避免大量终端输出影响收发时序。
