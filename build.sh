@@ -32,12 +32,13 @@ if [[ "$rphand_mode" == python || "$rphand_mode" == all ]]; then
         'import rphand; print("Python SDK ready:", rphand.__file__)'
 fi
 if [[ "$rphand_mode" == ros || "$rphand_mode" == all ]]; then
-    if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
-        printf 'ROS 2 Jazzy is required at /opt/ros/jazzy. Use cpp or python for standalone builds.\n' >&2
+    rphand_ros_setup="${ROS_SETUP:-/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash}"
+    if [[ ! -f "$rphand_ros_setup" ]]; then
+        printf 'ROS 2 environment not found: %s (set ROS_SETUP or ROS_DISTRO). Use cpp or python for standalone builds.\n' "$rphand_ros_setup" >&2
         exit 1
     fi
     set +u
-    source /opt/ros/jazzy/setup.bash
+    source "$rphand_ros_setup"
     set -u
     cd "$rphand_root"
     CMAKE_BUILD_PARALLEL_LEVEL="$rphand_jobs" colcon --log-base build/ros-log build \
