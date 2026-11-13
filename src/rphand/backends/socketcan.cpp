@@ -16,6 +16,7 @@ SocketCan::~SocketCan() { close(); }
 void SocketCan::close() {
     if (fd_ >= 0) ::close(fd_);
     fd_ = -1;
+    interface_lock_.close();
 }
 bool SocketCan::open(const ConnectionOptions& options) {
     const auto& name = options.interface;
@@ -26,8 +27,16 @@ bool SocketCan::open(const ConnectionOptions& options) {
         std::cerr << "[rphand] CAN interface not found: " << name << '\n';
         return false;
     }
+    if (!interface_lock_.open(name)) {
+        std::cerr << "[rphand] CAN interface lock unavailable (OTA may be active): "
+                  << name << ": " << std::strerror(errno) << '\n';
+        return false;
+    }
     fd_ = socket(PF_CAN, SOCK_RAW | SOCK_CLOEXEC, CAN_RAW);
-    if (fd_ < 0) return false;
+    if (fd_ < 0) {
+        close();
+        return false;
+    }
     ifreq info{};
     std::strncpy(info.ifr_name, name.c_str(), IFNAMSIZ - 1);
     int fd_enabled = 1;

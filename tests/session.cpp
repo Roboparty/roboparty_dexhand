@@ -67,7 +67,7 @@ static void protocol_frames() {
     using rphand::Command;
     using rphand::SdoCommand;
     check(rphand::command_payload(Command::Config, state, 2) ==
-        Bytes{0, 4, 0x50, 1, 0x5a, 1}, "CAN FD feedback configuration bytes");
+        Bytes{0, 4, 0x50, 20, 0x5a, 20}, "CAN FD feedback configuration bytes");
     check(rphand::command_payload(Command::Control, state, 2) ==
         Bytes{1, 6, 0x20, 1, 0x20, 1, 0x20, 1, 0x20, 1, 0x20, 1, 0x20, 1}, "six-axis control bytes");
     check(rphand::command_payload(Command::Move, state, 2) ==

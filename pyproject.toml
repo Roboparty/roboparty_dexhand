@@ -25,6 +25,8 @@ sdist.include = [
     "/python/bindings.cpp", "/python/rphand/*.py", "/python/rphand/*.pyi", "/python/rphand/py.typed",
     "/examples/cpp/*.cpp", "/examples/cpp/*.hpp", "/examples/python/*.py", "/examples/wave_demo.py",
     "/tests/CMakeLists.txt", "/tests/*.cpp", "/tests/*.py", "/docs/*.md",
+    "/firmware/DH116SL-CANFD-APP-H6E001-V1.22.upd",
+    "/firmware/DH116SR-CANFD-APP-H6E001-V1.22.upd",
     "/ros2/rphand_ros/CMakeLists.txt", "/ros2/rphand_ros/package.xml",
     "/ros2/rphand_ros/src/*.cpp", "/ros2/rphand_ros/scripts/*.py",
     "/ros2/rphand_ros/launch/*.py", "/ros2/rphand_ros/config/*.yaml", "/ros2/rphand_ros/msg/*.msg",

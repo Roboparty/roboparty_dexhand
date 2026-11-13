@@ -33,7 +33,7 @@ Bytes command_payload(Command command, const CommandState& s, std::uint8_t frame
     if (s.axes.size() > 30) throw std::invalid_argument("more than 30 axes");
     Bytes out;
     if (command == Command::Config) {
-        out = {0, 4, 0x50, 1, 0x5a, 1};
+        out = {0, 4, 0x50, 20, 0x5a, 20};
     } else {
         auto kind = command == Command::Control ? 1 : frame;
         out = {static_cast<std::uint8_t>(kind), static_cast<std::uint8_t>(s.axes.size())};

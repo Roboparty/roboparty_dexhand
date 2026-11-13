@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../transport.hpp"
+#include "interface_lock.hpp"
 #include <string>
 
 namespace rphand::detail {
@@ -14,5 +15,6 @@ public:
     int receive(CanFrame& frame) override;
 private:
     int fd_ = -1;
+    InterfaceLock interface_lock_;
 };
 }  // namespace rphand::detail

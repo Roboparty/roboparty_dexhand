@@ -47,6 +47,14 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME rphand_examples COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/test_python.py --examples $<TARGET_FILE:rphand_example_driver>)
     set_tests_properties(rphand_examples PROPERTIES TIMEOUT 30)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME rphand_ota COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_ota.py --lock-helper $<TARGET_FILE:rphand_transport>)
+        set_tests_properties(rphand_ota PROPERTIES TIMEOUT 30)
+        add_test(NAME rphand_feedback COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_feedback.py)
+        set_tests_properties(rphand_feedback PROPERTIES TIMEOUT 20)
+    endif()
 else()
     message(STATUS "Python3 not found: skipping cross-language example tests")
 endif()

@@ -244,7 +244,7 @@ def check_sdist(output):
         os.chdir(root)
         name = build_sdist(str(output))
         files = contents(output / name)
-        allowed_roots = {'cmake', 'include', 'src', 'python', 'examples', 'tests', 'docs', 'ros2'}
+        allowed_roots = {'cmake', 'include', 'src', 'python', 'examples', 'tests', 'docs', 'ros2', 'firmware'}
         for relative in files:
             parts = Path(relative).parts
             assert len(parts) == 1 or parts[0] in allowed_roots, relative
@@ -254,13 +254,18 @@ def check_sdist(output):
                     'src/rphand/backends/gs_usb_winusb.cpp', 'src/rphand/backends/socketcan.cpp',
                     'python/rphand/py.typed', 'examples/cpp/usb_probe.cpp',
                     'cmake/rphandConfig.cmake.in', 'tests/CMakeLists.txt',
-                    'ros2/rphand_ros/package.xml', 'docs/getting-started.md'}
+                    'ros2/rphand_ros/package.xml', 'docs/getting-started.md',
+                    'examples/python/ota.py', 'tests/test_ota.py', 'docs/ota.md',
+                    'src/rphand/backends/interface_lock.hpp',
+                    'firmware/DH116SL-CANFD-APP-H6E001-V1.22.upd',
+                    'firmware/DH116SR-CANFD-APP-H6E001-V1.22.upd'}
         assert required <= files.keys(), required - files.keys()
         junk = ('-', 'scratch.txt', 'local_script.py', '.env', '.python-version',
                 'build/generated.cpp', 'dist/old.whl', 'install/include/rphand/local.hpp',
                 '.venv/secret.txt', 'src/hand.obj', 'src/rphand/cache.log',
                 'python/rphand/_core.pyd', 'python/rphand/__pycache__/cache.pyc',
-                'docs/draft.txt', 'examples/python/output.log', 'build/CMakeLists.txt',
+                'docs/draft.txt', 'examples/python/output.log', 'logs/ota/run.jsonl',
+                'firmware/unverified.upd', 'build/CMakeLists.txt',
                 'build/pyproject.toml', '.venv/LICENSE', 'scratch/README.md')
         assert not set(junk) & files.keys(), set(junk) & files.keys()
         with tempfile.TemporaryDirectory(prefix='rphand-sdist-') as temp:

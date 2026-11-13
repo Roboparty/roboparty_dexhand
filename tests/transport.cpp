@@ -5,6 +5,9 @@
 #include "rphand/backends/gs_usb_protocol.hpp"
 #include <stdexcept>
 #include <vector>
+#ifndef _WIN32
+#include "rphand/backends/interface_lock.hpp"
+#endif
 
 static_assert(std::is_same_v<decltype(static_cast<bool (rphand::Hand::*)(const std::string&, int)>(&rphand::Hand::connect)),
     bool (rphand::Hand::*)(const std::string&, int)>);
@@ -141,7 +144,20 @@ void receive_stream_checks() {
     check(buffer.next(frame, echo, &reason) == gs::Kind::Failure && std::string(reason) == "invalid TX echo ID",
           "genuinely invalid echo still fails without scanning for another header");
 }
-int main() {
+int main(int argc, char** argv) {
+#ifndef _WIN32
+    // Hardware-free helper for the Python/C++ cross-process maintenance tests.
+    if (argc == 3 && std::string(argv[1]) == "--hold-interface-lock") {
+        rphand::detail::InterfaceLock lock;
+        if (!lock.open(argv[2])) return 1;
+        std::cout << "LOCKED" << std::endl;
+        std::cin.get();
+        return 0;
+    }
+#else
+    (void)argc;
+    (void)argv;
+#endif
     if (public_api_checks() != 0) return 1;
     try {
         receive_stream_checks();
