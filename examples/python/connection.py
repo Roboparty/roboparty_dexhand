@@ -5,6 +5,7 @@
 # Copyright (C) 2026 Guangxin YANG
 
 """Command-line connection options shared by the Python examples, not the SDK."""
+import shutil
 import argparse
 import sys
 

@@ -8,6 +8,7 @@
 import contextlib
 import importlib.util
 import io
+import shutil
 from pathlib import Path
 import subprocess
 import sys
