@@ -57,15 +57,15 @@ jobs:
 
       - name: Build ROS 2 package
         run: |
-          source /opt/ros/jazzy/setup.bash
+          . /opt/ros/jazzy/setup.bash
           colcon build --base-paths ros2 \
             --build-base build/ros --install-base install/ros \
             --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 
       - name: ROS 2 lifecycle test
         run: |
-          source /opt/ros/jazzy/setup.bash
-          source install/ros/setup.bash
+          . /opt/ros/jazzy/setup.bash
+          . install/ros/setup.bash
           ROS_DOMAIN_ID=187 ROS_LOCALHOST_ONLY=1 \
             python3 tests/ros_lifecycle.py \
             "$(ros2 pkg prefix rphand_ros)/lib/rphand_ros/rphand_node"
