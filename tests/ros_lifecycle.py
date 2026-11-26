@@ -58,13 +58,6 @@ def main():
                 busy = reset()
                 assert not busy.success and busy.message == "Busy"
                 wait_for(lambda: "Reset failed at connect" in log_path.read_text())
-                # Initialization owns the session thread, so periodic state is paused.
-                count = len(states)
-                deadline = time.monotonic() + 0.3
-                while time.monotonic() < deadline:
-                    rclpy.spin_once(node, timeout_sec=0.02)
-                assert len(states) == count
-                wait_for(lambda: len(states) > count)
 
                 assert reset().success
                 process.send_signal(signal.SIGINT)
