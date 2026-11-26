@@ -41,6 +41,9 @@ jobs:
   ros2-jazzy:
     runs-on: ubuntu-24.04
     container: ros:jazzy
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
