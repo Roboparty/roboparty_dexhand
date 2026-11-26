@@ -43,7 +43,9 @@ C++ 应用 / Python 绑定 / ROS 2 适配
   不自动重复连接。运行时仍按 100 ms 判断反馈新鲜度，连接成功不保证后续反馈持续有效。
 - 位置组 `0x50` 与状态组 `0x5A` 独立更新；位置帧内部状态不覆盖公共状态组。
   命令参数按脏标记补发，回零后的首次运动先恢复控制状态和参数。
-- Linux 要求接口已 UP 且支持 CAN FD；同一进程禁止重复占用同一接口/节点，不提供跨进程独占。
+- Linux 要求接口已 UP 且支持 CAN FD；同一进程禁止重复占用同一接口/节点。
+  普通会话持有接口共享文件锁，OTA 维护持有同名独占锁，以阻止 SDK 与升级并行；
+  普通 SDK 会话之间不提供跨进程节点独占，其他工具也必须主动遵守锁约定。
 - Windows 按序列号独占整个适配器，当前仅支持 A8FA:8598 单通道。精确计算位时序，
   采样点接近 80%；不提供自定义 SJW、终端电阻配置或自动 bus-off 恢复。
 - USB 接收等待 20 ms，发送和发送槽等待各 100 ms，控制请求 1 s；跨读取缓存拆帧，
@@ -93,19 +95,22 @@ python -m unittest discover -s tests -p test_python.py -v
 ```
 
 Python 绑定测试针对已安装的包，修改核心后先重新安装。示例测试需要 Python 解释器，
-缺少时 CMake 会提示跳过。测试目录只保留以下 7 个文件：
+缺少时 CMake 会提示跳过。主要测试文件及职责：
 
 | 文件 | 职责 |
 | --- | --- |
 | `CMakeLists.txt` | 回归测试构建；单独配置时验证安装后的 SDK |
 | `transport.cpp` | 公共连接校验、离线行为、失败释放及 USB 帧/位时序 |
+| `usb_drain.cpp` | USB 接收队列清理与超时 |
+| `test_ota.py` | Linux OTA 检测、节点寻址、模拟传输、失败路径及与 C++ 的接口锁互斥 |
 | `session.cpp` | 协议、模拟设备、命令缓存、状态与 SDO 事务 |
 | `hand_cleanup.cpp` | 模拟传输下的真实 Hand 清理和重试 |
 | `example_driver.cpp` | 用假 Hand 运行实际 C++ 示例，提供轨迹和参数检查 |
 | `test_python.py` | Python 绑定及跨语言示例检查，共用一个入口 |
 | `ros_lifecycle.py` | 有 ROS 环境时单独运行的节点生命周期检查 |
 
-CTest 运行 transport、session、hand_cleanup、examples 四组；Python unittest 运行绑定测试。
+CTest 运行 transport、session、usb_drain、hand_cleanup、examples；Linux 另运行 OTA 测试，
+包含 C++ 与 Python 的跨进程接口锁验证。Python unittest 的 `test_python.py` 运行绑定测试。
 不重复验证底层重试日志文本。跨语言轨迹允许半整数舍入处最多 1 个行程当量误差。
 两个 C++ 模拟入口分别替换传输层和 Hand 层，保持分开以免混用真实与模拟设备实现。
 
