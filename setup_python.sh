@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 # Source this file in Bash to use the locally built SDK with system Python.
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     printf 'Use: source %s\n' "$0" >&2

@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 cmake_minimum_required(VERSION 3.16)
 
 # Configured directly, this directory verifies the installed SDK by compiling

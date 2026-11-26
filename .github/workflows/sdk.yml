@@ -6,12 +6,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2022]
+        python-version: ['3.9', '3.10', '3.11', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
+      - name: Version consistency check
+        run: python scripts/check_versions.py
       - name: Configure C++
         run: cmake -S . -B build/check -DRPHAND_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
       - name: Build C++
@@ -34,3 +37,33 @@ jobs:
         run: python -m pip install --no-build-isolation --no-index --no-binary=rphand --find-links=dist rphand
       - name: Test Python without hardware
         run: python -m unittest discover -s tests -p test_python.py -v
+
+  ros2-jazzy:
+    runs-on: ubuntu-24.04
+    container: ros:jazzy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ROS build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions python3-rosdep
+
+      - name: Install ROS dependencies
+        run: |
+          rosdep update
+          rosdep install --from-paths ros2 --ignore-src -y
+
+      - name: Build ROS 2 package
+        run: |
+          colcon build --base-paths ros2 \
+            --build-base build/ros --install-base install/ros \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
+      - name: ROS 2 lifecycle test
+        run: |
+          source install/ros/setup.bash
+          ROS_DOMAIN_ID=187 ROS_LOCALHOST_ONLY=1 \
+            python3 tests/ros_lifecycle.py \
+            "$(ros2 pkg prefix rphand_ros)/lib/rphand_ros/rphand_node"

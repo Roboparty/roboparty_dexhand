@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument

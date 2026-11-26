@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 """Publish two thumb sweeps (2 s each), then a four-finger wave (6 s), at 50 Hz."""
 import argparse
 import time

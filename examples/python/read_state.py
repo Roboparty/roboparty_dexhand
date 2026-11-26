@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 """Connect and print one snapshot without enabling, homing or moving the hand."""
 from connection import connection_options, parse_options
 

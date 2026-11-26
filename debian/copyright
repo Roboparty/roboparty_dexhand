@@ -3,7 +3,11 @@ Upstream-Name: roboparty-dexhand
 Source: https://github.com/Roboparty/roboparty_dexhand
 
 Files: *
-Copyright: 2026 Roboparty
+Copyright: 2026 IcedVodka
+           2026 wentywenty
+           2026 cwl
+           2026 Guangxin YANG
+           2026 RoboParty
 License: GPL-3.0
 
 Files: debian/*

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 # Build independent C++, Python and ROS artifacts from the same SDK sources.
 set -euo pipefail
 rphand_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

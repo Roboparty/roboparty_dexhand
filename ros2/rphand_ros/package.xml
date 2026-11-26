@@ -1,10 +1,14 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>rphand_ros</name>
-  <version>0.1.0</version>
+  <version>0.7.0</version>
   <description>rphand C++ driver for ROS 2 Jazzy.</description>
   <maintainer email="dev@roboparty.com">RoboParty</maintainer>
-  <license>Proprietary</license>
+  <author>IcedVodka</author>
+  <author>wentywenty</author>
+  <author>cwl</author>
+  <author>Guangxin YANG</author>
+  <license>GPL-3.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
   <depend>rclcpp</depend>

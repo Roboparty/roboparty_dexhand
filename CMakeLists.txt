@@ -1,5 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 cmake_minimum_required(VERSION 3.16)
-project(rphand VERSION 0.1.0 LANGUAGES CXX)
+project(rphand VERSION 0.7.0 LANGUAGES CXX)
 if(NOT WIN32 AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "rphand supports Linux and Windows")
 endif()

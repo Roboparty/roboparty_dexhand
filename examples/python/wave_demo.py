@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 """Repeat thumb 1, thumb 2 and four-finger wave until Ctrl+C."""
 from concurrent.futures import ThreadPoolExecutor, wait
 import math

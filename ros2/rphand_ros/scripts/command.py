@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+
+# SPDX-License-Identifier: GPL-3.0
+# Copyright (C) 2026 IcedVodka
+# Copyright (C) 2026 wentywenty
+# Copyright (C) 2026 cwl
+# Copyright (C) 2026 Guangxin YANG
+
 """Publish one six-axis target; initialize the hand with reset beforehand."""
 import argparse
 import time

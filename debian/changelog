@@ -1,3 +1,9 @@
+roboparty-dexhand (0.7.0-1) stable; urgency=medium
+
+  * Unify the SDK, Python, ROS 2 and documentation versions at 0.7.0.
+
+ -- RoboParty <2321901849@qq.com>  Thu, 26 Nov 2026 12:00:00 +0800
+
 roboparty-dexhand (0.6.0-1) stable; urgency=medium
 
   * Consolidate the hand SDK and ROS 2 interfaces under the rphand name.

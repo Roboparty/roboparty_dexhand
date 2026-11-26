@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: GPL-3.0
+// Copyright (C) 2026 IcedVodka
+// Copyright (C) 2026 wentywenty
+// Copyright (C) 2026 cwl
+// Copyright (C) 2026 Guangxin YANG
+
 #include <rphand/hand.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/int32_multi_array.hpp>

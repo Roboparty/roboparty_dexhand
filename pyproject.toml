@@ -4,11 +4,23 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "rphand"
-version = "0.1.0"
+version = "0.7.0"
 description = "Python bindings for the rphand six-axis dexterous hand SDK"
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "IcedVodka" },
+    { name = "wentywenty" },
+    { name = "cwl" },
+    { name = "Guangxin YANG" },
+]
 requires-python = ">=3.9"
-classifiers = ["Operating System :: POSIX :: Linux", "Operating System :: Microsoft :: Windows", "Programming Language :: Python :: 3"]
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
 
 [tool.scikit-build]
 wheel.packages = ["python/rphand"]
